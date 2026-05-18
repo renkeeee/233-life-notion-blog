@@ -47,6 +47,8 @@ const minChangedPasswordLength = 8;
 const maxPasswordLength = 1024;
 const passwordHashPattern =
 	/^pbkdf2-sha256:([1-9]\d*):[^:]+:[0-9a-fA-F]{64}$/;
+const isoDateTimePattern =
+	/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?)?$/;
 const minPasswordHashIterations = 100_000;
 const maxPasswordHashIterations = 1_000_000;
 
@@ -142,7 +144,11 @@ function requiredOptionalDateString(
 		return null;
 	}
 
-	if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+	if (
+		typeof value !== "string" ||
+		!isoDateTimePattern.test(value) ||
+		Number.isNaN(Date.parse(value))
+	) {
 		throw new Error(`${name} must be an ISO date string or null`);
 	}
 

@@ -423,6 +423,123 @@ describe("PostsRepository", () => {
 		}
 	});
 
+	it("matches tag filters against trimmed string values from JSON arrays only", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "trimmed-array-tag",
+					title: "Trimmed array tag",
+					tags_json: JSON.stringify([" Life "]),
+					published_at: "2026-05-04T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "scalar-tag",
+					title: "Scalar tag",
+					tags_json: JSON.stringify("Life"),
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "object-tag",
+					title: "Object tag",
+					tags_json: JSON.stringify({ tag: "Life" }),
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-4",
+					notion_page_id: "notion-4",
+					slug: "malformed-tags",
+					title: "Malformed tags",
+					tags_json: "{bad json",
+					published_at: "2026-05-01T00:00:00.000Z",
+				}),
+			);
+
+			const result = await new PostsRepository(db.asD1()).listPublished({
+				page: 1,
+				limit: 10,
+				tag: "Life",
+			});
+
+			expect(result).toEqual({
+				items: [
+					expect.objectContaining({
+						slug: "trimmed-array-tag",
+						tags: ["Life"],
+					}),
+				],
+				total: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("counts trimmed tags from JSON arrays only", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "trimmed-life",
+					tags_json: JSON.stringify([" Life ", "", "Notes"]),
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-life",
+					tags_json: JSON.stringify(["Life"]),
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "scalar-life",
+					tags_json: JSON.stringify("Life"),
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-4",
+					notion_page_id: "notion-4",
+					slug: "object-life",
+					tags_json: JSON.stringify({ tag: "Life" }),
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-5",
+					notion_page_id: "notion-5",
+					slug: "malformed-tags",
+					tags_json: "{bad json",
+				}),
+			);
+
+			await expect(new PostsRepository(db.asD1()).tagCounts()).resolves.toEqual([
+				{ tag: "Life", count: 2 },
+				{ tag: "Notes", count: 1 },
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("treats percent, underscore, and backslash as literal search characters", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -442,6 +559,14 @@ describe("PostsRepository", () => {
 					title: "Plain title",
 				}),
 			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "literal-backslash",
+					title: String.raw`Path \ literal`,
+				}),
+			);
 
 			const repository = new PostsRepository(db.asD1());
 
@@ -449,6 +574,9 @@ describe("PostsRepository", () => {
 				expect.objectContaining({ slug: "literal-percent" }),
 			]);
 			await expect(repository.searchPublished("_")).resolves.toEqual([]);
+			await expect(repository.searchPublished("\\")).resolves.toEqual([
+				expect.objectContaining({ slug: "literal-backslash" }),
+			]);
 
 			const searchCall = db.calls.find((call) =>
 				call.sql.includes("post_content"),

@@ -173,10 +173,18 @@ function publishedFilters(options: {
 			`EXISTS (
 				SELECT 1
 				FROM json_each(
-					CASE WHEN json_valid(p.tags_json) THEN p.tags_json ELSE '[]' END
+					CASE
+						WHEN json_valid(p.tags_json) THEN
+							CASE
+								WHEN json_type(p.tags_json) = 'array' THEN p.tags_json
+								ELSE '[]'
+							END
+						ELSE '[]'
+					END
 				) AS tag
 				WHERE typeof(tag.value) = 'text'
-				AND tag.value = ?
+				AND trim(tag.value) <> ''
+				AND trim(tag.value) = ?
 			)`,
 		);
 		values.push(tag);
@@ -278,16 +286,23 @@ export class PostsRepository {
 	async tagCounts(): Promise<TagCount[]> {
 		const result = await this.db
 			.prepare(
-				`SELECT tag.value AS tag, COUNT(*) AS count
+				`SELECT trim(tag.value) AS tag, COUNT(*) AS count
 				 FROM posts p,
 				 json_each(
-					CASE WHEN json_valid(p.tags_json) THEN p.tags_json ELSE '[]' END
+					CASE
+						WHEN json_valid(p.tags_json) THEN
+							CASE
+								WHEN json_type(p.tags_json) = 'array' THEN p.tags_json
+								ELSE '[]'
+							END
+						ELSE '[]'
+					END
 				 ) AS tag
 				 WHERE p.visibility = 'published'
 				 AND typeof(tag.value) = 'text'
 				 AND trim(tag.value) <> ''
-				 GROUP BY tag.value
-				 ORDER BY count DESC, tag.value ASC`,
+				 GROUP BY trim(tag.value)
+				 ORDER BY count DESC, tag ASC`,
 			)
 			.all<TagCount>();
 

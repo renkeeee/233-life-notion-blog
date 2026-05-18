@@ -63,6 +63,12 @@ describe("admin login validation", () => {
 	])("rejects %s password", (_name, body) => {
 		expect(() => validateLoginBody(body)).toThrow("Password is required");
 	});
+
+	it("rejects overlong passwords", () => {
+		expect(() => validateLoginBody({ password: "a".repeat(1025) })).toThrow(
+			"Password must be at most 1024 characters",
+		);
+	});
 });
 
 describe("admin API routes", () => {
@@ -143,6 +149,25 @@ describe("admin API routes", () => {
 		expect(response.status).toBe(400);
 		await expect(response.json()).resolves.toEqual({
 			error: { code: "BAD_REQUEST", message: "Password is required" },
+		});
+	});
+
+	it("returns bad request JSON for overlong login passwords", async () => {
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/login", {
+				body: JSON.stringify({ password: "a".repeat(1025) }),
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+			testEnv(),
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Password must be at most 1024 characters",
+			},
 		});
 	});
 });

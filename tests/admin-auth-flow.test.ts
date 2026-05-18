@@ -194,6 +194,21 @@ async function loginSession(env: AppEnv): Promise<{
 	};
 }
 
+async function usableAdminSession(env: AppEnv): Promise<{
+	cookie: string;
+	csrfToken: string;
+}> {
+	const session = await loginSession(env);
+	const response = await changePassword(env, session, {
+		currentPassword: "123456",
+		newPassword: "changed-password",
+	});
+
+	expect(response.status).toBe(200);
+
+	return session;
+}
+
 async function changePassword(
 	env: AppEnv,
 	session: { cookie: string; csrfToken: string },
@@ -327,6 +342,23 @@ describe("admin authentication flow", () => {
 		});
 	});
 
+	it("rejects overlong current passwords before verifying credentials", async () => {
+		const { env } = testEnv();
+		const session = await loginSession(env);
+		const response = await changePassword(env, session, {
+			currentPassword: "a".repeat(1025),
+			newPassword: "changed-password",
+		});
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Current password must be at most 1024 characters",
+			},
+		});
+	});
+
 	it("updates the stored password hash and stops accepting the bootstrap password", async () => {
 		const { env, rows } = testEnv();
 		const session = await loginSession(env);
@@ -394,6 +426,7 @@ describe("admin authentication flow", () => {
 		await expect(validResponse.json()).resolves.toEqual({
 			authenticated: true,
 			csrfToken: session.csrfToken,
+			mustChangePassword: true,
 		});
 		expect(invalidResponse.status).toBe(200);
 		await expect(invalidResponse.json()).resolves.toEqual({
@@ -439,9 +472,102 @@ describe("admin authentication flow", () => {
 });
 
 describe("admin settings API", () => {
+	it("blocks settings access for bootstrap-password sessions until the password changes", async () => {
+		const { env } = testEnv();
+		const session = await loginSession(env);
+		const getBeforeChange = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+		const putBeforeChange = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(testSettings()),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+		const passwordResponse = await changePassword(env, session, {
+			currentPassword: "123456",
+			newPassword: "changed-password",
+		});
+		const putAfterChange = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(testSettings()),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+		const getAfterChange = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(getBeforeChange.status).toBe(403);
+		await expect(getBeforeChange.json()).resolves.toEqual({
+			error: { code: "FORBIDDEN", message: "Password change required" },
+		});
+		expect(putBeforeChange.status).toBe(403);
+		await expect(putBeforeChange.json()).resolves.toEqual({
+			error: { code: "FORBIDDEN", message: "Password change required" },
+		});
+		expect(passwordResponse.status).toBe(200);
+		expect(putAfterChange.status).toBe(200);
+		expect(getAfterChange.status).toBe(200);
+		await expect(getAfterChange.json()).resolves.toMatchObject({
+			siteTitle: "233 Life",
+			notionToken: "",
+			hasNotionToken: true,
+		});
+	});
+
+	it("keeps subsequent default-password logins in must-change mode until changed", async () => {
+		const { env } = testEnv();
+		await loginSession(env);
+		const secondLoginResponse = await login(env);
+		const secondLoginCookie = secondLoginResponse.headers.get("set-cookie") ?? "";
+		const secondLoginBody = (await secondLoginResponse.json()) as {
+			csrfToken: string;
+			mustChangePassword?: boolean;
+		};
+		const settingsResponse = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				headers: { cookie: secondLoginCookie.split(";")[0] ?? "" },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(secondLoginResponse.status).toBe(200);
+		expect(secondLoginBody).toEqual({
+			authenticated: true,
+			csrfToken: expect.any(String),
+			mustChangePassword: true,
+		});
+		expect(settingsResponse.status).toBe(403);
+		await expect(settingsResponse.json()).resolves.toEqual({
+			error: { code: "FORBIDDEN", message: "Password change required" },
+		});
+	});
+
 	it("requires a session to read settings and returns redacted values", async () => {
 		const { env, rootKey } = testEnv();
-		const session = await loginSession(env);
+		const session = await usableAdminSession(env);
 		await handleAdminApi(
 			adminRequest("/api/admin/settings", {
 				body: JSON.stringify(testSettings()),
@@ -478,7 +604,7 @@ describe("admin settings API", () => {
 
 	it("returns NOT_FOUND when site settings have not been saved", async () => {
 		const { env } = testEnv();
-		const session = await loginSession(env);
+		const session = await usableAdminSession(env);
 		const response = await handleAdminApi(
 			adminRequest("/api/admin/settings", {
 				headers: { cookie: session.cookie },
@@ -495,7 +621,7 @@ describe("admin settings API", () => {
 
 	it("returns CONFIG_DECRYPT_FAILED for corrupted encrypted settings without leaking raw errors", async () => {
 		const { env, rows, rootKey } = testEnv();
-		const session = await loginSession(env);
+		const session = await usableAdminSession(env);
 		await handleAdminApi(
 			adminRequest("/api/admin/settings", {
 				body: JSON.stringify(testSettings()),
@@ -533,7 +659,7 @@ describe("admin settings API", () => {
 
 	it("returns INTERNAL_ERROR for settings storage failures without leaking raw errors", async () => {
 		const { env } = storageFailingEnv();
-		const session = await loginSession(env);
+		const session = await usableAdminSession(env);
 		const response = await handleAdminApi(
 			adminRequest("/api/admin/settings", {
 				body: JSON.stringify(testSettings()),
@@ -558,7 +684,7 @@ describe("admin settings API", () => {
 
 	it("returns INTERNAL_ERROR for settings load failures without leaking raw errors", async () => {
 		const { env } = listFailingEnv();
-		const session = await loginSession(env);
+		const session = await usableAdminSession(env);
 		const response = await handleAdminApi(
 			adminRequest("/api/admin/settings", {
 				headers: { cookie: session.cookie },
@@ -578,7 +704,7 @@ describe("admin settings API", () => {
 
 	it("requires CSRF to save settings, encrypts notionToken, rejects redacted and invalid settings, and returns redacted settings", async () => {
 		const { env, rows, rootKey } = testEnv();
-		const session = await loginSession(env);
+		const session = await usableAdminSession(env);
 		const missingCsrfResponse = await handleAdminApi(
 			adminRequest("/api/admin/settings", {
 				body: JSON.stringify(testSettings()),

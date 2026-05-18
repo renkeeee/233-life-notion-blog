@@ -31,10 +31,18 @@ const adminSessionCookie = "admin_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 const minChangedPasswordLength = 8;
 const maxPasswordLength = 1024;
+const passwordHashPattern =
+	/^pbkdf2-sha256:([1-9]\d*):[^:]+:[0-9a-fA-F]{64}$/;
+const minPasswordHashIterations = 100_000;
+const maxPasswordHashIterations = 1_000_000;
 
 export function validateLoginBody(body: Record<string, unknown>): LoginBody {
 	if (typeof body.password !== "string" || body.password.length === 0) {
 		throw new Error("Password is required");
+	}
+
+	if (body.password.length > maxPasswordLength) {
+		throw new Error(`Password must be at most ${maxPasswordLength} characters`);
 	}
 
 	return { password: body.password };
@@ -52,6 +60,12 @@ function validatePasswordChangeBody(
 
 	if (typeof body.newPassword !== "string" || body.newPassword.length === 0) {
 		throw new Error("New password is required");
+	}
+
+	if (body.currentPassword.length > maxPasswordLength) {
+		throw new Error(
+			`Current password must be at most ${maxPasswordLength} characters`,
+		);
 	}
 
 	if (body.newPassword === initialAdminPassword) {
@@ -92,6 +106,10 @@ function invalidCsrf(): Response {
 	return errorJson("FORBIDDEN", "Invalid CSRF token", 403);
 }
 
+function passwordChangeRequired(): Response {
+	return errorJson("FORBIDDEN", "Password change required", 403);
+}
+
 function sessionCookie(value: string, maxAge: number): string {
 	return serializeCookie(adminSessionCookie, value, {
 		httpOnly: true,
@@ -126,6 +144,61 @@ async function requireSession(
 	const session = await currentSession(request, rootKey);
 
 	return session ?? unauthorized();
+}
+
+function hasUsablePasswordHash(storedHash: string | null): storedHash is string {
+	if (storedHash === null) {
+		return false;
+	}
+
+	const match = passwordHashPattern.exec(storedHash);
+
+	if (!match) {
+		return false;
+	}
+
+	const iterations = Number(match[1]);
+
+	return (
+		Number.isSafeInteger(iterations) &&
+		iterations >= minPasswordHashIterations &&
+		iterations <= maxPasswordHashIterations
+	);
+}
+
+async function adminPasswordMustChange(
+	repository: SettingsRepository,
+): Promise<boolean> {
+	const storedHash = (await repository.get(adminPasswordHashKey))?.value ?? null;
+
+	return (
+		hasUsablePasswordHash(storedHash) &&
+		(await verifyPassword(initialAdminPassword, storedHash))
+	);
+}
+
+async function requireUsableAdminSession(
+	request: Request,
+	env: AppEnv,
+): Promise<AdminSession | Response> {
+	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const repository = new SettingsRepository(env.DB);
+	const storedHash = (await repository.get(adminPasswordHashKey))?.value ?? null;
+
+	if (!hasUsablePasswordHash(storedHash)) {
+		return unauthorized();
+	}
+
+	if (await verifyPassword(initialAdminPassword, storedHash)) {
+		return passwordChangeRequired();
+	}
+
+	return session;
 }
 
 function requireCsrf(request: Request, session: AdminSession): Response | null {
@@ -181,7 +254,10 @@ async function handleLogin(
 		loginBody = validateLoginBody(body);
 	} catch (error) {
 		const message =
-			error instanceof Error && error.message === "Password is required"
+			error instanceof Error &&
+			(error.message === "Password is required" ||
+				error.message ===
+					`Password must be at most ${maxPasswordLength} characters`)
 				? error.message
 				: "Invalid request body";
 		return errorJson("BAD_REQUEST", message, 400);
@@ -268,7 +344,14 @@ async function handleMe(request: Request, env: AppEnv): Promise<Response> {
 		return json({ authenticated: false });
 	}
 
-	return json({ authenticated: true, csrfToken: session.csrfToken });
+	const repository = new SettingsRepository(env.DB);
+	const mustChangePassword = await adminPasswordMustChange(repository);
+
+	return json({
+		authenticated: true,
+		csrfToken: session.csrfToken,
+		...(mustChangePassword ? { mustChangePassword: true } : {}),
+	});
 }
 
 async function handleLogout(
@@ -333,7 +416,7 @@ async function handleGetSettings(
 	request: Request,
 	env: AppEnv,
 ): Promise<Response> {
-	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+	const session = await requireUsableAdminSession(request, env);
 
 	if (session instanceof Response) {
 		return session;
@@ -368,7 +451,7 @@ async function handlePutSettings(
 	request: Request,
 	env: AppEnv,
 ): Promise<Response> {
-	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+	const session = await requireUsableAdminSession(request, env);
 
 	if (session instanceof Response) {
 		return session;

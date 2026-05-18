@@ -37,12 +37,18 @@ const mimeExtensions = new Map<string, string>([
 	["audio/mp3", ".mp3"],
 ]);
 
-export function buildAssetKey(contentHash: string, mimeType: string): string {
+export function buildAssetKey(
+	contentHash: string,
+	mimeType: string | null | undefined,
+): string {
 	if (!/^[0-9a-f]{64}$/.test(contentHash)) {
 		throw new Error("Invalid asset content hash");
 	}
 
-	const normalizedMimeType = mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+	const normalizedMimeType =
+		typeof mimeType === "string"
+			? (mimeType.split(";")[0]?.trim().toLowerCase() ?? "")
+			: "";
 	const extension = mimeExtensions.get(normalizedMimeType) ?? ".bin";
 
 	return `assets/${contentHash.slice(0, 2)}/${contentHash}${extension}`;

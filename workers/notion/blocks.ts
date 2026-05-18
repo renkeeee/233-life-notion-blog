@@ -46,6 +46,10 @@ const volatileBlockKeys = new Set([
 	"in_trash",
 ]);
 
+interface HashNormalizeContext {
+	notionFileObject: boolean;
+}
+
 export function blocksToMarkdown(
 	blocks: NotionBlock[],
 	options: BlocksToMarkdownOptions = {},
@@ -391,9 +395,12 @@ function escapeMarkdownLinkText(value: string): string {
 	return value.replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
 
-function normalizeForHash(value: unknown): unknown {
+function normalizeForHash(
+	value: unknown,
+	context: HashNormalizeContext = { notionFileObject: false },
+): unknown {
 	if (Array.isArray(value)) {
-		return value.map((item) => normalizeForHash(item));
+		return value.map((item) => normalizeForHash(item, context));
 	}
 
 	if (!isRecord(value)) {
@@ -405,14 +412,64 @@ function normalizeForHash(value: unknown): unknown {
 		if (volatileBlockKeys.has(key)) {
 			continue;
 		}
+		if (context.notionFileObject && key === "expiry_time") {
+			continue;
+		}
 
-		const child = normalizeForHash(value[key]);
+		const child = normalizeHashValueForKey(key, value[key], context);
 		if (child !== undefined) {
 			normalized[key] = child;
 		}
 	}
 
 	return normalized;
+}
+
+function normalizeHashValueForKey(
+	key: string,
+	value: unknown,
+	context: HashNormalizeContext,
+): unknown {
+	if (context.notionFileObject && key === "url" && typeof value === "string") {
+		return stableNotionFileUrl(value);
+	}
+
+	return normalizeForHash(value, {
+		notionFileObject: isNotionFileObjectKey(key, value),
+	});
+}
+
+function isNotionFileObjectKey(key: string, value: unknown): boolean {
+	return (
+		(key === "file" || key === "upload" || key === "uploaded_file") &&
+		isRecord(value) &&
+		(typeof value.url === "string" || "expiry_time" in value)
+	);
+}
+
+function stableNotionFileUrl(url: string): string {
+	try {
+		const parsed = new URL(url);
+		if (isNotionHostedFileUrl(parsed)) {
+			return `${parsed.origin}${parsed.pathname}`;
+		}
+	} catch {
+		return url;
+	}
+
+	return url;
+}
+
+function isNotionHostedFileUrl(url: URL): boolean {
+	const hostname = url.hostname.toLowerCase();
+
+	return (
+		hostname === "file.notion.so" ||
+		hostname === "secure.notion-static.com" ||
+		hostname.endsWith(".secure.notion-static.com") ||
+		(hostname.startsWith("prod-files-secure") &&
+			hostname.endsWith(".amazonaws.com"))
+	);
 }
 
 function stableStringify(value: unknown): string {

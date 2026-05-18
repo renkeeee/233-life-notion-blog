@@ -251,4 +251,91 @@ describe("normalizedBlocksHash", () => {
 			await normalizedBlocksHash(original),
 		);
 	});
+
+	it("ignores rotated Notion-hosted file signatures and expiry times", async () => {
+		const firstSnapshot: NotionBlock[] = [
+			{
+				id: "image",
+				type: "image",
+				image: {
+					type: "file",
+					file: {
+						url: "https://prod-files-secure.s3.us-west-2.amazonaws.com/space/image.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=first",
+						expiry_time: "2026-05-18T01:00:00.000Z",
+					},
+					caption: richText("Architecture"),
+				},
+			},
+			{
+				id: "file",
+				type: "file",
+				file: {
+					type: "file",
+					file: {
+						url: "https://prod-files-secure.s3.us-west-2.amazonaws.com/space/report.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=first",
+						expiry_time: "2026-05-18T01:00:00.000Z",
+					},
+					caption: richText("Report"),
+				},
+			},
+		];
+		const refreshedSnapshot: NotionBlock[] = [
+			{
+				...firstSnapshot[0],
+				image: {
+					type: "file",
+					file: {
+						url: "https://prod-files-secure.s3.us-west-2.amazonaws.com/space/image.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=second",
+						expiry_time: "2026-05-18T02:00:00.000Z",
+					},
+					caption: richText("Architecture"),
+				},
+			},
+			{
+				...firstSnapshot[1],
+				file: {
+					type: "file",
+					file: {
+						url: "https://prod-files-secure.s3.us-west-2.amazonaws.com/space/report.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=second",
+						expiry_time: "2026-05-18T02:00:00.000Z",
+					},
+					caption: richText("Report"),
+				},
+			},
+		];
+
+		await expect(normalizedBlocksHash(refreshedSnapshot)).resolves.toBe(
+			await normalizedBlocksHash(firstSnapshot),
+		);
+	});
+
+	it("preserves external URL query strings in the normalized hash", async () => {
+		const original: NotionBlock[] = [
+			{
+				id: "image",
+				type: "image",
+				image: {
+					type: "external",
+					external: {
+						url: "https://example.com/image.png?version=one",
+					},
+				},
+			},
+		];
+		const changedQuery: NotionBlock[] = [
+			{
+				...original[0],
+				image: {
+					type: "external",
+					external: {
+						url: "https://example.com/image.png?version=two",
+					},
+				},
+			},
+		];
+
+		await expect(normalizedBlocksHash(changedQuery)).resolves.not.toBe(
+			await normalizedBlocksHash(original),
+		);
+	});
 });

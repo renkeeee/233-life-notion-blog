@@ -26,6 +26,14 @@ describe("buildAssetKey", () => {
 		);
 	});
 
+	it("falls back to bin for missing, empty, and unknown MIME types", () => {
+		for (const mimeType of [null, undefined, "", "   ", "application/x-custom"]) {
+			expect(buildAssetKey(validHash, mimeType)).toBe(
+				`assets/01/${validHash}.bin`,
+			);
+		}
+	});
+
 	it("rejects invalid content hashes before building paths", () => {
 		for (const hash of ["abc", "../bad", `${validHash}/x`, validHash.toUpperCase()]) {
 			expect(() => buildAssetKey(hash, "image/png")).toThrow(

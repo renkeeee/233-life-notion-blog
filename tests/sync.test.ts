@@ -459,7 +459,7 @@ describe("runSync", () => {
 						},
 					},
 				}),
-			).rejects.toThrow("Notion unavailable");
+			).resolves.toEqual({ runId: "run-failed" });
 			expect(
 				db.row<{ status: string; error_code: string; error_message: string }>(
 					"SELECT status, error_code, error_message FROM sync_runs WHERE id = ?",
@@ -542,6 +542,40 @@ describe("admin manual sync API", () => {
 			expect(unauthenticated.status).toBe(401);
 			expect(missingCsrf.status).toBe(403);
 			await expect(success.json()).resolves.toEqual({ runId: "manual-run-1" });
+		} finally {
+			db.close();
+		}
+	});
+
+	it("requires the manual sync request body fields to be explicit", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/sync", {
+					body: JSON.stringify({
+						rangeStart: null,
+						rangeEnd: null,
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				error: {
+					code: "BAD_REQUEST",
+					message: "force must be a boolean",
+				},
+			});
 		} finally {
 			db.close();
 		}

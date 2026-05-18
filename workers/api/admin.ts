@@ -105,9 +105,9 @@ function validatePasswordChangeBody(
 }
 
 function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
-	const rangeStart = optionalDateString(body.rangeStart, "rangeStart");
-	const rangeEnd = optionalDateString(body.rangeEnd, "rangeEnd");
-	const force = body.force ?? false;
+	const rangeStart = requiredOptionalDateString(body, "rangeStart");
+	const rangeEnd = requiredOptionalDateString(body, "rangeEnd");
+	const force = body.force;
 
 	if (typeof force !== "boolean") {
 		throw new Error("force must be a boolean");
@@ -128,8 +128,17 @@ function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
 	};
 }
 
-function optionalDateString(value: unknown, name: string): string | null {
-	if (value === undefined || value === null) {
+function requiredOptionalDateString(
+	body: Record<string, unknown>,
+	name: "rangeStart" | "rangeEnd",
+): string | null {
+	if (!Object.hasOwn(body, name)) {
+		throw new Error(`${name} must be an ISO date string or null`);
+	}
+
+	const value = body[name];
+
+	if (value === null) {
 		return null;
 	}
 

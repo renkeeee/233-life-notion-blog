@@ -226,7 +226,7 @@ export async function runSync(
 		return { runId };
 	} catch (error) {
 		await finishSyncRun(env.DB, runId, "failed", counts, error, deps);
-		throw error;
+		return { runId };
 	}
 }
 

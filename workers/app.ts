@@ -1,23 +1,27 @@
+import { handleAdminApi } from "./api/admin";
 import { handlePublicApi } from "./api/public";
-import { errorJson } from "./http";
 import type { AppEnv } from "./types";
+
+export function routeKind(request: Request): "api" | "app" {
+	const { pathname } = new URL(request.url);
+
+	return pathname === "/api" || pathname.startsWith("/api/") ? "api" : "app";
+}
+
+function isAdminApiPath(pathname: string): boolean {
+	return pathname === "/api/admin" || pathname.startsWith("/api/admin/");
+}
 
 export default {
 	fetch(request, env, _ctx) {
 		const url = new URL(request.url);
 
-		if (
-			url.pathname === "/api/health" ||
-			url.pathname === "/api/posts" ||
-			url.pathname.startsWith("/api/posts/") ||
-			url.pathname === "/api/tags" ||
-			url.pathname === "/api/search"
-		) {
-			return handlePublicApi(request, env);
-		}
+		if (routeKind(request) === "api") {
+			if (isAdminApiPath(url.pathname)) {
+				return handleAdminApi(request, env);
+			}
 
-		if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-			return errorJson("NOT_FOUND", "Route not found", 404);
+			return handlePublicApi(request, env);
 		}
 
 		return new Response("Not found", { status: 404 });

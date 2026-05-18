@@ -1,22 +1,24 @@
 function json(data: unknown, init?: ResponseInit) {
+	const headers = new Headers(init?.headers);
+	if (!headers.has("content-type")) {
+		headers.set("content-type", "application/json");
+	}
+
 	return Response.json(data, {
 		...init,
-		headers: {
-			"content-type": "application/json",
-			...init?.headers,
-		},
+		headers,
 	});
 }
 
 export default {
-	fetch(request) {
+	fetch(request, _env, _ctx) {
 		const url = new URL(request.url);
 
 		if (url.pathname === "/api/health") {
 			return json({ ok: true });
 		}
 
-		if (url.pathname.startsWith("/api/")) {
+		if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
 			return json({ error: "Not found" }, { status: 404 });
 		}
 

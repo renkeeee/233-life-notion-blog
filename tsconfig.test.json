@@ -1,0 +1,27 @@
+{
+	"extends": "./tsconfig.json",
+	"include": [
+		"tests/**/*.test.ts",
+		"tests/**/*.test.tsx",
+		"tests/setup.ts",
+		"vitest.config.ts",
+		"workers/**/*.ts",
+		"worker-configuration.d.ts"
+	],
+	"compilerOptions": {
+		"composite": true,
+		"strict": true,
+		"lib": ["DOM", "DOM.Iterable", "ES2022"],
+		"types": ["vitest/globals", "vite/client"],
+		"target": "ES2022",
+		"module": "ES2022",
+		"moduleResolution": "bundler",
+		"jsx": "react-jsx",
+		"baseUrl": ".",
+		"paths": {
+			"~/*": ["./app/*"]
+		},
+		"esModuleInterop": true,
+		"resolveJsonModule": true
+	}
+}

@@ -24,12 +24,16 @@ export async function apiGet<T>(
 export async function apiPost<T>(
 	path: string,
 	body: unknown,
+	csrfToken?: string,
 	fetcher: Fetcher = defaultFetcher,
 ): Promise<T> {
 	const response = await fetcher(path, {
 		method: "POST",
 		credentials: "same-origin",
-		headers: { "content-type": "application/json" },
+		headers: {
+			"content-type": "application/json",
+			...(csrfToken ? { "x-csrf-token": csrfToken } : {}),
+		},
 		body: JSON.stringify(body),
 	});
 	return parseJson<T>(response);

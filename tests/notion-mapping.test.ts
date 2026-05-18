@@ -81,6 +81,64 @@ describe("inferFieldMapping", () => {
 		});
 	});
 
+	it("does not match aliases as substrings inside unrelated words", () => {
+		expect(() =>
+			inferFieldMapping({
+				Title: property("title"),
+				Publisher: property("select"),
+			}),
+		).toThrow("FIELD_MAPPING_INVALID");
+
+		expect(
+			inferFieldMapping({
+				Title: property("title"),
+				Status: property("status"),
+				Username: property("rich_text"),
+				Updated: property("date"),
+				Staging: property("multi_select"),
+			}),
+		).toEqual({
+			title: "Title",
+			status: "Status",
+		});
+	});
+
+	it("does not reuse one Notion property for multiple mapped fields", () => {
+		expect(
+			inferFieldMapping({
+				Title: property("title"),
+				Status: property("status"),
+				"Cover URL": property("url"),
+			}),
+		).toEqual({
+			title: "Title",
+			status: "Status",
+			cover: "Cover URL",
+		});
+
+		expect(
+			inferFieldMapping({
+				Title: property("title"),
+				"Status Tags": property("select"),
+			}),
+		).toEqual({
+			title: "Title",
+			status: "Status Tags",
+		});
+
+		expect(
+			inferFieldMapping({
+				Title: property("title"),
+				Status: property("status"),
+				"Status Tags": property("select"),
+			}),
+		).toEqual({
+			title: "Title",
+			status: "Status",
+			tags: "Status Tags",
+		});
+	});
+
 	it("throws FIELD_MAPPING_INVALID when title is missing", () => {
 		expect(() =>
 			inferFieldMapping({
@@ -132,7 +190,67 @@ describe("NotionClient", () => {
 		);
 		expect(requests[0].headers.get("Notion-Version")).toBe("2026-03-11");
 		expect(requests[0].headers.get("Accept")).toBe("application/json");
-		expect(requests[0].headers.get("Content-Type")).toBe("application/json");
+		expect(requests[0].headers.get("Content-Type")).toBeNull();
+	});
+
+	it("normalizes trailing slashes in the configured base URL", async () => {
+		const requests: Request[] = [];
+		const client = new NotionClient("secret-token", {
+			baseUrl: "https://api.notion.com/v1/",
+			fetcher: async (input, init) => {
+				requests.push(new Request(input, init));
+				return Response.json({ object: "database", id: databaseId, properties: {} });
+			},
+		});
+
+		await client.retrieveDatabase(databaseId);
+
+		expect(requests[0].url).toBe(
+			`https://api.notion.com/v1/databases/${databaseId}`,
+		);
+	});
+
+	it("preserves caller content negotiation headers when sending requests", async () => {
+		const requests: Request[] = [];
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input, init) => {
+				requests.push(new Request(input, init));
+				return Response.json({ ok: true });
+			},
+		});
+
+		await client.request("/custom", {
+			headers: {
+				Accept: "application/x-ndjson",
+				"Content-Type": "text/plain",
+			},
+			body: "plain text",
+			method: "POST",
+		});
+
+		expect(requests[0].headers.get("Authorization")).toBe(
+			"Bearer secret-token",
+		);
+		expect(requests[0].headers.get("Notion-Version")).toBe("2026-03-11");
+		expect(requests[0].headers.get("Accept")).toBe("application/x-ndjson");
+		expect(requests[0].headers.get("Content-Type")).toBe("text/plain");
+	});
+
+	it("sets content type automatically only for requests with a body", async () => {
+		const requests: Request[] = [];
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input, init) => {
+				requests.push(new Request(input, init));
+				return Response.json({ ok: true });
+			},
+		});
+
+		await client.request("/without-body");
+		await client.request("/with-body", { body: "{}", method: "POST" });
+
+		expect(requests[0].headers.get("Content-Type")).toBeNull();
+		expect(requests[0].headers.get("Accept")).toBe("application/json");
+		expect(requests[1].headers.get("Content-Type")).toBe("application/json");
 	});
 
 	it("throws NotionApiError with parsed error metadata", async () => {
@@ -207,7 +325,33 @@ describe("NotionClient", () => {
 		]);
 	});
 
-	it("uses the first data source explicitly when a database has multiple data sources", async () => {
+	it("throws a clear error when a database has multiple data sources without a selected source", async () => {
+		const paths: string[] = [];
+		const firstDataSourceId = "11111111111111111111111111111111";
+		const secondDataSourceId = "22222222222222222222222222222222";
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input) => {
+				const url = new URL(input.toString());
+				paths.push(url.pathname);
+
+				return Response.json({
+					object: "database",
+					id: databaseId,
+					data_sources: [
+						{ id: firstDataSourceId, name: "Primary" },
+						{ id: secondDataSourceId, name: "Archive" },
+					],
+				});
+			},
+		});
+
+		await expect(client.schemaForDatabase(databaseId)).rejects.toThrow(
+			"NOTION_DATA_SOURCE_AMBIGUOUS",
+		);
+		expect(paths).toEqual([`/v1/databases/${databaseId}`]);
+	});
+
+	it("retrieves a selected data source when a database has multiple data sources", async () => {
 		const paths: string[] = [];
 		const firstDataSourceId = "11111111111111111111111111111111";
 		const secondDataSourceId = "22222222222222222222222222222222";
@@ -233,19 +377,44 @@ describe("NotionClient", () => {
 
 				return Response.json({
 					object: "data_source",
-					id: firstDataSourceId,
+					id: secondDataSourceId,
 					properties,
 				});
 			},
 		});
 
-		await expect(client.schemaForDatabase(databaseId)).resolves.toEqual(
-			properties,
-		);
+		await expect(
+			client.schemaForDatabase(databaseId, { dataSourceId: secondDataSourceId }),
+		).resolves.toEqual(properties);
 		expect(paths).toEqual([
 			`/v1/databases/${databaseId}`,
-			`/v1/data_sources/${firstDataSourceId}`,
+			`/v1/data_sources/${secondDataSourceId}`,
 		]);
+	});
+
+	it("retrieves a data source schema directly", async () => {
+		const paths: string[] = [];
+		const properties = {
+			Title: property("title"),
+			Status: property("status"),
+		};
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input) => {
+				const url = new URL(input.toString());
+				paths.push(url.pathname);
+
+				return Response.json({
+					object: "data_source",
+					id: dataSourceId,
+					properties,
+				});
+			},
+		});
+
+		await expect(client.schemaForDataSource(dataSourceId)).resolves.toEqual(
+			properties,
+		);
+		expect(paths).toEqual([`/v1/data_sources/${dataSourceId}`]);
 	});
 });
 

@@ -25,6 +25,10 @@ export interface NotionClientOptions {
 	baseUrl?: string;
 }
 
+export interface SchemaForDatabaseOptions {
+	dataSourceId?: string;
+}
+
 export interface NotionDatabase {
 	object?: "database";
 	id: string;
@@ -51,13 +55,13 @@ export class NotionClient {
 	constructor(token: string, options: NotionClientOptions = {}) {
 		this.token = token;
 		this.fetcher = options.fetcher ?? fetch;
-		this.baseUrl = options.baseUrl ?? NOTION_API_BASE_URL;
+		this.baseUrl = (options.baseUrl ?? NOTION_API_BASE_URL).replace(/\/+$/, "");
 	}
 
 	async request<T>(path: string, init: RequestInit = {}): Promise<T> {
 		const response = await this.fetcher(this.urlFor(path), {
 			...init,
-			headers: this.headersFor(init.headers),
+			headers: this.headersFor(init),
 		});
 
 		if (!response.ok) {
@@ -75,22 +79,36 @@ export class NotionClient {
 		return this.request<NotionDataSource>(`/data_sources/${dataSourceId}`);
 	}
 
-	async schemaForDatabase(databaseId: string): Promise<NotionProperties> {
+	async schemaForDatabase(
+		databaseId: string,
+		options: SchemaForDatabaseOptions = {},
+	): Promise<NotionProperties> {
 		const database = await this.retrieveDatabase(databaseId);
 
 		if (database.properties) {
 			return database.properties;
 		}
 
-		const [dataSource] = database.data_sources ?? [];
-		if (!dataSource) {
+		if (options.dataSourceId) {
+			return this.schemaForDataSource(options.dataSourceId);
+		}
+
+		const dataSources = database.data_sources ?? [];
+		if (dataSources.length === 0) {
 			throw new Error("FIELD_MAPPING_INVALID: Notion database has no data sources");
 		}
 
-		// The current API can return several data sources for one database. A
-		// configured database URL has no source selector, so the first source is
-		// the only deterministic fallback until configuration stores a source id.
-		return (await this.retrieveDataSource(dataSource.id)).properties;
+		if (dataSources.length > 1) {
+			throw new Error(
+				"NOTION_DATA_SOURCE_AMBIGUOUS: Notion database has multiple data sources; configure dataSourceId",
+			);
+		}
+
+		return this.schemaForDataSource(dataSources[0].id);
+	}
+
+	async schemaForDataSource(dataSourceId: string): Promise<NotionProperties> {
+		return (await this.retrieveDataSource(dataSourceId)).properties;
 	}
 
 	private urlFor(path: string): string {
@@ -98,12 +116,16 @@ export class NotionClient {
 		return `${this.baseUrl}${normalizedPath}`;
 	}
 
-	private headersFor(headers: HeadersInit | undefined): Headers {
-		const nextHeaders = new Headers(headers);
+	private headersFor(init: RequestInit): Headers {
+		const nextHeaders = new Headers(init.headers);
 		nextHeaders.set("Authorization", `Bearer ${this.token}`);
 		nextHeaders.set("Notion-Version", NOTION_VERSION);
-		nextHeaders.set("Accept", "application/json");
-		nextHeaders.set("Content-Type", "application/json");
+		if (!nextHeaders.has("Accept")) {
+			nextHeaders.set("Accept", "application/json");
+		}
+		if (init.body != null && !nextHeaders.has("Content-Type")) {
+			nextHeaders.set("Content-Type", "application/json");
+		}
 		return nextHeaders;
 	}
 }

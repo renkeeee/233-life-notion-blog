@@ -45,63 +45,74 @@ export function parseNotionDatabaseId(input: string): string {
 
 export function inferFieldMapping(properties: NotionProperties): FieldMapping {
 	const entries = Object.entries(properties);
+	const used = new Set<string>();
 	const title = findProperty(entries, {
 		types: ["title"],
 	});
 
+	if (title) {
+		used.add(title);
+	}
+
 	const status = findProperty(entries, {
 		aliases: ["status", "publish", "published", "状态"],
 		types: ["status", "select", "checkbox"],
-	});
+	}, used);
 
 	if (!title || !status) {
 		throw new Error("FIELD_MAPPING_INVALID: title and status fields are required");
 	}
+
+	used.add(status);
 
 	const mapping: FieldMapping = {
 		title,
 		status,
 	};
 
-	const slug = findProperty(entries, {
-		aliases: ["slug", "url", "name"],
-		exclude: [title],
-		types: ["rich_text", "url", "formula", "select"],
-	});
-	if (slug) {
-		mapping.slug = slug;
-	}
-
 	const summary = findProperty(entries, {
 		aliases: ["summary", "description", "excerpt", "摘要"],
 		types: ["rich_text", "text", "url"],
-	});
+	}, used);
 	if (summary) {
 		mapping.summary = summary;
+		used.add(summary);
 	}
 
 	const tags = findProperty(entries, {
 		aliases: ["tags", "tag", "标签"],
 		types: ["multi_select", "select"],
-	});
+	}, used);
 	if (tags) {
 		mapping.tags = tags;
+		used.add(tags);
 	}
 
 	const publishedAt = findProperty(entries, {
 		aliases: ["date", "published_at", "published", "发布日期"],
 		types: ["date", "created_time"],
-	});
+	}, used);
 	if (publishedAt) {
 		mapping.publishedAt = publishedAt;
+		used.add(publishedAt);
 	}
 
 	const cover = findProperty(entries, {
 		aliases: ["cover", "封面"],
 		types: ["files", "url"],
-	});
+	}, used);
 	if (cover) {
 		mapping.cover = cover;
+		used.add(cover);
+	}
+
+	const slug = findProperty(entries, {
+		aliases: ["slug", "url", "name"],
+		types: ["rich_text", "url", "formula", "select"],
+	}, used);
+	if (slug) {
+		mapping.slug = slug;
+		used.add(slug);
 	}
 
 	return mapping;
@@ -145,34 +156,95 @@ type PropertyEntry = [name: string, schema: NotionPropertySchema];
 
 interface PropertyMatchOptions {
 	aliases?: string[];
-	exclude?: string[];
 	types: string[];
 }
 
 function findProperty(
 	entries: PropertyEntry[],
 	options: PropertyMatchOptions,
+	used = new Set<string>(),
 ): string | undefined {
-	const excluded = new Set(options.exclude ?? []);
+	let best: { name: string; score: number } | undefined;
 
 	for (const [name, schema] of entries) {
-		if (excluded.has(name) || !options.types.includes(schema.type ?? "")) {
+		if (used.has(name) || !options.types.includes(schema.type ?? "")) {
 			continue;
 		}
 
-		if (!options.aliases || matchesAnyAlias(name, options.aliases)) {
+		if (!options.aliases) {
 			return name;
+		}
+
+		const score = aliasScore(name, options.aliases);
+		if (score === 0) {
+			continue;
+		}
+
+		if (!best || score > best.score) {
+			best = { name, score };
 		}
 	}
 
-	return undefined;
+	return best?.name;
 }
 
-function matchesAnyAlias(name: string, aliases: string[]): boolean {
+function aliasScore(name: string, aliases: string[]): number {
 	const normalizedName = normalizePropertyName(name);
-	return aliases.some((alias) => normalizedName.includes(normalizePropertyName(alias)));
+	const nameTokens = tokenizePropertyName(name);
+	let score = 0;
+
+	for (const alias of aliases) {
+		const normalizedAlias = normalizePropertyName(alias);
+		if (normalizedName === normalizedAlias) {
+			score = Math.max(score, 100 + normalizedAlias.length);
+			continue;
+		}
+
+		if (containsCjk(normalizedAlias) && normalizedName.includes(normalizedAlias)) {
+			score = Math.max(score, 80 + normalizedAlias.length);
+			continue;
+		}
+
+		const aliasTokens = tokenizePropertyName(alias);
+		if (hasTokenSequence(nameTokens, aliasTokens)) {
+			score = Math.max(score, 70 + aliasTokens.length);
+		}
+	}
+
+	return score;
 }
 
 function normalizePropertyName(name: string): string {
-	return name.toLowerCase().replace(/[\s_-]+/g, "");
+	return tokenizePropertyName(name).join("");
+}
+
+function tokenizePropertyName(name: string): string[] {
+	return name
+		.replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.toLowerCase()
+		.split(/[\s_-]+/g)
+		.filter(Boolean);
+}
+
+function hasTokenSequence(nameTokens: string[], aliasTokens: string[]): boolean {
+	if (aliasTokens.length === 0 || aliasTokens.length > nameTokens.length) {
+		return false;
+	}
+
+	for (let index = 0; index <= nameTokens.length - aliasTokens.length; index += 1) {
+		if (
+			aliasTokens.every(
+				(aliasToken, aliasIndex) => nameTokens[index + aliasIndex] === aliasToken,
+			)
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function containsCjk(value: string): boolean {
+	return /[\u3400-\u9fff]/.test(value);
 }

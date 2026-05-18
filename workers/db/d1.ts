@@ -19,6 +19,14 @@ export class SettingsRepository {
 			.first<SettingRow>();
 	}
 
+	async list(): Promise<SettingRow[]> {
+		const result = await this.db
+			.prepare("SELECT key, value, encrypted, updated_at FROM settings ORDER BY key")
+			.all<SettingRow>();
+
+		return result.results;
+	}
+
 	async put(row: SettingRow): Promise<void> {
 		await this.preparePut(row).run();
 	}

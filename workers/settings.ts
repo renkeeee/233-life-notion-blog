@@ -29,21 +29,51 @@ const optionalFieldMappingKeys = [
 	"publishedAt",
 	"cover",
 ] as const satisfies readonly (keyof FieldMapping)[];
+const requiredSettingKeySet = new Set<string>(requiredSettingKeys);
+
+function assertNoUnknownSettingKeys(settings: Record<string, unknown>): void {
+	for (const key of Object.keys(settings)) {
+		if (!requiredSettingKeySet.has(key)) {
+			throw new Error(`Unknown setting key: ${key}`);
+		}
+	}
+}
+
+function serializedSettingValue(
+	key: (typeof requiredSettingKeys)[number],
+	rawValue: unknown,
+): string {
+	if (typeof rawValue === "string") {
+		if (rawValue.length === 0) {
+			throw new Error(`Invalid setting: ${key}`);
+		}
+
+		return rawValue;
+	}
+
+	if (key === "fieldMapping" && isRecord(rawValue)) {
+		return JSON.stringify(rawValue);
+	}
+
+	if (rawValue === undefined) {
+		throw new Error(`Missing setting: ${key}`);
+	}
+
+	throw new Error(`Invalid setting: ${key}`);
+}
 
 export async function serializeSettingsForStorage(
 	settings: SiteSettings,
 	rootKey: string,
 	now = new Date().toISOString(),
 ): Promise<SettingRow[]> {
-	const entries = Object.entries(settings) as [
-		keyof SiteSettings,
-		SiteSettings[keyof SiteSettings],
-	][];
+	const rawSettings = settings as unknown as Record<string, unknown>;
 	const rows: SettingRow[] = [];
 
-	for (const [key, rawValue] of entries) {
-		const stringValue =
-			typeof rawValue === "string" ? rawValue : JSON.stringify(rawValue);
+	assertNoUnknownSettingKeys(rawSettings);
+
+	for (const key of requiredSettingKeys) {
+		const stringValue = serializedSettingValue(key, rawSettings[key]);
 		const encrypted = sensitiveKeys.has(key) ? 1 : 0;
 
 		rows.push({

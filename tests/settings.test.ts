@@ -9,6 +9,15 @@ import {
 } from "../workers/settings";
 import type { SiteSettings } from "../workers/types";
 
+const expectedSettingKeys = [
+	"siteTitle",
+	"notionDatabaseUrl",
+	"notionDatabaseId",
+	"notionToken",
+	"cdnBaseUrl",
+	"fieldMapping",
+];
+
 function testSettings(notionToken = "ntn_secret"): SiteSettings {
 	return {
 		siteTitle: "233 Life",
@@ -43,6 +52,26 @@ describe("settings storage helpers", () => {
 		expect(tokenRow?.encrypted).toBe(1);
 		expect(tokenRow?.value).not.toBe("ntn_secret");
 		expect(await decryptString(tokenRow!.value, rootKey)).toBe("ntn_secret");
+	});
+
+	it("serializes exactly the expected setting keys", async () => {
+		const rows = await serializeSettingsForStorage(
+			testSettings(),
+			generateEncryptionKey(),
+		);
+
+		expect(rows.map((row) => row.key)).toEqual(expectedSettingKeys);
+	});
+
+	it("rejects redacted settings objects before persistence", async () => {
+		const rootKey = generateEncryptionKey();
+
+		await expect(
+			serializeSettingsForStorage(
+				redactSettings(testSettings()) as unknown as SiteSettings,
+				rootKey,
+			),
+		).rejects.toThrow("Unknown setting key: hasNotionToken");
 	});
 
 	it("redacts sensitive values for admin reads", () => {
@@ -110,6 +139,50 @@ describe("settings storage helpers", () => {
 });
 
 describe("SettingsRepository", () => {
+	it("uses D1 batch when upserting multiple setting rows", async () => {
+		let batchedStatements: D1PreparedStatement[] | null = null;
+		const db = {
+			prepare(sql: string) {
+				return {
+					sql,
+					bind(...values: unknown[]) {
+						return { sql, values };
+					},
+				};
+			},
+			async batch(statements: D1PreparedStatement[]) {
+				batchedStatements = statements;
+				return [];
+			},
+		} as unknown as D1Database;
+		const repository = new SettingsRepository(db);
+
+		await repository.putMany([
+			settingRow("siteTitle", "233 Life"),
+			settingRow("notionToken", "encrypted-token", 1),
+		]);
+
+		expect(batchedStatements).toEqual([
+			expect.objectContaining({
+				sql: expect.stringContaining("ON CONFLICT(key) DO UPDATE"),
+				values: [
+					"siteTitle",
+					"233 Life",
+					0,
+					"2026-05-18T00:00:00.000Z",
+				],
+			}),
+			expect.objectContaining({
+				values: [
+					"notionToken",
+					"encrypted-token",
+					1,
+					"2026-05-18T00:00:00.000Z",
+				],
+			}),
+		]);
+	});
+
 	it("upserts multiple setting rows", async () => {
 		const statements: { sql: string; values: unknown[] }[] = [];
 		const db = {
@@ -146,5 +219,25 @@ describe("SettingsRepository", () => {
 			1,
 			"2026-05-18T00:00:00.000Z",
 		]);
+	});
+
+	it("lists all setting rows", async () => {
+		const rows = [
+			settingRow("cdnBaseUrl", "https://cdn.example.com"),
+			settingRow("siteTitle", "233 Life"),
+		];
+		const db = {
+			prepare(sql: string) {
+				return {
+					async all() {
+						return { results: rows, success: true };
+					},
+					sql,
+				};
+			},
+		} as unknown as D1Database;
+		const repository = new SettingsRepository(db);
+
+		await expect(repository.list()).resolves.toEqual(rows);
 	});
 });

@@ -38,3 +38,21 @@ export async function apiPost<T>(
 	});
 	return parseJson<T>(response);
 }
+
+export async function apiPut<T>(
+	path: string,
+	body: unknown,
+	csrfToken: string,
+	fetcher: Fetcher = defaultFetcher,
+): Promise<T> {
+	const response = await fetcher(path, {
+		method: "PUT",
+		credentials: "same-origin",
+		headers: {
+			"content-type": "application/json",
+			"x-csrf-token": csrfToken,
+		},
+		body: JSON.stringify(body),
+	});
+	return parseJson<T>(response);
+}

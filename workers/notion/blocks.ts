@@ -119,7 +119,21 @@ function renderBlocks(
 		}
 	}
 
-	return rendered.join("\n\n");
+	return trimEmptyRenderedBlockEdges(rendered).join("\n\n");
+}
+
+function trimEmptyRenderedBlockEdges(rendered: string[]): string[] {
+	let start = 0;
+	let end = rendered.length;
+
+	while (start < end && rendered[start] === "") {
+		start += 1;
+	}
+	while (end > start && rendered[end - 1] === "") {
+		end -= 1;
+	}
+
+	return rendered.slice(start, end);
 }
 
 function renderBlock(
@@ -311,7 +325,7 @@ function richTextMarkdown(payload: Record<string, unknown> | null): string {
 function richTextSpanMarkdown(item: Record<string, unknown>): string {
 	const equationText = equationExpressionMarkdown(item);
 	const plainText =
-		typeof item.plain_text === "string" ? item.plain_text : equationText;
+		equationText || (typeof item.plain_text === "string" ? item.plain_text : "");
 	if (!plainText) {
 		return "";
 	}

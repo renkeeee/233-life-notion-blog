@@ -254,6 +254,26 @@ nested child`);
 		);
 	});
 
+	it("renders real Notion equation rich text from the equation expression", () => {
+		const blocks: NotionBlock[] = [
+			{
+				id: "paragraph",
+				type: "paragraph",
+				paragraph: {
+					rich_text: [
+						{
+							type: "equation",
+							plain_text: "E = mc^2",
+							equation: { expression: "E = mc^2" },
+						},
+					],
+				},
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe("$E = mc^2$");
+	});
+
 	it("preserves an empty paragraph between paragraphs as an intentional blank line", () => {
 		const blocks: NotionBlock[] = [
 			{
@@ -274,6 +294,40 @@ nested child`);
 		];
 
 		expect(blocksToMarkdown(blocks)).toBe("Before\n\n\n\nAfter");
+	});
+
+	it("trims leading empty paragraphs from rendered Markdown output", () => {
+		const blocks: NotionBlock[] = [
+			{
+				id: "empty",
+				type: "paragraph",
+				paragraph: { rich_text: [] },
+			},
+			{
+				id: "content",
+				type: "paragraph",
+				paragraph: { rich_text: richText("Content") },
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe("Content");
+	});
+
+	it("trims trailing empty paragraphs from rendered Markdown output", () => {
+		const blocks: NotionBlock[] = [
+			{
+				id: "content",
+				type: "paragraph",
+				paragraph: { rich_text: richText("Content") },
+			},
+			{
+				id: "empty",
+				type: "paragraph",
+				paragraph: { rich_text: [] },
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe("Content");
 	});
 });
 

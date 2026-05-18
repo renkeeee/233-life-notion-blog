@@ -5,6 +5,8 @@
 		"tests/**/*.test.tsx",
 		"tests/setup.ts",
 		"vitest.config.ts",
+		"app/**/*.ts",
+		"app/**/*.tsx",
 		"workers/**/*.ts",
 		"worker-configuration.d.ts"
 	],

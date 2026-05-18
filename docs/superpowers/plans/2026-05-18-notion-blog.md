@@ -4,9 +4,11 @@
 
 **Goal:** Build an API-first Cloudflare Notion blog with encrypted admin configuration, D1 persistence, R2 asset caching, nightly/manual sync, and public blog pages.
 
-**Architecture:** React Router runs in SPA mode and fetches all business data from Worker JSON APIs under `/api/*`. The Worker owns authentication, settings, Notion sync, D1 repositories, and R2 uploads. Pure modules are tested first; Worker/API glue stays thin.
+**Architecture:** The frontend is a Vite React SPA using React Router as a browser-side routing library, and it fetches all business data from Worker JSON APIs under `/api/*`. The Worker owns authentication, settings, Notion sync, D1 repositories, and R2 uploads. Pure modules are tested first; Worker/API glue stays thin.
 
-**Tech Stack:** React Router 7.9, React 19, TypeScript, Cloudflare Workers, D1, R2, Cron Triggers, Tailwind CSS 4, Vitest, Web Crypto.
+**Tech Stack:** Vite, React Router 7.9 as a client library, React 19, TypeScript, Cloudflare Workers, D1, R2, Cron Triggers, Tailwind CSS 4, Vitest, Web Crypto.
+
+**Architecture Correction:** Cloudflare's React Router framework guide states that React Router framework SPA mode and prerendering are not currently supported with the Cloudflare Vite plugin. Implementation therefore uses the official Cloudflare Vite plugin "React SPA with an API Worker" shape: `@vitejs/plugin-react`, static asset SPA fallback, and `assets.run_worker_first` for `/api` and `/api/*`.
 
 ---
 
@@ -14,16 +16,16 @@
 
 - Modify `package.json` and `package-lock.json`: add Vitest scripts and test dependencies.
 - Create `vitest.config.ts`: Node/jsdom test configuration.
-- Modify `react-router.config.ts`: switch to SPA mode with `ssr: false`.
-- Modify `app/routes.ts`: add public and admin client routes.
-- Replace `app/routes/home.tsx`: public blog home page using client-side fetch.
+- Create `index.html`, `app/main.tsx`, and `app/App.tsx`: Vite SPA entry and browser route tree.
+- Modify `vite.config.ts`: use `@vitejs/plugin-react` with the Cloudflare Vite plugin.
+- Replace `app/routes/home.tsx`: public blog home route component using client-side fetch.
 - Create `app/routes/post.tsx`, `app/routes/tag.tsx`, `app/routes/search.tsx`, `app/routes/admin.tsx`: SPA route entries.
 - Create `app/components/public/*`: public blog components.
 - Create `app/components/admin/*`: admin console components.
 - Create `app/lib/api-client.ts`: typed browser API helper.
 - Create `app/lib/markdown.tsx`: Markdown rendering helper.
-- Modify `app/root.tsx` and `app/app.css`: app shell metadata and responsive styles.
-- Modify `workers/app.ts`: route `/api/*`, serve SPA fallback for other requests, and handle scheduled sync.
+- Modify `index.html`, `app/App.tsx`, and `app/app.css`: app shell metadata and responsive styles.
+- Modify `workers/app.ts`: route `/api` and `/api/*`; static asset SPA fallback handles browser navigations.
 - Create `workers/types.ts`: shared Worker environment, API, and domain types.
 - Create `workers/http.ts`: JSON responses, routing, request parsing, error shape.
 - Create `workers/crypto.ts`: hashing, password hashing, config encryption, session signing.
@@ -47,11 +49,22 @@
 **Files:**
 - Modify: `package.json`
 - Modify: `package-lock.json`
-- Modify: `react-router.config.ts`
-- Modify: `app/routes.ts`
+- Modify: `vite.config.ts`
+- Modify: `wrangler.json`
+- Modify: `workers/app.ts`
 - Modify: `app/routes/home.tsx`
+- Create: `index.html`
+- Create: `app/main.tsx`
+- Create: `app/App.tsx`
+- Create: `app/routes/post.tsx`
+- Create: `app/routes/tag.tsx`
+- Create: `app/routes/search.tsx`
+- Create: `app/routes/admin.tsx`
 - Create: `vitest.config.ts`
+- Create: `tests/setup.ts`
 - Create: `tests/notion-database.test.ts`
+- Create: `tests/worker-app.test.ts`
+- Create: `tsconfig.test.json`
 
 - [ ] **Step 1: Install test dependencies**
 
@@ -123,51 +136,108 @@ npm test -- tests/notion-database.test.ts
 
 Expected: FAIL because `workers/notion/database` does not exist.
 
-- [ ] **Step 6: Switch React Router to SPA mode**
+- [ ] **Step 6: Switch to Vite React SPA and API Worker**
 
-Modify `react-router.config.ts`:
+Install the React Vite plugin:
+
+```bash
+npm install -D @vitejs/plugin-react
+```
+
+Update scripts:
+
+```json
+{
+  "build": "vite build",
+  "cf-typegen": "wrangler types",
+  "check": "tsc -b && vite build && wrangler deploy --dry-run",
+  "dev": "vite dev",
+  "typecheck": "tsc -b"
+}
+```
+
+Modify `vite.config.ts`:
 
 ```ts
-import type { Config } from "@react-router/dev/config";
+import { cloudflare } from "@cloudflare/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+import tsconfigPaths from "vite-tsconfig-paths";
 
-export default {
-	ssr: false,
-	future: {
-		unstable_viteEnvironmentApi: true,
+export default defineConfig({
+	plugins: [react(), tailwindcss(), cloudflare(), tsconfigPaths()],
+});
+```
+
+Modify `wrangler.json`:
+
+```json
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "233-life-notion-blog",
+	"main": "./workers/app.ts",
+	"compatibility_date": "2025-10-08",
+	"compatibility_flags": ["nodejs_compat"],
+	"assets": {
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/api", "/api/*"]
 	},
-} satisfies Config;
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"vars": {
+		"VALUE_FROM_CLOUDFLARE": "Hello from Cloudflare"
+	}
+}
 ```
 
-Modify `app/routes.ts`:
-
-```ts
-import { type RouteConfig, index, route } from "@react-router/dev/routes";
-
-export default [
-	index("routes/home.tsx"),
-	route("post/:slug", "routes/post.tsx"),
-	route("tags/:tag", "routes/tag.tsx"),
-	route("search", "routes/search.tsx"),
-	route("admin/*", "routes/admin.tsx"),
-] satisfies RouteConfig;
-```
+Create `index.html`, `app/main.tsx`, and `app/App.tsx`. `App.tsx` should use `BrowserRouter`, `Routes`, and `Route` from `react-router` as a browser-side library, not the React Router framework.
 
 Replace `app/routes/home.tsx` with a loader-free component:
 
 ```tsx
-import type { Route } from "./+types/home";
-
-export function meta({}: Route.MetaArgs) {
-	return [
-		{ title: "233 Life" },
-		{ name: "description", content: "A Notion-backed personal blog." },
-	];
-}
-
 export default function Home() {
 	return <main className="mx-auto max-w-5xl px-4 py-10">Loading posts...</main>;
 }
 ```
+
+Create minimal loader-free route components for `post`, `tag`, `search`, and `admin`.
+
+Replace `workers/app.ts` with a plain Worker API entry:
+
+```ts
+function json(data: unknown, init?: ResponseInit) {
+	const headers = new Headers(init?.headers);
+	if (!headers.has("content-type")) {
+		headers.set("content-type", "application/json");
+	}
+
+	return Response.json(data, {
+		...init,
+		headers,
+	});
+}
+
+export default {
+	fetch(request) {
+		const url = new URL(request.url);
+
+		if (url.pathname === "/api/health") {
+			return json({ ok: true });
+		}
+
+		if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+			return json({ error: "Not found" }, { status: 404 });
+		}
+
+		return new Response("Not found", { status: 404 });
+	},
+} satisfies ExportedHandler<Env>;
+```
+
+Remove framework-only files: `react-router.config.ts`, `app/routes.ts`, `app/root.tsx`, and `app/entry.server.tsx`.
 
 - [ ] **Step 7: Add minimal parser implementation**
 
@@ -184,21 +254,24 @@ export function parseNotionDatabaseId(input: string): string {
 }
 ```
 
-- [ ] **Step 8: Verify GREEN**
+- [ ] **Step 8: Add Worker routing tests and verify GREEN**
+
+Create `tests/worker-app.test.ts` to verify `/api/health`, unknown `/api/*`, `/api`, and non-API requests. Add `tsconfig.test.json`, reference it from `tsconfig.json`, and wire `tests/setup.ts` into `vitest.config.ts` so tests are typechecked by `npm run check`.
 
 Run:
 
 ```bash
-npm test -- tests/notion-database.test.ts
+npm test -- tests/notion-database.test.ts tests/worker-app.test.ts
 npm run build
+npm run check
 ```
 
-Expected: test passes and build succeeds without route loader errors.
+Expected: tests pass, Vite build succeeds, and Wrangler dry-run succeeds.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add package.json package-lock.json vitest.config.ts react-router.config.ts app/routes.ts app/routes/home.tsx workers/notion/database.ts tests/notion-database.test.ts
+git add package.json package-lock.json vite.config.ts wrangler.json tsconfig.json tsconfig.test.json vitest.config.ts tests/setup.ts index.html app workers tests
 git commit -m "chore: add test harness and spa routes"
 ```
 

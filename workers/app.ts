@@ -1,3 +1,5 @@
+import type { AppEnv } from "./types";
+
 function json(data: unknown, init?: ResponseInit) {
 	const headers = new Headers(init?.headers);
 	if (!headers.has("content-type")) {
@@ -24,4 +26,4 @@ export default {
 
 		return new Response("Not found", { status: 404 });
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<AppEnv>;

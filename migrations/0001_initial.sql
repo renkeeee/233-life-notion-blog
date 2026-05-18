@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 	status TEXT NOT NULL CHECK (status IN ('running', 'success', 'partial', 'failed')),
 	range_start TEXT,
 	range_end TEXT,
-	force INTEGER NOT NULL DEFAULT 0,
+	force INTEGER NOT NULL DEFAULT 0 CHECK (force IN (0, 1)),
 	created_count INTEGER NOT NULL DEFAULT 0 CHECK (created_count >= 0),
 	updated_count INTEGER NOT NULL DEFAULT 0 CHECK (updated_count >= 0),
 	metadata_only_count INTEGER NOT NULL DEFAULT 0 CHECK (metadata_only_count >= 0),

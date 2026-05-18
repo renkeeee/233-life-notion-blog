@@ -62,6 +62,9 @@ describe("D1 schema", () => {
 		expect(normalizedSchemaSql).toContain(
 			"action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'metadata_only', 'skipped', 'unpublished', 'archived'))",
 		);
+		expect(normalizedSchemaSql).toContain(
+			"force INTEGER NOT NULL DEFAULT 0 CHECK (force IN (0, 1))",
+		);
 
 		for (const column of syncRunCountColumns) {
 			expect(normalizedSchemaSql).toContain(

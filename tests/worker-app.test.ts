@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import worker from "../workers/app";
+import type { AppEnv } from "../workers/types";
 
 type WorkerRequest = Parameters<NonNullable<typeof worker.fetch>>[0];
+
+const env: AppEnv = {
+	DB: {} as D1Database,
+	BLOG_ASSETS: {} as R2Bucket,
+	CONFIG_ENCRYPTION_KEY: "test-encryption-key",
+};
 
 function workerRequest(pathname: string): WorkerRequest {
 	return new Request(`https://example.test${pathname}`) as WorkerRequest;
@@ -11,7 +18,7 @@ describe("Worker API routing", () => {
 	it("returns health JSON from /api/health", async () => {
 		const response = await worker.fetch(
 			workerRequest("/api/health"),
-			{} as Env,
+			env,
 			{} as ExecutionContext,
 		);
 
@@ -23,7 +30,7 @@ describe("Worker API routing", () => {
 	it("returns JSON 404 for unknown API requests", async () => {
 		const response = await worker.fetch(
 			workerRequest("/api/missing"),
-			{} as Env,
+			env,
 			{} as ExecutionContext,
 		);
 
@@ -35,7 +42,7 @@ describe("Worker API routing", () => {
 	it("treats /api as an API request", async () => {
 		const response = await worker.fetch(
 			workerRequest("/api"),
-			{} as Env,
+			env,
 			{} as ExecutionContext,
 		);
 
@@ -47,7 +54,7 @@ describe("Worker API routing", () => {
 	it("returns plain 404 for non-API requests", async () => {
 		const response = await worker.fetch(
 			workerRequest("/posts/example"),
-			{} as Env,
+			env,
 			{} as ExecutionContext,
 		);
 

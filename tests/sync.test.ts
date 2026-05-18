@@ -685,6 +685,42 @@ describe("admin manual sync API", () => {
 			db.close();
 		}
 	});
+
+	it("accepts ISO sync ranges with timezone offsets", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/sync", {
+					body: JSON.stringify({
+						rangeStart: "2026-01-01T00:30:00+02:00",
+						rangeEnd: null,
+						force: false,
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+				{
+					runSync: async (_env, input) => {
+						expect(input.rangeStart).toBe("2026-01-01T00:30:00+02:00");
+						return { runId: "offset-run" };
+					},
+				},
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({ runId: "offset-run" });
+		} finally {
+			db.close();
+		}
+	});
 });
 
 describe("scheduled sync", () => {

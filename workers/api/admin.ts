@@ -163,13 +163,16 @@ function isValidIsoDateString(value: string): boolean {
 	}
 
 	const [, year, month, day] = match;
-	const parsedDate = new Date(timestamp);
 
-	return (
-		parsedDate.getUTCFullYear() === Number(year) &&
-		parsedDate.getUTCMonth() + 1 === Number(month) &&
-		parsedDate.getUTCDate() === Number(day)
-	);
+	return isValidCalendarDate(Number(year), Number(month), Number(day));
+}
+
+function isValidCalendarDate(year: number, month: number, day: number): boolean {
+	if (month < 1 || month > 12 || day < 1) {
+		return false;
+	}
+
+	return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function adminNotFound(): Response {

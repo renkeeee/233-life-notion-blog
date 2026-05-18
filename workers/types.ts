@@ -5,6 +5,21 @@ export interface AppEnv {
 	VALUE_FROM_CLOUDFLARE?: string;
 }
 
+export type PostVisibility = "published" | "hidden" | "archived";
+
+export interface PublicPostRecord {
+	id: string;
+	slug: string;
+	title: string;
+	summary: string | null;
+	coverUrl: string | null;
+	tags: string[];
+	status: string;
+	visibility: PostVisibility;
+	publishedAt: string | null;
+	updatedAt: string;
+}
+
 export type ApiErrorCode =
 	| "BAD_REQUEST"
 	| "UNAUTHORIZED"

@@ -36,7 +36,9 @@ describe("Worker API routing", () => {
 
 		expect(response.status).toBe(404);
 		expect(response.headers.get("content-type")).toContain("application/json");
-		await expect(response.json()).resolves.toEqual({ error: "Not found" });
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "NOT_FOUND", message: "Route not found" },
+		});
 	});
 
 	it("treats /api as an API request", async () => {
@@ -48,7 +50,9 @@ describe("Worker API routing", () => {
 
 		expect(response.status).toBe(404);
 		expect(response.headers.get("content-type")).toContain("application/json");
-		await expect(response.json()).resolves.toEqual({ error: "Not found" });
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "NOT_FOUND", message: "Route not found" },
+		});
 	});
 
 	it("returns plain 404 for non-API requests", async () => {

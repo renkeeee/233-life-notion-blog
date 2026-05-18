@@ -1,13 +1,16 @@
+/// <reference types="node" />
+
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import worker from "../workers/app";
 import {
 	handlePublicApi,
 	listPostsResponse,
 	postDetailResponse,
-	type PublicPostRecord,
 } from "../workers/api/public";
 import { PostContentRepository, PostsRepository } from "../workers/db/d1";
-import type { AppEnv } from "../workers/types";
+import type { AppEnv, PublicPostRecord } from "../workers/types";
+import schemaSql from "../workers/db/schema.sql?raw";
 
 type WorkerRequest = Parameters<NonNullable<typeof worker.fetch>>[0];
 
@@ -17,6 +20,7 @@ type SqlCall = {
 };
 
 type FakeRows = Record<string, unknown>[];
+type SqlInputValue = string | number | bigint | null | Uint8Array;
 
 class FakeD1PreparedStatement {
 	private values: unknown[] = [];
@@ -67,6 +71,112 @@ class FakeD1Database {
 	}
 }
 
+class SqliteD1PreparedStatement {
+	private values: unknown[] = [];
+
+	constructor(
+		private readonly statement: ReturnType<DatabaseSync["prepare"]>,
+		private readonly sql: string,
+		private readonly calls: SqlCall[],
+	) {}
+
+	bind(...values: unknown[]): D1PreparedStatement {
+		this.values = values;
+		return this as unknown as D1PreparedStatement;
+	}
+
+	async first<T = Record<string, unknown>>(): Promise<T | null> {
+		this.calls.push({ sql: this.sql, values: this.values });
+		return (
+			this.statement.get(...(this.values as SqlInputValue[])) ?? null
+		) as T | null;
+	}
+
+	async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
+		this.calls.push({ sql: this.sql, values: this.values });
+		return {
+			results: this.statement.all(...(this.values as SqlInputValue[])) as T[],
+			success: true,
+			meta: {},
+		} as D1Result<T>;
+	}
+
+	async run(): Promise<D1Result> {
+		this.calls.push({ sql: this.sql, values: this.values });
+		this.statement.run(...(this.values as SqlInputValue[]));
+		return { results: [], success: true, meta: {} } as unknown as D1Result;
+	}
+}
+
+class SqliteD1Database {
+	readonly calls: SqlCall[] = [];
+	private readonly db = new DatabaseSync(":memory:");
+
+	constructor() {
+		this.db.exec("PRAGMA foreign_keys = ON;");
+		this.db.exec(schemaSql);
+	}
+
+	prepare(sql: string): D1PreparedStatement {
+		return new SqliteD1PreparedStatement(
+			this.db.prepare(sql),
+			sql,
+			this.calls,
+		) as unknown as D1PreparedStatement;
+	}
+
+	insertPost(row: Record<string, unknown>): void {
+		this.db
+			.prepare(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, summary, cover_url, tags_json,
+					status, visibility, published_at, notion_last_edited_time,
+					content_hash, last_sync_error, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				...([
+					row.id,
+					row.notion_page_id,
+					row.slug,
+					row.title,
+					row.summary,
+					row.cover_url,
+					row.tags_json,
+					row.status,
+					row.visibility,
+					row.published_at,
+					row.notion_last_edited_time,
+					row.content_hash,
+					row.last_sync_error,
+					row.created_at,
+					row.updated_at,
+				] as SqlInputValue[]),
+			);
+	}
+
+	insertContent(postId: string, markdown: string): void {
+		this.db
+			.prepare(
+				`INSERT INTO post_content (
+					post_id, markdown, block_snapshot_hash, content_hash,
+					resource_refs_json, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, '[]', ?, ?)`,
+			)
+			.run(postId, markdown, `blocks-${postId}`, `content-${postId}`, now, now);
+	}
+
+	asD1(): D1Database {
+		return this as unknown as D1Database;
+	}
+
+	close(): void {
+		this.db.close();
+	}
+}
+
 const publishedPost: PublicPostRecord = {
 	id: "post-1",
 	slug: "published-post",
@@ -79,6 +189,8 @@ const publishedPost: PublicPostRecord = {
 	publishedAt: "2026-05-01T00:00:00.000Z",
 	updatedAt: "2026-05-02T00:00:00.000Z",
 };
+
+const now = "2026-05-01T00:00:00.000Z";
 
 function publicRequest(pathname: string): Request {
 	return new Request(`https://example.test${pathname}`);
@@ -114,13 +226,9 @@ function postRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 }
 
 describe("public response helpers", () => {
-	it("filters hidden and archived posts from list responses", () => {
+	it("maps repository list results to public summaries", () => {
 		const response = listPostsResponse(
-			[
-				publishedPost,
-				{ ...publishedPost, id: "post-2", visibility: "hidden" },
-				{ ...publishedPost, id: "post-3", visibility: "archived" },
-			],
+			{ items: [publishedPost], total: 1 },
 			{ page: 1, limit: 10 },
 		);
 
@@ -155,32 +263,40 @@ describe("public response helpers", () => {
 
 describe("PostsRepository", () => {
 	it("maps snake_case rows to public records and sanitizes tags_json", async () => {
-		const fakeDb = new FakeD1Database(() => [
-			postRow({
-				tags_json: JSON.stringify(["Life", 42, "Notes", "", null]),
-			}),
-			postRow({
-				id: "post-2",
-				slug: "bad-tags",
-				tags_json: "{bad json",
-			}),
-		]);
+		const fakeDb = new FakeD1Database((sql) => {
+			if (sql.includes("COUNT(DISTINCT p.id)")) {
+				return [{ total: 2 }];
+			}
+			return [
+				postRow({
+					tags_json: JSON.stringify(["Life", 42, "Notes", "", null]),
+				}),
+				postRow({
+					id: "post-2",
+					slug: "bad-tags",
+					tags_json: "{bad json",
+				}),
+			];
+		});
 		const repository = new PostsRepository(fakeDb.asD1());
 
-		await expect(repository.listPublished()).resolves.toEqual([
-			expect.objectContaining({
-				id: "post-1",
-				coverUrl: "https://cdn.example.com/cover.jpg",
-				publishedAt: "2026-05-01T00:00:00.000Z",
-				tags: ["Life", "Notes"],
-				updatedAt: "2026-05-02T00:00:00.000Z",
-			}),
-			expect.objectContaining({
-				id: "post-2",
-				slug: "bad-tags",
-				tags: [],
-			}),
-		]);
+		await expect(repository.listPublished()).resolves.toEqual({
+			items: [
+				expect.objectContaining({
+					id: "post-1",
+					coverUrl: "https://cdn.example.com/cover.jpg",
+					publishedAt: "2026-05-01T00:00:00.000Z",
+					tags: ["Life", "Notes"],
+					updatedAt: "2026-05-02T00:00:00.000Z",
+				}),
+				expect.objectContaining({
+					id: "post-2",
+					slug: "bad-tags",
+					tags: [],
+				}),
+			],
+			total: 2,
+		});
 	});
 
 	it("uses published visibility filters and bound search patterns", async () => {
@@ -196,22 +312,16 @@ describe("PostsRepository", () => {
 			"%notion api%",
 			"%notion api%",
 			"%notion api%",
+			20,
 		]);
 	});
 
 	it("returns published tag counts", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("SELECT id")) {
+			if (sql.includes("json_each")) {
 				return [
-					postRow({ tags_json: JSON.stringify(["Life", "Notes"]) }),
-					postRow({
-						id: "post-2",
-						tags_json: JSON.stringify(["Life", ""]),
-					}),
-					postRow({
-						id: "post-3",
-						tags_json: "{bad json",
-					}),
+					{ tag: "Life", count: 2 },
+					{ tag: "Notes", count: 1 },
 				];
 			}
 			return [];
@@ -222,6 +332,138 @@ describe("PostsRepository", () => {
 			{ tag: "Life", count: 2 },
 			{ tag: "Notes", count: 1 },
 		]);
+	});
+
+	it("applies list pagination, tag filters, search filters, and totals in SQL", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "first-life",
+					title: "First SQL Life",
+					tags_json: JSON.stringify(["Life"]),
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-life",
+					title: "Second SQL Life",
+					tags_json: JSON.stringify(["Life"]),
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "tech-sql",
+					title: "SQL Tech",
+					tags_json: JSON.stringify(["Tech"]),
+					published_at: "2026-05-01T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-4",
+					notion_page_id: "notion-4",
+					slug: "hidden-life",
+					title: "Hidden SQL Life",
+					tags_json: JSON.stringify(["Life"]),
+					visibility: "hidden",
+					published_at: "2026-05-04T00:00:00.000Z",
+				}),
+			);
+			db.insertContent("post-1", "Body mentions SQL");
+			db.insertContent("post-2", "Body mentions SQL");
+			db.insertContent("post-3", "Body mentions SQL");
+			db.insertContent("post-4", "Body mentions SQL");
+
+			const result = await new PostsRepository(db.asD1()).listPublished({
+				page: 2,
+				limit: 1,
+				tag: "Life",
+				q: "SQL",
+			});
+
+			expect(result).toEqual({
+				items: [expect.objectContaining({ slug: "second-life" })],
+				total: 2,
+			});
+
+			const itemQuery = db.calls.find((call) => call.sql.includes("LIMIT ?"));
+			const countQuery = db.calls.find((call) =>
+				call.sql.includes("COUNT(DISTINCT p.id)"),
+			);
+
+			expect(itemQuery?.sql).toContain("json_each");
+			expect(itemQuery?.sql).toContain("ESCAPE '\\'");
+			expect(itemQuery?.values).toEqual([
+				"Life",
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+				1,
+				1,
+			]);
+			expect(countQuery?.values).toEqual([
+				"Life",
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("treats percent, underscore, and backslash as literal search characters", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "literal-percent",
+					title: "100% literal",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "plain-title",
+					title: "Plain title",
+				}),
+			);
+
+			const repository = new PostsRepository(db.asD1());
+
+			await expect(repository.searchPublished("%")).resolves.toEqual([
+				expect.objectContaining({ slug: "literal-percent" }),
+			]);
+			await expect(repository.searchPublished("_")).resolves.toEqual([]);
+
+			const searchCall = db.calls.find((call) =>
+				call.sql.includes("post_content"),
+			);
+			expect(searchCall?.sql).toContain("ESCAPE '\\'");
+			expect(searchCall?.values).toEqual([
+				"%\\%%",
+				"%\\%%",
+				"%\\%%",
+				"%\\%%",
+				20,
+			]);
+		} finally {
+			db.close();
+		}
 	});
 });
 
@@ -252,17 +494,15 @@ describe("handlePublicApi", () => {
 
 	it("lists posts with pagination and tag filtering", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("SELECT id")) {
+			if (sql.includes("COUNT(DISTINCT p.id)")) {
+				return [{ total: 1 }];
+			}
+			if (sql.includes("SELECT DISTINCT")) {
 				return [
 					postRow({
 						id: "post-1",
 						slug: "life-post",
 						tags_json: JSON.stringify(["Life"]),
-					}),
-					postRow({
-						id: "post-2",
-						slug: "tech-post",
-						tags_json: JSON.stringify(["Tech"]),
 					}),
 				];
 			}
@@ -302,7 +542,10 @@ describe("handlePublicApi", () => {
 
 	it("caps large page limits to the public maximum", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("SELECT id")) {
+			if (sql.includes("COUNT(DISTINCT p.id)")) {
+				return [{ total: 1 }];
+			}
+			if (sql.includes("SELECT DISTINCT")) {
 				return [postRow()];
 			}
 			return [];
@@ -390,13 +633,10 @@ describe("handlePublicApi", () => {
 
 	it("returns tags with published counts", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("SELECT id")) {
+			if (sql.includes("json_each")) {
 				return [
-					postRow({ tags_json: JSON.stringify(["Life", "Notes"]) }),
-					postRow({
-						id: "post-2",
-						tags_json: JSON.stringify(["Life"]),
-					}),
+					{ tag: "Life", count: 2 },
+					{ tag: "Notes", count: 1 },
 				];
 			}
 			return [];
@@ -455,7 +695,10 @@ describe("handlePublicApi", () => {
 
 	it("routes public API requests through the worker app", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("SELECT id")) {
+			if (sql.includes("COUNT(DISTINCT p.id)")) {
+				return [{ total: 1 }];
+			}
+			if (sql.includes("SELECT DISTINCT")) {
 				return [postRow({ slug: "from-worker" })];
 			}
 			return [];
@@ -473,5 +716,20 @@ describe("handlePublicApi", () => {
 				items: [expect.objectContaining({ slug: "from-worker" })],
 			}),
 		);
+	});
+
+	it("returns structured 404 for unknown API routes through the worker app", async () => {
+		const fakeDb = new FakeD1Database(() => []);
+
+		const response = await worker.fetch(
+			publicRequest("/api/does-not-exist") as WorkerRequest,
+			envWithDb(fakeDb.asD1()),
+			{} as ExecutionContext,
+		);
+
+		expect(response.status).toBe(404);
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "NOT_FOUND", message: "Route not found" },
+		});
 	});
 });

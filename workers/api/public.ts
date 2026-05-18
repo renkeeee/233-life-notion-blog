@@ -1,19 +1,6 @@
 import { PostContentRepository, PostsRepository } from "../db/d1";
 import { errorJson, json } from "../http";
-import type { AppEnv } from "../types";
-
-export interface PublicPostRecord {
-	id: string;
-	slug: string;
-	title: string;
-	summary: string | null;
-	coverUrl: string | null;
-	tags: string[];
-	status: string;
-	visibility: string;
-	publishedAt: string | null;
-	updatedAt: string;
-}
+import type { AppEnv, PublicPostRecord } from "../types";
 
 type PublicPostSummary = {
 	id: string;
@@ -29,8 +16,11 @@ type PublicPostSummary = {
 type ListOptions = {
 	page?: number;
 	limit?: number;
-	tag?: string;
-	q?: string;
+};
+
+type PublicPostList = {
+	items: PublicPostRecord[];
+	total: number;
 };
 
 const defaultPage = 1;
@@ -54,42 +44,16 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 	};
 }
 
-function matchesQuery(post: PublicPostRecord, q: string): boolean {
-	const normalized = q.trim().toLowerCase();
-	if (!normalized) {
-		return true;
-	}
-
-	return [post.title, post.summary ?? "", ...post.tags]
-		.join(" ")
-		.toLowerCase()
-		.includes(normalized);
-}
-
 export function listPostsResponse(
-	posts: PublicPostRecord[],
+	result: PublicPostList,
 	options: ListOptions = {},
 ) {
 	const page = options.page ?? defaultPage;
 	const limit = options.limit ?? defaultLimit;
-	const tag = options.tag?.trim();
-	const q = options.q?.trim() ?? "";
-	const filtered = posts.filter((post) => {
-		if (!isPublished(post)) {
-			return false;
-		}
-		if (tag && !post.tags.includes(tag)) {
-			return false;
-		}
-
-		return matchesQuery(post, q);
-	});
-	const start = (page - 1) * limit;
-	const paginated = filtered.slice(start, start + limit);
 
 	return {
-		items: paginated.map(toPublicSummary),
-		total: filtered.length,
+		items: result.items.map(toPublicSummary),
+		total: result.total,
 		page,
 		limit,
 	};
@@ -183,18 +147,19 @@ export async function handlePublicApi(
 			);
 		}
 
-		const query =
-			url.searchParams.get("q") ?? url.searchParams.get("search") ?? "";
-		const records = query.trim()
-			? await posts.searchPublished(query.trim())
-			: await posts.listPublished();
+		const query = (
+			url.searchParams.get("q") ??
+			url.searchParams.get("search") ??
+			""
+		).trim();
+		const tag = url.searchParams.get("tag")?.trim() || undefined;
+		const result = await posts.listPublished({
+			...pagination,
+			tag,
+			q: query || undefined,
+		});
 
-		return json(
-			listPostsResponse(records, {
-				...pagination,
-				tag: url.searchParams.get("tag") ?? undefined,
-			}),
-		);
+		return json(listPostsResponse(result, pagination));
 	}
 
 	if (url.pathname.startsWith("/api/posts/")) {
@@ -233,8 +198,8 @@ export async function handlePublicApi(
 
 		const records = await posts.searchPublished(q);
 		return json({
-			items: records.filter(isPublished).map(toPublicSummary),
-			total: records.filter(isPublished).length,
+			items: records.map(toPublicSummary),
+			total: records.length,
 			q,
 		});
 	}

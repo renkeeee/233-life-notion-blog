@@ -1,5 +1,5 @@
 import type { SettingRow } from "../settings";
-import type { PublicPostRecord } from "../api/public";
+import type { PostVisibility, PublicPostRecord } from "../types";
 
 const upsertSettingSql = `INSERT INTO settings (key, value, encrypted, updated_at)
  VALUES (?, ?, ?, ?)
@@ -70,7 +70,7 @@ type PostRow = {
 	cover_url: string | null;
 	tags_json: string | null;
 	status: string;
-	visibility: string;
+	visibility: PostVisibility;
 	published_at: string | null;
 	updated_at: string;
 };
@@ -80,7 +80,36 @@ type TagCount = {
 	count: number;
 };
 
-const publicPostColumns = `id, slug, title, summary, cover_url, tags_json, status, visibility, published_at, updated_at`;
+type ListPublishedOptions = {
+	page: number;
+	limit: number;
+	tag?: string;
+	q?: string;
+};
+
+type ListPublishedResult = {
+	items: PublicPostRecord[];
+	total: number;
+};
+
+const publicPostColumnNames = [
+	"id",
+	"slug",
+	"title",
+	"summary",
+	"cover_url",
+	"tags_json",
+	"status",
+	"visibility",
+	"published_at",
+	"updated_at",
+] as const;
+
+const publicPostColumns = publicPostColumnNames.join(", ");
+
+function aliasedPublicPostColumns(alias: string): string {
+	return publicPostColumnNames.map((column) => `${alias}.${column}`).join(", ");
+}
 
 function parseTagsJson(tagsJson: string | null): string[] {
 	if (!tagsJson) {
@@ -117,39 +146,116 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 	};
 }
 
+function escapeLike(value: string): string {
+	return value
+		.replaceAll("\\", "\\\\")
+		.replaceAll("%", "\\%")
+		.replaceAll("_", "\\_");
+}
+
+function likePattern(value: string): string {
+	return `%${escapeLike(value)}%`;
+}
+
+function publishedFilters(options: {
+	tag?: string;
+	q?: string;
+}): { joins: string; where: string; values: unknown[] } {
+	const clauses = ["p.visibility = 'published'"];
+	const values: unknown[] = [];
+	const q = options.q?.trim();
+	const tag = options.tag?.trim();
+
+	let joins = "";
+
+	if (tag) {
+		clauses.push(
+			`EXISTS (
+				SELECT 1
+				FROM json_each(
+					CASE WHEN json_valid(p.tags_json) THEN p.tags_json ELSE '[]' END
+				) AS tag
+				WHERE typeof(tag.value) = 'text'
+				AND tag.value = ?
+			)`,
+		);
+		values.push(tag);
+	}
+
+	if (q) {
+		joins = "LEFT JOIN post_content pc ON pc.post_id = p.id";
+		const pattern = likePattern(q);
+		clauses.push(
+			`(
+				p.title LIKE ? ESCAPE '\\'
+				OR COALESCE(p.summary, '') LIKE ? ESCAPE '\\'
+				OR p.tags_json LIKE ? ESCAPE '\\'
+				OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+			)`,
+		);
+		values.push(pattern, pattern, pattern, pattern);
+	}
+
+	return {
+		joins,
+		where: clauses.join("\n\t\t\t\t\t AND "),
+		values,
+	};
+}
+
 export class PostsRepository {
 	constructor(private readonly db: D1Database) {}
 
-	async listPublished(): Promise<PublicPostRecord[]> {
-		const result = await this.db
+	async listPublished(
+		options: ListPublishedOptions = { page: 1, limit: 20 },
+	): Promise<ListPublishedResult> {
+		const offset = (options.page - 1) * options.limit;
+		const filters = publishedFilters(options);
+		const itemResult = await this.db
 			.prepare(
-				`SELECT ${publicPostColumns}
-				 FROM posts
-				 WHERE visibility = 'published'
-				 ORDER BY published_at DESC, updated_at DESC`,
+				`SELECT DISTINCT ${aliasedPublicPostColumns("p")}
+				 FROM posts p
+				 ${filters.joins}
+				 WHERE ${filters.where}
+				 ORDER BY p.published_at DESC, p.updated_at DESC
+				 LIMIT ? OFFSET ?`,
 			)
+			.bind(...filters.values, options.limit, offset)
 			.all<PostRow>();
+		const countRow = await this.db
+			.prepare(
+				`SELECT COUNT(DISTINCT p.id) AS total
+				 FROM posts p
+				 ${filters.joins}
+				 WHERE ${filters.where}`,
+			)
+			.bind(...filters.values)
+			.first<{ total: number }>();
 
-		return result.results.map(mapPostRow);
+		return {
+			items: itemResult.results.map(mapPostRow),
+			total: Number(countRow?.total ?? 0),
+		};
 	}
 
-	async searchPublished(query: string): Promise<PublicPostRecord[]> {
-		const pattern = `%${query}%`;
+	async searchPublished(query: string, limit = 20): Promise<PublicPostRecord[]> {
+		const pattern = likePattern(query);
 		const result = await this.db
 			.prepare(
-				`SELECT p.${publicPostColumns.replaceAll(", ", ", p.")}
+				`SELECT DISTINCT ${aliasedPublicPostColumns("p")}
 				 FROM posts p
 				 LEFT JOIN post_content pc ON pc.post_id = p.id
 				 WHERE p.visibility = 'published'
 				 AND (
-					p.title LIKE ?
-					OR COALESCE(p.summary, '') LIKE ?
-					OR p.tags_json LIKE ?
-					OR COALESCE(pc.markdown, '') LIKE ?
+					p.title LIKE ? ESCAPE '\\'
+					OR COALESCE(p.summary, '') LIKE ? ESCAPE '\\'
+					OR p.tags_json LIKE ? ESCAPE '\\'
+					OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
 				 )
-				 ORDER BY p.published_at DESC, p.updated_at DESC`,
+				 ORDER BY p.published_at DESC, p.updated_at DESC
+				 LIMIT ?`,
 			)
-			.bind(pattern, pattern, pattern, pattern)
+			.bind(pattern, pattern, pattern, pattern, limit)
 			.all<PostRow>();
 
 		return result.results.map(mapPostRow);
@@ -170,24 +276,25 @@ export class PostsRepository {
 	}
 
 	async tagCounts(): Promise<TagCount[]> {
-		const posts = await this.listPublished();
-		const counts = new Map<string, number>();
+		const result = await this.db
+			.prepare(
+				`SELECT tag.value AS tag, COUNT(*) AS count
+				 FROM posts p,
+				 json_each(
+					CASE WHEN json_valid(p.tags_json) THEN p.tags_json ELSE '[]' END
+				 ) AS tag
+				 WHERE p.visibility = 'published'
+				 AND typeof(tag.value) = 'text'
+				 AND trim(tag.value) <> ''
+				 GROUP BY tag.value
+				 ORDER BY count DESC, tag.value ASC`,
+			)
+			.all<TagCount>();
 
-		for (const post of posts) {
-			for (const tag of post.tags) {
-				counts.set(tag, (counts.get(tag) ?? 0) + 1);
-			}
-		}
-
-		return Array.from(counts.entries())
-			.map(([tag, count]) => ({ tag, count }))
-			.sort((left, right) => {
-				if (right.count !== left.count) {
-					return right.count - left.count;
-				}
-
-				return left.tag.localeCompare(right.tag);
-			});
+		return result.results.map((row) => ({
+			tag: row.tag,
+			count: Number(row.count),
+		}));
 	}
 }
 

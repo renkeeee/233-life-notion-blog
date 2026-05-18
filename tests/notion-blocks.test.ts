@@ -123,9 +123,9 @@ const fence = \`\`\`;
 console.log(fence);
 \`\`\`\`
 
-![Architecture](https://cdn.example.com/assets/ab/image.png)
+![Architecture](<https://cdn.example.com/assets/ab/image.png>)
 
-[Download report](https://cdn.example.com/assets/cd/report.pdf)
+[Download report](<https://cdn.example.com/assets/cd/report.pdf>)
 
 nested child`);
 	});
@@ -162,7 +162,118 @@ nested child`);
 		expect(blocksToMarkdown(blocks)).toBe(`> Heads up
 > child text
 
-[Useful link](https://example.com/post)`);
+[Useful link](<https://example.com/post>)`);
+	});
+
+	it("renders URLs with spaces and closing parentheses as safe Markdown destinations", () => {
+		const imageUrl = "https://example.com/assets/image (final).png?size=large value";
+		const bookmarkUrl = "https://example.com/post/version (1)?q=hello world\nnext";
+
+		const blocks: NotionBlock[] = [
+			{
+				id: "image",
+				type: "image",
+				image: {
+					type: "external",
+					external: { url: imageUrl },
+					caption: richText("Diagram"),
+				},
+			},
+			{
+				id: "bookmark",
+				type: "bookmark",
+				bookmark: {
+					url: bookmarkUrl,
+					caption: richText("Launch post"),
+				},
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe(`![Diagram](<https://example.com/assets/image%20(final).png?size=large%20value>)
+
+[Launch post](<https://example.com/post/version%20(1)?q=hello%20world%0Anext>)`);
+	});
+
+	it("does not emit unsafe URL schemes as links or images", () => {
+		const blocks: NotionBlock[] = [
+			{
+				id: "image",
+				type: "image",
+				image: {
+					type: "external",
+					external: { url: "javascript:alert(1)" },
+					caption: richText("Unsafe image"),
+				},
+			},
+			{
+				id: "bookmark",
+				type: "bookmark",
+				bookmark: {
+					url: "javascript:alert(1)",
+					caption: richText("Unsafe link"),
+				},
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe("");
+	});
+
+	it("preserves rich text links, common annotations, and equations", () => {
+		const blocks: NotionBlock[] = [
+			{
+				id: "paragraph",
+				type: "paragraph",
+				paragraph: {
+					rich_text: [
+						{ plain_text: "Bold", annotations: { bold: true } },
+						{ plain_text: " " },
+						{ plain_text: "Italic", annotations: { italic: true } },
+						{ plain_text: " " },
+						{ plain_text: "Gone", annotations: { strikethrough: true } },
+						{ plain_text: " " },
+						{ plain_text: "Under", annotations: { underline: true } },
+						{ plain_text: " " },
+						{ plain_text: "code", annotations: { code: true } },
+						{ plain_text: " " },
+						{
+							plain_text: "Link",
+							href: "https://example.com/a)b c",
+						},
+						{ plain_text: " " },
+						{
+							type: "equation",
+							equation: { expression: "E=mc^2" },
+						},
+					],
+				},
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe(
+			"**Bold** *Italic* ~~Gone~~ <u>Under</u> `code` [Link](<https://example.com/a)b%20c>) $E=mc^2$",
+		);
+	});
+
+	it("preserves an empty paragraph between paragraphs as an intentional blank line", () => {
+		const blocks: NotionBlock[] = [
+			{
+				id: "before",
+				type: "paragraph",
+				paragraph: { rich_text: richText("Before") },
+			},
+			{
+				id: "empty",
+				type: "paragraph",
+				paragraph: { rich_text: [] },
+			},
+			{
+				id: "after",
+				type: "paragraph",
+				paragraph: { rich_text: richText("After") },
+			},
+		];
+
+		expect(blocksToMarkdown(blocks)).toBe("Before\n\n\n\nAfter");
 	});
 });
 
@@ -335,6 +446,58 @@ describe("normalizedBlocksHash", () => {
 		];
 
 		await expect(normalizedBlocksHash(changedQuery)).resolves.not.toBe(
+			await normalizedBlocksHash(original),
+		);
+	});
+
+	it("preserves semantic nested mention ids in the normalized hash", async () => {
+		const original: NotionBlock[] = [
+			{
+				id: "block-id",
+				type: "paragraph",
+				paragraph: {
+					rich_text: [
+						{
+							type: "mention",
+							plain_text: "Project Alpha",
+							mention: {
+								type: "page",
+								page: { id: "page-alpha" },
+							},
+						},
+					],
+				},
+			},
+		];
+		const changedMention: NotionBlock[] = [
+			{
+				...original[0],
+				paragraph: {
+					rich_text: [
+						{
+							type: "mention",
+							plain_text: "Project Alpha",
+							mention: {
+								type: "page",
+								page: { id: "page-beta" },
+							},
+						},
+					],
+				},
+			},
+		];
+		const changedBlockMetadata: NotionBlock[] = [
+			{
+				...original[0],
+				id: "new-block-id",
+				last_edited_time: "2026-05-18T12:00:00.000Z",
+			},
+		];
+
+		await expect(normalizedBlocksHash(changedMention)).resolves.not.toBe(
+			await normalizedBlocksHash(original),
+		);
+		await expect(normalizedBlocksHash(changedBlockMetadata)).resolves.toBe(
 			await normalizedBlocksHash(original),
 		);
 	});

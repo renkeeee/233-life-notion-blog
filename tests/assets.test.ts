@@ -59,6 +59,15 @@ describe("contentHashForBytes", () => {
 			"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
 		);
 	});
+
+	it("hashes only the viewed bytes from typed-array slices", async () => {
+		const bytes = new TextEncoder().encode("prefix-hello-suffix");
+		const view = bytes.subarray("prefix-".length, "prefix-hello".length);
+
+		await expect(contentHashForBytes(view)).resolves.toBe(
+			"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+		);
+	});
 });
 
 describe("uploadAssetIfMissing", () => {

@@ -48,13 +48,14 @@ const volatileBlockKeys = new Set([
 
 interface HashNormalizeContext {
 	notionFileObject: boolean;
+	expectedNotionBlock: boolean;
 }
 
 export function blocksToMarkdown(
 	blocks: NotionBlock[],
 	options: BlocksToMarkdownOptions = {},
 ): string {
-	return renderBlocks(blocks, options, 0).trim();
+	return renderBlocks(blocks, options, 0);
 }
 
 export function extractBlockAssetRefs(blocks: NotionBlock[]): BlockAssetRef[] {
@@ -87,7 +88,14 @@ export function extractBlockAssetRefs(blocks: NotionBlock[]): BlockAssetRef[] {
 export async function normalizedBlocksHash(
 	blocks: NotionBlock[],
 ): Promise<string> {
-	return sha256Hex(stableStringify(normalizeForHash(blocks)));
+	return sha256Hex(
+		stableStringify(
+			normalizeForHash(blocks, {
+				notionFileObject: false,
+				expectedNotionBlock: true,
+			}),
+		),
+	);
 }
 
 function renderBlocks(
@@ -106,7 +114,7 @@ function renderBlocks(
 		}
 
 		const markdown = renderBlock(block, options, depth, numberedListIndex || 1);
-		if (markdown) {
+		if (markdown !== null) {
 			rendered.push(markdown);
 		}
 	}
@@ -119,13 +127,13 @@ function renderBlock(
 	options: BlocksToMarkdownOptions,
 	depth: number,
 	listNumber: number,
-): string {
+): string | null {
 	const type = typeof block.type === "string" ? block.type : "";
 	const payload = blockPayload(block);
 	const children = Array.isArray(block.children)
 		? renderBlocks(block.children, options, depth + 1)
 		: "";
-	let markdown = "";
+	let markdown: string | null = null;
 
 	switch (type) {
 		case "heading_1":
@@ -138,7 +146,7 @@ function renderBlock(
 			markdown = headingMarkdown(3, payload);
 			break;
 		case "paragraph":
-			markdown = richTextPlainText(payload);
+			markdown = payload ? richTextMarkdown(payload) : null;
 			break;
 		case "bulleted_list_item":
 			markdown = listItemMarkdown("-", payload, children);
@@ -147,7 +155,7 @@ function renderBlock(
 			markdown = listItemMarkdown(`${listNumber}.`, payload, children);
 			break;
 		case "quote":
-			markdown = quoteMarkdown(richTextPlainText(payload), children);
+			markdown = quoteMarkdown(richTextMarkdown(payload), children);
 			break;
 		case "divider":
 			markdown = "---";
@@ -165,7 +173,7 @@ function renderBlock(
 			markdown = todoMarkdown(payload, children);
 			break;
 		case "callout":
-			markdown = quoteMarkdown(richTextPlainText(payload), children);
+			markdown = quoteMarkdown(richTextMarkdown(payload), children);
 			break;
 		case "bookmark":
 		case "link_preview":
@@ -175,10 +183,10 @@ function renderBlock(
 			markdown = embedMarkdown(type, payload, options);
 			break;
 		default:
-			markdown = "";
+			markdown = null;
 	}
 
-	if (!markdown && children) {
+	if (markdown === null && children) {
 		return children;
 	}
 
@@ -186,9 +194,9 @@ function renderBlock(
 }
 
 function headingMarkdown(level: 1 | 2 | 3, payload: Record<string, unknown> | null) {
-	const text = richTextPlainText(payload);
+	const text = richTextMarkdown(payload);
 
-	return text ? `${"#".repeat(level)} ${text}` : "";
+	return text ? `${"#".repeat(level)} ${text}` : null;
 }
 
 function listItemMarkdown(
@@ -196,7 +204,7 @@ function listItemMarkdown(
 	payload: Record<string, unknown> | null,
 	children: string,
 ): string {
-	const text = richTextPlainText(payload);
+	const text = richTextMarkdown(payload);
 	const firstLine = `${marker} ${text}`.trimEnd();
 
 	if (!children) {
@@ -211,7 +219,7 @@ function todoMarkdown(
 	children: string,
 ): string {
 	const checked = payload?.checked === true ? "x" : " ";
-	const text = richTextPlainText(payload);
+	const text = richTextMarkdown(payload);
 	const firstLine = `- [${checked}] ${text}`.trimEnd();
 
 	if (!children) {
@@ -248,44 +256,137 @@ function codeMarkdown(payload: Record<string, unknown> | null): string {
 function imageMarkdown(
 	payload: Record<string, unknown> | null,
 	options: BlocksToMarkdownOptions,
-): string {
-	const url = rewrittenUrl(fileObjectUrl(payload), options);
-	if (!url) {
-		return "";
+): string | null {
+	const destination = markdownDestination(rewrittenUrl(fileObjectUrl(payload), options));
+	if (!destination) {
+		return null;
 	}
 
 	const label = captionText(payload) || "image";
 
-	return `![${escapeMarkdownLinkText(label)}](${url})`;
+	return `![${escapeMarkdownLinkText(label)}](${destination})`;
 }
 
 function fileMarkdown(
 	payload: Record<string, unknown> | null,
 	options: BlocksToMarkdownOptions,
-): string {
-	const url = rewrittenUrl(fileObjectUrl(payload), options);
-	if (!url) {
-		return "";
+): string | null {
+	const destination = markdownDestination(rewrittenUrl(fileObjectUrl(payload), options));
+	if (!destination) {
+		return null;
 	}
 
 	const label = captionText(payload) || "file";
 
-	return `[${escapeMarkdownLinkText(label)}](${url})`;
+	return `[${escapeMarkdownLinkText(label)}](${destination})`;
 }
 
 function embedMarkdown(
 	type: string,
 	payload: Record<string, unknown> | null,
 	options: BlocksToMarkdownOptions,
-): string {
-	const url = rewrittenUrl(fileObjectUrl(payload) ?? directUrl(payload), options);
-	if (!url) {
-		return "";
+): string | null {
+	const destination = markdownDestination(
+		rewrittenUrl(fileObjectUrl(payload) ?? directUrl(payload), options),
+	);
+	if (!destination) {
+		return null;
 	}
 
 	const label = captionText(payload) || type.replaceAll("_", " ");
 
-	return `[${escapeMarkdownLinkText(label)}](${url})`;
+	return `[${escapeMarkdownLinkText(label)}](${destination})`;
+}
+
+function richTextMarkdown(payload: Record<string, unknown> | null): string {
+	if (!payload || !Array.isArray(payload.rich_text)) {
+		return "";
+	}
+
+	return payload.rich_text
+		.map((item) => (isRecord(item) ? richTextSpanMarkdown(item) : ""))
+		.join("");
+}
+
+function richTextSpanMarkdown(item: Record<string, unknown>): string {
+	const equationText = equationExpressionMarkdown(item);
+	const plainText =
+		typeof item.plain_text === "string" ? item.plain_text : equationText;
+	if (!plainText) {
+		return "";
+	}
+
+	const annotations = isRecord(item.annotations) ? item.annotations : {};
+	const href = richTextHref(item);
+	const destination = markdownDestination(href);
+	const linkText = destination ? escapeMarkdownLinkText(plainText) : plainText;
+	const annotated = annotatedMarkdown(linkText, annotations);
+
+	return destination ? `[${annotated}](${destination})` : annotated;
+}
+
+function equationExpressionMarkdown(item: Record<string, unknown>): string {
+	if (item.type !== "equation" || !isRecord(item.equation)) {
+		return "";
+	}
+
+	const expression = item.equation.expression;
+
+	return typeof expression === "string" ? `$${expression}$` : "";
+}
+
+function richTextHref(item: Record<string, unknown>): string | null {
+	if (typeof item.href === "string") {
+		return item.href;
+	}
+
+	if (isRecord(item.text) && isRecord(item.text.link)) {
+		const url = item.text.link.url;
+
+		return typeof url === "string" ? url : null;
+	}
+
+	return null;
+}
+
+function annotatedMarkdown(
+	value: string,
+	annotations: Record<string, unknown>,
+): string {
+	if (!value) {
+		return "";
+	}
+
+	if (annotations.code === true) {
+		return inlineCodeMarkdown(value);
+	}
+
+	let markdown = value;
+	if (annotations.bold === true) {
+		markdown = `**${markdown}**`;
+	}
+	if (annotations.italic === true) {
+		markdown = `*${markdown}*`;
+	}
+	if (annotations.strikethrough === true) {
+		markdown = `~~${markdown}~~`;
+	}
+	if (annotations.underline === true) {
+		markdown = `<u>${markdown}</u>`;
+	}
+
+	return markdown;
+}
+
+function inlineCodeMarkdown(value: string): string {
+	const longestBacktickRun = Math.max(
+		0,
+		...Array.from(value.matchAll(/`+/g), (match) => match[0].length),
+	);
+	const fence = "`".repeat(longestBacktickRun + 1);
+	const padding = value.startsWith("`") || value.endsWith("`") ? " " : "";
+
+	return `${fence}${padding}${value}${padding}${fence}`;
 }
 
 function richTextPlainText(payload: Record<string, unknown> | null): string {
@@ -395,9 +496,39 @@ function escapeMarkdownLinkText(value: string): string {
 	return value.replaceAll("[", "\\[").replaceAll("]", "\\]");
 }
 
+function markdownDestination(url: string | null): string | null {
+	if (!url) {
+		return null;
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(encodeRawUrlWhitespace(url.trim()));
+	} catch {
+		return null;
+	}
+
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+		return null;
+	}
+
+	return `<${encodeMarkdownDestinationChars(parsed.href)}>`;
+}
+
+function encodeMarkdownDestinationChars(value: string): string {
+	return value.replace(/[<>\s]/g, (char) => encodeURIComponent(char));
+}
+
+function encodeRawUrlWhitespace(value: string): string {
+	return value.replace(/[\t\n\v\f\r ]/g, (char) => encodeURIComponent(char));
+}
+
 function normalizeForHash(
 	value: unknown,
-	context: HashNormalizeContext = { notionFileObject: false },
+	context: HashNormalizeContext = {
+		notionFileObject: false,
+		expectedNotionBlock: false,
+	},
 ): unknown {
 	if (Array.isArray(value)) {
 		return value.map((item) => normalizeForHash(item, context));
@@ -408,8 +539,9 @@ function normalizeForHash(
 	}
 
 	const normalized: Record<string, unknown> = {};
+	const stripVolatileKeys = context.expectedNotionBlock;
 	for (const key of Object.keys(value).sort()) {
-		if (volatileBlockKeys.has(key)) {
+		if (stripVolatileKeys && volatileBlockKeys.has(key)) {
 			continue;
 		}
 		if (context.notionFileObject && key === "expiry_time") {
@@ -436,6 +568,7 @@ function normalizeHashValueForKey(
 
 	return normalizeForHash(value, {
 		notionFileObject: isNotionFileObjectKey(key, value),
+		expectedNotionBlock: key === "children",
 	});
 }
 

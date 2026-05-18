@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 type InlineNode =
 	| { type: "text"; value: string }
 	| { type: "link"; label: string; href: string }
-	| { type: "image"; alt: string; src: string };
+	| { type: "image"; alt: string; src: string }
+	| { type: "strong"; children: InlineNode[] }
+	| { type: "em"; children: InlineNode[] }
+	| { type: "strike"; children: InlineNode[] }
+	| { type: "underline"; children: InlineNode[] }
+	| { type: "code"; value: string }
+	| { type: "math"; value: string };
 
 type BlockNode =
 	| { type: "heading"; level: 1 | 2 | 3; text: string }
@@ -41,6 +47,17 @@ function inlineTokens(text: string): InlineNode[] {
 	let lastIndex = 0;
 
 	for (let index = 0; index < text.length; index += 1) {
+		const annotation = readAnnotation(text, index);
+		if (annotation) {
+			if (index > lastIndex) {
+				tokens.push({ type: "text", value: text.slice(lastIndex, index) });
+			}
+			tokens.push(annotation.node);
+			index = annotation.endIndex;
+			lastIndex = annotation.endIndex + 1;
+			continue;
+		}
+
 		const image = text.startsWith("![", index);
 		const link = !image && text[index] === "[";
 		if (!image && !link) {
@@ -90,6 +107,98 @@ function inlineTokens(text: string): InlineNode[] {
 	return tokens;
 }
 
+function readAnnotation(
+	text: string,
+	startIndex: number,
+): { node: InlineNode; endIndex: number } | null {
+	if (text.startsWith("**", startIndex)) {
+		const endIndex = text.indexOf("**", startIndex + 2);
+		if (endIndex !== -1) {
+			return {
+				node: {
+					type: "strong",
+					children: inlineTokens(text.slice(startIndex + 2, endIndex)),
+				},
+				endIndex: endIndex + 1,
+			};
+		}
+	}
+
+	if (text.startsWith("~~", startIndex)) {
+		const endIndex = text.indexOf("~~", startIndex + 2);
+		if (endIndex !== -1) {
+			return {
+				node: {
+					type: "strike",
+					children: inlineTokens(text.slice(startIndex + 2, endIndex)),
+				},
+				endIndex: endIndex + 1,
+			};
+		}
+	}
+
+	if (text.startsWith("<u>", startIndex)) {
+		const endIndex = text.indexOf("</u>", startIndex + 3);
+		if (endIndex !== -1) {
+			return {
+				node: {
+					type: "underline",
+					children: inlineTokens(text.slice(startIndex + 3, endIndex)),
+				},
+				endIndex: endIndex + 3,
+			};
+		}
+	}
+
+	if (text[startIndex] === "`") {
+		const marker = backtickMarkerAt(text, startIndex);
+		const endIndex = text.indexOf(marker, startIndex + marker.length);
+		if (endIndex !== -1) {
+			return {
+				node: {
+					type: "code",
+					value: text.slice(startIndex + marker.length, endIndex).trim(),
+				},
+				endIndex: endIndex + marker.length - 1,
+			};
+		}
+	}
+
+	if (text[startIndex] === "$") {
+		const endIndex = text.indexOf("$", startIndex + 1);
+		if (endIndex !== -1) {
+			return {
+				node: { type: "math", value: text.slice(startIndex + 1, endIndex) },
+				endIndex,
+			};
+		}
+	}
+
+	if (text[startIndex] === "*" && text[startIndex + 1] !== "*") {
+		const endIndex = text.indexOf("*", startIndex + 1);
+		if (endIndex !== -1) {
+			return {
+				node: {
+					type: "em",
+					children: inlineTokens(text.slice(startIndex + 1, endIndex)),
+				},
+				endIndex,
+			};
+		}
+	}
+
+	return null;
+}
+
+function backtickMarkerAt(text: string, startIndex: number): string {
+	let endIndex = startIndex;
+	while (text[endIndex] === "`") {
+		endIndex += 1;
+	}
+
+	return text.slice(startIndex, endIndex);
+}
+
 function readDestination(
 	text: string,
 	startIndex: number,
@@ -130,6 +239,28 @@ function readDestination(
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
 	return inlineTokens(text).map((token, index) => {
 		const key = `${keyPrefix}-${index}`;
+		if (token.type === "strong") {
+			return <strong key={key}>{renderInlineNodes(token.children, key)}</strong>;
+		}
+		if (token.type === "em") {
+			return <em key={key}>{renderInlineNodes(token.children, key)}</em>;
+		}
+		if (token.type === "strike") {
+			return <s key={key}>{renderInlineNodes(token.children, key)}</s>;
+		}
+		if (token.type === "underline") {
+			return <u key={key}>{renderInlineNodes(token.children, key)}</u>;
+		}
+		if (token.type === "code") {
+			return <code key={key}>{token.value}</code>;
+		}
+		if (token.type === "math") {
+			return (
+				<span className="math-inline" key={key}>
+					{token.value}
+				</span>
+			);
+		}
 		if (token.type === "link") {
 			return (
 				<a key={key} href={token.href}>
@@ -141,6 +272,45 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
 			return <img key={key} src={token.src} alt={token.alt} loading="lazy" />;
 		}
 		return token.value;
+	});
+}
+
+function renderInlineNodes(tokens: InlineNode[], keyPrefix: string): ReactNode[] {
+	return tokens.map((token, index) => {
+		const key = `${keyPrefix}-child-${index}`;
+		if (token.type === "text") {
+			return token.value;
+		}
+		if (token.type === "strong") {
+			return <strong key={key}>{renderInlineNodes(token.children, key)}</strong>;
+		}
+		if (token.type === "em") {
+			return <em key={key}>{renderInlineNodes(token.children, key)}</em>;
+		}
+		if (token.type === "strike") {
+			return <s key={key}>{renderInlineNodes(token.children, key)}</s>;
+		}
+		if (token.type === "underline") {
+			return <u key={key}>{renderInlineNodes(token.children, key)}</u>;
+		}
+		if (token.type === "code") {
+			return <code key={key}>{token.value}</code>;
+		}
+		if (token.type === "math") {
+			return (
+				<span className="math-inline" key={key}>
+					{token.value}
+				</span>
+			);
+		}
+		if (token.type === "link") {
+			return (
+				<a key={key} href={token.href}>
+					{token.label}
+				</a>
+			);
+		}
+		return <img key={key} src={token.src} alt={token.alt} loading="lazy" />;
 	});
 }
 

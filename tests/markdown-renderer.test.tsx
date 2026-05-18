@@ -58,4 +58,30 @@ describe("Markdown", () => {
 		);
 		expect(container.querySelector("hr")).toBeTruthy();
 	});
+
+	it("renders production rich text annotations without exposing raw markdown", () => {
+		const { container } = render(
+			<Markdown markdown="**Bold** *Italic* ~~Gone~~ <u>Under</u> `code` $E=mc^2$" />,
+		);
+
+		expect(container.querySelector("strong")?.textContent).toBe("Bold");
+		expect(container.querySelector("em")?.textContent).toBe("Italic");
+		expect(container.querySelector("s")?.textContent).toBe("Gone");
+		expect(container.querySelector("u")?.textContent).toBe("Under");
+		expect(container.querySelector("code")?.textContent).toBe("code");
+		expect(container.querySelector(".math-inline")?.textContent).toBe("E=mc^2");
+		expect(container.textContent).not.toContain("**");
+		expect(container.textContent).not.toContain("~~");
+		expect(container.textContent).not.toContain("<u>");
+	});
+
+	it("does not render arbitrary inline HTML from markdown text", () => {
+		const { container } = render(
+			<Markdown markdown="<script>alert(1)</script> <u>Allowed underline</u>" />,
+		);
+
+		expect(container.querySelector("script")).toBeNull();
+		expect(container.textContent).toContain("<script>alert(1)</script>");
+		expect(container.querySelector("u")?.textContent).toBe("Allowed underline");
+	});
 });

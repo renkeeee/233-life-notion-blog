@@ -264,7 +264,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
 		if (token.type === "link") {
 			return (
 				<a key={key} href={token.href}>
-					{token.label}
+					{renderInline(token.label, `${key}-label`)}
 				</a>
 			);
 		}
@@ -306,7 +306,7 @@ function renderInlineNodes(tokens: InlineNode[], keyPrefix: string): ReactNode[]
 		if (token.type === "link") {
 			return (
 				<a key={key} href={token.href}>
-					{token.label}
+					{renderInline(token.label, `${key}-label`)}
 				</a>
 			);
 		}

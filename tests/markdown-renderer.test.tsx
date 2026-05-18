@@ -84,4 +84,17 @@ describe("Markdown", () => {
 		expect(container.textContent).toContain("<script>alert(1)</script>");
 		expect(container.querySelector("u")?.textContent).toBe("Allowed underline");
 	});
+
+	it("renders annotations inside link labels", () => {
+		const { container } = render(
+			<Markdown markdown="[**Bold link** and `code`](<https://example.com>)" />,
+		);
+
+		const link = screen.getByRole("link", { name: "Bold link and code" });
+		expect(link).toHaveAttribute("href", "https://example.com");
+		expect(within(link).getByText("Bold link").tagName).toBe("STRONG");
+		expect(container.querySelector("a code")?.textContent).toBe("code");
+		expect(link.textContent).not.toContain("**");
+		expect(link.textContent).not.toContain("`");
+	});
 });

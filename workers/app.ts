@@ -1,3 +1,4 @@
+import { handlePublicApi } from "./api/public";
 import type { AppEnv } from "./types";
 
 function json(data: unknown, init?: ResponseInit) {
@@ -13,11 +14,17 @@ function json(data: unknown, init?: ResponseInit) {
 }
 
 export default {
-	fetch(request, _env, _ctx) {
+	fetch(request, env, _ctx) {
 		const url = new URL(request.url);
 
-		if (url.pathname === "/api/health") {
-			return json({ ok: true });
+		if (
+			url.pathname === "/api/health" ||
+			url.pathname === "/api/posts" ||
+			url.pathname.startsWith("/api/posts/") ||
+			url.pathname === "/api/tags" ||
+			url.pathname === "/api/search"
+		) {
+			return handlePublicApi(request, env);
 		}
 
 		if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {

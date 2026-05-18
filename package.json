@@ -23,13 +23,17 @@
 		"@cloudflare/vite-plugin": "1.15.3",
 		"@react-router/dev": "7.9.6",
 		"@tailwindcss/vite": "4.1.17",
+		"@testing-library/jest-dom": "^6.9.1",
+		"@testing-library/react": "^16.3.2",
 		"@types/node": "24.10.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
+		"jsdom": "^29.1.1",
 		"tailwindcss": "4.1.17",
 		"typescript": "5.9.3",
 		"vite": "^6.0.0",
 		"vite-tsconfig-paths": "5.1.4",
+		"vitest": "^4.1.6",
 		"wrangler": "4.56.0"
 	},
 	"private": true,
@@ -40,6 +44,8 @@
 		"deploy": "wrangler deploy",
 		"dev": "react-router dev",
 		"preview": "npm run build && vite preview",
+		"test": "vitest run",
+		"test:watch": "vitest",
 		"typecheck": "npm run typegen && tsc -b"
 	},
 	"type": "module"

@@ -1,109 +1,105 @@
-# Welcome to React Router + Cloudflare Workers!
+# 233 Life Notion Blog
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/react-router-starter-template)
+A React SPA and Cloudflare Worker blog system backed by a Notion database. The
+frontend talks to the Worker through JSON APIs; content, settings, sync records,
+and rendered Markdown are stored in D1, while downloaded Notion assets are stored
+in R2 and served through a configured CDN base URL.
 
-![React Router Starter Template Preview](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/bfdc2f85-e5c9-4c92-128b-3a6711249800/public)
+## Local Development
 
-<!-- dash-content-start -->
-
-A modern, production-ready template for building full-stack React applications using [React Router](https://reactrouter.com/) and the [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/).
-
-## Features
-
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
-- 🔎 Built-in Observability to monitor your Worker
-<!-- dash-content-end -->
-
-## Getting Started
-
-Outside of this repo, you can start a new project with this template using [C3](https://developers.cloudflare.com/pages/get-started/c3/) (the `create-cloudflare` CLI):
-
-```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/react-router-starter-template
-```
-
-A live public deployment of this template is available at [https://react-router-starter-template.templates.workers.dev](https://react-router-starter-template.templates.workers.dev)
-
-### Installation
-
-Install the dependencies:
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-### Development
+Create a local Worker secret in `.dev.vars`:
 
-Start the development server with HMR:
+```bash
+node -e "console.log('CONFIG_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64url'))" > .dev.vars
+```
+
+Apply the local D1 migration:
+
+```bash
+npx wrangler d1 migrations apply 233-life-notion-blog --local
+```
+
+Start the development server:
 
 ```bash
 npm run dev
 ```
 
-Your application will be available at `http://localhost:5173`.
+The app is available at `http://localhost:5173`.
 
-## Typegen
+## Admin Console
 
-Generate types for your Cloudflare bindings in `wrangler.json`:
+Open `/admin` and log in with the initial password:
 
-```sh
-npm run typegen
+```text
+123456
 ```
 
-## Building for Production
+The first login requires changing this password before protected settings and
+sync actions are available.
 
-Create a production build:
+Configure the Notion source in the admin settings page. The default database URL
+is prefilled as:
+
+```text
+https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b
+```
+
+You still need to provide a Notion integration token and a CDN base URL for R2
+asset delivery.
+
+## Notion Blog Setup
+
+1. Create Cloudflare resources:
 
 ```bash
-npm run build
+npx wrangler d1 create 233-life-notion-blog
+npx wrangler r2 bucket create 233-life-notion-blog-assets
 ```
 
-## Previewing the Production Build
+2. Replace the placeholder D1 `database_id` in `wrangler.json` with the ID
+   returned by `wrangler d1 create`.
 
-Preview the production build locally:
+3. Set the encryption key:
 
 ```bash
-npm run preview
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+npx wrangler secret put CONFIG_ENCRYPTION_KEY
 ```
 
-## Deployment
+4. Apply remote migrations:
 
-If you don't have a Cloudflare account, [create one here](https://dash.cloudflare.com/sign-up)! Go to your [Workers dashboard](https://dash.cloudflare.com/?to=%2F%3Aaccount%2Fworkers-and-pages) to see your [free custom Cloudflare Workers subdomain](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) on `*.workers.dev`.
-
-Once that's done, you can build your app:
-
-```sh
-npm run build
+```bash
+npx wrangler d1 migrations apply 233-life-notion-blog
 ```
 
-And deploy it:
+5. Deploy:
 
-```sh
+```bash
 npm run deploy
 ```
 
-To deploy a preview URL:
+6. Open `/admin`, log in with `123456`, change the password, and configure
+   Notion.
 
-```sh
-npx wrangler versions upload
+## Verification
+
+Run the project checks before deploying:
+
+```bash
+npm test
+npm run typecheck
+npm run check
 ```
 
-You can then promote a version to production after verification or roll it out progressively.
+Useful smoke-test URLs:
 
-```sh
-npx wrangler versions deploy
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+- `/` renders the public blog shell.
+- `/admin` renders the password-protected admin console.
+- `/api/health` returns `{ "ok": true }`.

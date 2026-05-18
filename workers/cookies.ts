@@ -6,6 +6,9 @@ export interface CookieOptions {
 	secure?: boolean;
 }
 
+const cookieNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const controlCharacterPattern = /[\u0000-\u001F\u007F]/;
+
 function decodeCookieValue(value: string): string {
 	try {
 		return decodeURIComponent(value);
@@ -43,11 +46,47 @@ export function parseCookies(header: string | null): Record<string, string> {
 	return cookies;
 }
 
+function assertCookieName(name: string): void {
+	if (!cookieNamePattern.test(name)) {
+		throw new Error("Invalid cookie name");
+	}
+}
+
+function assertCookieValue(value: string): void {
+	if (controlCharacterPattern.test(value) || value.includes(";")) {
+		throw new Error("Invalid cookie value");
+	}
+}
+
+function assertCookiePath(path: string): void {
+	if (controlCharacterPattern.test(path) || path.includes(";")) {
+		throw new Error("Invalid cookie path");
+	}
+}
+
 export function serializeCookie(
 	name: string,
 	value: string,
 	options: CookieOptions = {},
 ): string {
+	assertCookieName(name);
+	assertCookieValue(value);
+
+	if (options.path) {
+		assertCookiePath(options.path);
+	}
+
+	if (
+		options.maxAge !== undefined &&
+		(!Number.isFinite(options.maxAge) || !Number.isInteger(options.maxAge))
+	) {
+		throw new Error("Invalid cookie Max-Age");
+	}
+
+	if (options.sameSite === "None" && !options.secure) {
+		throw new Error("SameSite=None cookies must be Secure");
+	}
+
 	const parts = [`${name}=${encodeURIComponent(value)}`];
 
 	if (options.maxAge !== undefined) {

@@ -8,11 +8,13 @@ type InlineNode =
 type BlockNode =
 	| { type: "heading"; level: 1 | 2 | 3; text: string }
 	| { type: "paragraph"; text: string }
-	| { type: "list"; items: string[] }
+	| { type: "list"; ordered: boolean; items: string[] }
+	| { type: "quote"; lines: string[] }
+	| { type: "divider" }
 	| { type: "code"; code: string };
 
 function safeUrl(url: string): string | null {
-	const trimmed = url.trim();
+	const trimmed = normalizeDestination(url);
 	if (
 		trimmed.startsWith("/") ||
 		trimmed.startsWith("#") ||
@@ -25,34 +27,60 @@ function safeUrl(url: string): string | null {
 	return null;
 }
 
+function normalizeDestination(url: string): string {
+	const trimmed = url.trim();
+	if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
+		return trimmed.slice(1, -1).trim();
+	}
+
+	return trimmed;
+}
+
 function inlineTokens(text: string): InlineNode[] {
 	const tokens: InlineNode[] = [];
-	const pattern = /!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)/g;
 	let lastIndex = 0;
-	let match: RegExpExecArray | null;
 
-	while ((match = pattern.exec(text)) !== null) {
-		if (match.index > lastIndex) {
-			tokens.push({ type: "text", value: text.slice(lastIndex, match.index) });
+	for (let index = 0; index < text.length; index += 1) {
+		const image = text.startsWith("![", index);
+		const link = !image && text[index] === "[";
+		if (!image && !link) {
+			continue;
 		}
 
-		if (match[1] !== undefined && match[2] !== undefined) {
-			const src = safeUrl(match[2]);
+		const labelStart = index + (image ? 2 : 1);
+		const labelEnd = text.indexOf("]", labelStart);
+		if (labelEnd === -1 || text[labelEnd + 1] !== "(") {
+			continue;
+		}
+
+		const destination = readDestination(text, labelEnd + 2);
+		if (!destination) {
+			continue;
+		}
+
+		if (index > lastIndex) {
+			tokens.push({ type: "text", value: text.slice(lastIndex, index) });
+		}
+
+		const label = text.slice(labelStart, labelEnd);
+		if (image) {
+			const src = safeUrl(destination.value);
 			tokens.push(
 				src
-					? { type: "image", alt: match[1], src }
-					: { type: "text", value: match[1] },
+					? { type: "image", alt: label, src }
+					: { type: "text", value: label },
 			);
-		} else if (match[3] !== undefined && match[4] !== undefined) {
-			const href = safeUrl(match[4]);
+		} else {
+			const href = safeUrl(destination.value);
 			tokens.push(
 				href
-					? { type: "link", label: match[3], href }
-					: { type: "text", value: match[3] },
+					? { type: "link", label, href }
+					: { type: "text", value: label },
 			);
 		}
 
-		lastIndex = pattern.lastIndex;
+		index = destination.endIndex;
+		lastIndex = destination.endIndex + 1;
 	}
 
 	if (lastIndex < text.length) {
@@ -60,6 +88,43 @@ function inlineTokens(text: string): InlineNode[] {
 	}
 
 	return tokens;
+}
+
+function readDestination(
+	text: string,
+	startIndex: number,
+): { value: string; endIndex: number } | null {
+	if (text[startIndex] === "<") {
+		const endAngle = text.indexOf(">)", startIndex);
+		if (endAngle === -1) {
+			return null;
+		}
+
+		return {
+			value: text.slice(startIndex, endAngle + 1),
+			endIndex: endAngle + 1,
+		};
+	}
+
+	let depth = 0;
+	for (let index = startIndex; index < text.length; index += 1) {
+		const char = text[index];
+		if (char === "(") {
+			depth += 1;
+			continue;
+		}
+		if (char === ")") {
+			if (depth === 0) {
+				return {
+					value: text.slice(startIndex, index),
+					endIndex: index,
+				};
+			}
+			depth -= 1;
+		}
+	}
+
+	return null;
 }
 
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
@@ -110,6 +175,22 @@ function parseMarkdown(markdown: string): BlockNode[] {
 			continue;
 		}
 
+		if (/^\s*---\s*$/.test(line)) {
+			blocks.push({ type: "divider" });
+			continue;
+		}
+
+		if (/^\s*>\s?/.test(line)) {
+			const quoteLines: string[] = [];
+			while (index < lines.length && /^\s*>\s?/.test(lines[index] ?? "")) {
+				quoteLines.push((lines[index] ?? "").replace(/^\s*>\s?/, ""));
+				index += 1;
+			}
+			index -= 1;
+			blocks.push({ type: "quote", lines: quoteLines });
+			continue;
+		}
+
 		if (/^\s*[-*]\s+/.test(line)) {
 			const items: string[] = [];
 			while (index < lines.length && /^\s*[-*]\s+/.test(lines[index] ?? "")) {
@@ -117,7 +198,18 @@ function parseMarkdown(markdown: string): BlockNode[] {
 				index += 1;
 			}
 			index -= 1;
-			blocks.push({ type: "list", items });
+			blocks.push({ type: "list", ordered: false, items });
+			continue;
+		}
+
+		if (/^\s*\d+\.\s+/.test(line)) {
+			const items: string[] = [];
+			while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index] ?? "")) {
+				items.push((lines[index] ?? "").replace(/^\s*\d+\.\s+/, "").trim());
+				index += 1;
+			}
+			index -= 1;
+			blocks.push({ type: "list", ordered: true, items });
 			continue;
 		}
 
@@ -127,7 +219,10 @@ function parseMarkdown(markdown: string): BlockNode[] {
 			lines[index + 1]?.trim() &&
 			!lines[index + 1]?.trimStart().startsWith("```") &&
 			!/^(#{1,3})\s+/.test(lines[index + 1] ?? "") &&
-			!/^\s*[-*]\s+/.test(lines[index + 1] ?? "")
+			!/^\s*[-*]\s+/.test(lines[index + 1] ?? "") &&
+			!/^\s*\d+\.\s+/.test(lines[index + 1] ?? "") &&
+			!/^\s*>\s?/.test(lines[index + 1] ?? "") &&
+			!/^\s*---\s*$/.test(lines[index + 1] ?? "")
 		) {
 			index += 1;
 			paragraphLines.push((lines[index] ?? "").trim());
@@ -149,13 +244,26 @@ export function Markdown({ markdown }: { markdown: string }) {
 					);
 				}
 				if (block.type === "list") {
+					const List = block.ordered ? "ol" : "ul";
 					return (
-						<ul key={index}>
+						<List key={index}>
 							{block.items.map((item, itemIndex) => (
 								<li key={itemIndex}>{renderInline(item, `list-${index}-${itemIndex}`)}</li>
 							))}
-						</ul>
+						</List>
 					);
+				}
+				if (block.type === "quote") {
+					return (
+						<blockquote key={index}>
+							{block.lines.map((line, lineIndex) => (
+								<p key={lineIndex}>{renderInline(line, `quote-${index}-${lineIndex}`)}</p>
+							))}
+						</blockquote>
+					);
+				}
+				if (block.type === "divider") {
+					return <hr key={index} />;
 				}
 				if (block.type === "code") {
 					return (

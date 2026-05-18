@@ -8,6 +8,7 @@ export interface CookieOptions {
 
 const cookieNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const controlCharacterPattern = /[\u0000-\u001F\u007F]/;
+const sameSiteValues = new Set(["Lax", "Strict", "None"]);
 
 function decodeCookieValue(value: string): string {
 	try {
@@ -64,6 +65,12 @@ function assertCookiePath(path: string): void {
 	}
 }
 
+function assertCookieSameSite(sameSite: CookieOptions["sameSite"]): void {
+	if (sameSite !== undefined && !sameSiteValues.has(sameSite)) {
+		throw new Error("Invalid cookie SameSite");
+	}
+}
+
 export function serializeCookie(
 	name: string,
 	value: string,
@@ -82,6 +89,8 @@ export function serializeCookie(
 	) {
 		throw new Error("Invalid cookie Max-Age");
 	}
+
+	assertCookieSameSite(options.sameSite);
 
 	if (options.sameSite === "None" && !options.secure) {
 		throw new Error("SameSite=None cookies must be Secure");

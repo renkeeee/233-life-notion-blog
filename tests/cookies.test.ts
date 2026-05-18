@@ -79,4 +79,19 @@ describe("cookie helpers", () => {
 			serializeCookie("admin_session", "abc", { sameSite: "None" }),
 		).toThrow("SameSite=None cookies must be Secure");
 	});
+
+	it("rejects invalid runtime SameSite values", () => {
+		expect(() =>
+			serializeCookie("admin_session", "abc", {
+				sameSite: "none",
+				secure: true,
+			} as any),
+		).toThrow("Invalid cookie SameSite");
+		expect(() =>
+			serializeCookie("admin_session", "abc", {
+				sameSite: "Lax; HttpOnly",
+				secure: true,
+			} as any),
+		).toThrow("Invalid cookie SameSite");
+	});
 });

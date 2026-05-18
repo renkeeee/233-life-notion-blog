@@ -22,8 +22,8 @@ function testSettings(notionToken = "ntn_secret"): SiteSettings {
 	return {
 		siteTitle: "233 Life",
 		notionDatabaseUrl:
-			"https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b",
-		notionDatabaseId: "c5e926f6cd3c4671bb0b86737143570b",
+			"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 		notionToken,
 		cdnBaseUrl: "https://cdn.example.com",
 		fieldMapping: { title: "Name", status: "Status" },
@@ -93,7 +93,7 @@ describe("settings storage helpers", () => {
 		await expect(parseSettingsFromRows(rows, rootKey)).resolves.toEqual(settings);
 	});
 
-	it("parses field mapping JSON from stored rows", async () => {
+	it("parses field mapping JSON and ignores removed mapping keys from stored rows", async () => {
 		const rootKey = generateEncryptionKey();
 		const parsed = await parseSettingsFromRows(
 			[
@@ -104,7 +104,14 @@ describe("settings storage helpers", () => {
 				settingRow("cdnBaseUrl", "https://cdn.example.com"),
 				settingRow(
 					"fieldMapping",
-					JSON.stringify({ title: "Name", status: "Status", tags: "Tags" }),
+					JSON.stringify({
+						title: "Name",
+						status: "Status",
+						publishedAt: "Published At",
+						summary: "Summary",
+						tags: "Tags",
+						cover: "Cover",
+					}),
 				),
 			],
 			rootKey,
@@ -113,7 +120,7 @@ describe("settings storage helpers", () => {
 		expect(parsed.fieldMapping).toEqual({
 			title: "Name",
 			status: "Status",
-			tags: "Tags",
+			publishedAt: "Published At",
 		});
 	});
 

@@ -8,7 +8,7 @@ export type PublicPostDetail = PublicPostSummary & {
 
 function formatDate(value: string | null): string {
 	if (!value) {
-		return "Unpublished";
+		return "Undated";
 	}
 
 	return new Intl.DateTimeFormat("en", {
@@ -27,20 +27,10 @@ export function PostDetail({ post }: { post: PublicPostDetail }) {
 				</Link>
 				<p className="post-meta">
 					<time dateTime={post.publishedAt ?? post.updatedAt}>
-						{formatDate(post.publishedAt)}
+						{formatDate(post.publishedAt ?? post.updatedAt)}
 					</time>
 				</p>
 				<h1>{post.title}</h1>
-				{post.summary ? <p className="post-summary">{post.summary}</p> : null}
-				{post.tags.length > 0 ? (
-					<nav className="tag-row" aria-label={`Tags for ${post.title}`}>
-						{post.tags.map((tag) => (
-							<Link key={tag} to={`/tags/${encodeURIComponent(tag)}`}>
-								{tag}
-							</Link>
-						))}
-					</nav>
-				) : null}
 			</header>
 			{post.coverUrl ? (
 				<img className="post-hero-image" src={post.coverUrl} alt="" />

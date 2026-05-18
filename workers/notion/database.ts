@@ -30,7 +30,7 @@ export function parseNotionDatabaseId(input: string): string {
 		matches = url.pathname
 			.split("/")
 			.filter(Boolean)
-			.map((segment) => normalizeDatabaseId(decodeURIComponent(segment)))
+			.map((segment) => databaseIdFromPathSegment(decodeURIComponent(segment)))
 			.filter((id): id is string => id !== null);
 	} catch {
 		throw invalidDatabaseId();
@@ -55,7 +55,7 @@ export function inferFieldMapping(properties: NotionProperties): FieldMapping {
 	}
 
 	const status = findProperty(entries, {
-		aliases: ["status", "publish", "published", "状态"],
+		aliases: ["status", "publish", "published", "visibility", "状态", "发布"],
 		types: ["status", "select", "checkbox"],
 	}, used);
 
@@ -70,49 +70,13 @@ export function inferFieldMapping(properties: NotionProperties): FieldMapping {
 		status,
 	};
 
-	const summary = findProperty(entries, {
-		aliases: ["summary", "description", "excerpt", "摘要"],
-		types: ["rich_text", "text", "url"],
-	}, used);
-	if (summary) {
-		mapping.summary = summary;
-		used.add(summary);
-	}
-
-	const tags = findProperty(entries, {
-		aliases: ["tags", "tag", "标签"],
-		types: ["multi_select", "select"],
-	}, used);
-	if (tags) {
-		mapping.tags = tags;
-		used.add(tags);
-	}
-
 	const publishedAt = findProperty(entries, {
-		aliases: ["date", "published_at", "published", "发布日期"],
+		aliases: ["date", "published_at", "published", "created", "日期", "发布日期"],
 		types: ["date", "created_time"],
 	}, used);
 	if (publishedAt) {
 		mapping.publishedAt = publishedAt;
 		used.add(publishedAt);
-	}
-
-	const cover = findProperty(entries, {
-		aliases: ["cover", "封面"],
-		types: ["files", "url"],
-	}, used);
-	if (cover) {
-		mapping.cover = cover;
-		used.add(cover);
-	}
-
-	const slug = findProperty(entries, {
-		aliases: ["slug", "url", "name"],
-		types: ["rich_text", "url", "formula", "select"],
-	}, used);
-	if (slug) {
-		mapping.slug = slug;
-		used.add(slug);
 	}
 
 	return mapping;
@@ -133,6 +97,28 @@ function normalizeDatabaseId(input: string): string | null {
 		)
 	) {
 		return input.replaceAll("-", "").toLowerCase();
+	}
+
+	return null;
+}
+
+function databaseIdFromPathSegment(segment: string): string | null {
+	const directId = normalizeDatabaseId(segment);
+	if (directId) {
+		return directId;
+	}
+
+	const compactSlugMatch = /(?:^|[-_])([0-9a-fA-F]{32})$/.exec(segment);
+	if (compactSlugMatch?.[1]) {
+		return normalizeDatabaseId(compactSlugMatch[1]);
+	}
+
+	const dashedSlugMatch =
+		/(?:^|[-_])([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(
+			segment,
+		);
+	if (dashedSlugMatch?.[1]) {
+		return normalizeDatabaseId(dashedSlugMatch[1]);
 	}
 
 	return null;

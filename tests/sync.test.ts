@@ -160,15 +160,13 @@ const rootKey = generateEncryptionKey();
 function settings(): SiteSettings {
 	return {
 		siteTitle: "233 Life",
-		notionDatabaseUrl: "https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b",
-		notionDatabaseId: "c5e926f6cd3c4671bb0b86737143570b",
+		notionDatabaseUrl:
+			"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 		notionToken: "ntn_secret",
 		cdnBaseUrl: "https://cdn.example.com",
 		fieldMapping: {
 			title: "Name",
-			slug: "Slug",
-			summary: "Summary",
-			tags: "Tags",
 			status: "Status",
 			publishedAt: "Published At",
 		},
@@ -231,6 +229,10 @@ function syncPage(overrides: Partial<NotionSyncPage> = {}): NotionSyncPage {
 				type: "date",
 				date: { start: "2026-05-18" },
 			},
+		},
+		cover: {
+			type: "external",
+			external: { url: "https://notion-assets.example.com/page-cover.png" },
 		},
 		...overrides,
 	};
@@ -356,7 +358,7 @@ describe("syncVisibilityForStatus", () => {
 });
 
 describe("Notion page mapping", () => {
-	it("maps Notion properties to local post metadata", () => {
+	it("maps only supported Notion properties and uses the page cover", () => {
 		expect(
 			mapNotionPageToPostMetadata(syncPage(), settings().fieldMapping),
 		).toMatchObject({
@@ -364,12 +366,22 @@ describe("Notion page mapping", () => {
 			notionPageId: "notion-page-1",
 			slug: "hello-notion",
 			title: "Hello Notion",
-			summary: "A synced summary",
-			tags: ["Life", "Notes"],
+			coverUrl: "https://notion-assets.example.com/page-cover.png",
 			status: "Published",
 			visibility: "published",
 			publishedAt: "2026-05-18",
 			notionLastEditedTime: "2026-05-18T02:30:00.000Z",
+		});
+	});
+
+	it("falls back to the Notion created time when no published date field is mapped", () => {
+		expect(
+			mapNotionPageToPostMetadata(syncPage(), {
+				title: "Name",
+				status: "Status",
+			}),
+		).toMatchObject({
+			publishedAt: "2026-05-17T00:00:00.000Z",
 		});
 	});
 });
@@ -445,8 +457,7 @@ describe("runSync", () => {
 				id: string;
 				slug: string;
 				title: string;
-				summary: string | null;
-				tags_json: string;
+				cover_url: string | null;
 				visibility: string;
 				content_hash: string | null;
 				last_sync_error: string | null;
@@ -479,8 +490,7 @@ describe("runSync", () => {
 				id: "notion-page-1",
 				slug: "hello-notion",
 				title: "Hello Notion",
-				summary: "A synced summary",
-				tags_json: JSON.stringify(["Life", "Notes"]),
+				cover_url: asset.cdn_url,
 				visibility: "published",
 				last_sync_error: null,
 			});

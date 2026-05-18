@@ -5,9 +5,9 @@ describe("parseNotionDatabaseId", () => {
 	it("extracts a 32-character Notion database id from a shared Notion URL", () => {
 		expect(
 			parseNotionDatabaseId(
-				"https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b",
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
 			),
-		).toBe("c5e926f6cd3c4671bb0b86737143570b");
+		).toBe("3646b3023c2380fc886af37685393dd4");
 	});
 
 	it("accepts a raw 32-character Notion database id", () => {

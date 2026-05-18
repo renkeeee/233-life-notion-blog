@@ -74,9 +74,7 @@ export interface PostMetadata {
 	notionPageId: string;
 	slug: string;
 	title: string;
-	summary: string | null;
 	coverUrl: string | null;
-	tags: string[];
 	status: string;
 	visibility: PostVisibility;
 	publishedAt: string | null;
@@ -162,25 +160,21 @@ export function mapNotionPageToPostMetadata(
 	const properties = page.properties ?? {};
 	const status = propertyValue(properties[mapping.status]) ?? "";
 	const title = stringProperty(properties[mapping.title]) || "Untitled";
-	const explicitSlug = mapping.slug ? stringProperty(properties[mapping.slug]) : "";
-	const slug = slugify(explicitSlug) || slugify(title) || page.id;
+	const slug = slugify(title) || page.id;
 	const archived = page.archived === true || page.in_trash === true;
+	const createdTime = typeof page.created_time === "string" ? page.created_time : null;
 
 	return {
 		id: page.id,
 		notionPageId: page.id,
 		slug,
 		title,
-		summary: mapping.summary
-			? stringProperty(properties[mapping.summary]) || null
-			: null,
-		coverUrl: mapping.cover ? fileUrlProperty(properties[mapping.cover]) : pageCoverUrl(page),
-		tags: mapping.tags ? arrayProperty(properties[mapping.tags]) : [],
+		coverUrl: pageCoverUrl(page),
 		status: String(status),
 		visibility: archived ? "archived" : syncVisibilityForStatus(status),
 		publishedAt: mapping.publishedAt
-			? dateProperty(properties[mapping.publishedAt])
-			: null,
+			? (dateProperty(properties[mapping.publishedAt]) ?? createdTime)
+			: createdTime,
 		notionLastEditedTime:
 			typeof page.last_edited_time === "string" ? page.last_edited_time : now,
 	};
@@ -701,17 +695,15 @@ function prepareUpsertPost(
 	return db
 		.prepare(
 			`INSERT INTO posts (
-				id, notion_page_id, slug, title, summary, cover_url, tags_json,
+				id, notion_page_id, slug, title, cover_url,
 				status, visibility, published_at, notion_last_edited_time,
 				content_hash, last_sync_error, created_at, updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
 			ON CONFLICT(notion_page_id) DO UPDATE SET
 				slug = excluded.slug,
 				title = excluded.title,
-				summary = excluded.summary,
 				cover_url = excluded.cover_url,
-				tags_json = excluded.tags_json,
 				status = excluded.status,
 				visibility = excluded.visibility,
 				published_at = excluded.published_at,
@@ -725,9 +717,7 @@ function prepareUpsertPost(
 			post.notionPageId,
 			post.slug,
 			post.title,
-			post.summary,
 			post.coverUrl,
-			JSON.stringify(post.tags),
 			post.status,
 			post.visibility,
 			post.publishedAt,
@@ -915,14 +905,6 @@ function stringProperty(property: unknown): string {
 	const value = propertyValue(property);
 
 	return typeof value === "string" ? value.trim() : "";
-}
-
-function arrayProperty(property: unknown): string[] {
-	const value = propertyValue(property);
-
-	return Array.isArray(value)
-		? value.map((item) => item.trim()).filter((item) => item.length > 0)
-		: [];
 }
 
 function dateProperty(property: unknown): string | null {

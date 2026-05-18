@@ -2,7 +2,8 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import migrationSql from "../migrations/0001_initial.sql?raw";
+import initialMigrationSql from "../migrations/0001_initial.sql?raw";
+import simplifyPostMetadataMigrationSql from "../migrations/0002_simplify_post_metadata.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -35,9 +36,17 @@ const syncRunCountColumns = [
 
 const normalizedSchemaSql = schemaSql.replace(/\s+/g, " ").trim();
 
+function postColumns(db: DatabaseSync): string[] {
+	return (
+		db.prepare("PRAGMA table_info(posts)").all() as Array<{ name: string }>
+	).map((row) => row.name);
+}
+
 describe("D1 schema", () => {
-	it("keeps the source schema and initial migration byte-identical", () => {
-		expect(migrationSql).toBe(schemaSql);
+	it("keeps only the post metadata columns used by the simplified blog", () => {
+		expect(normalizedSchemaSql).not.toContain("summary TEXT");
+		expect(normalizedSchemaSql).toContain("cover_url TEXT");
+		expect(normalizedSchemaSql).not.toContain("tags_json TEXT");
 	});
 
 	it("defines the tables required by the Notion blog design", () => {
@@ -94,6 +103,40 @@ describe("D1 schema", () => {
 			]);
 		} finally {
 			db.close();
+		}
+	});
+
+	it("migrates the initial schema to the current post columns", () => {
+		const migratedDb = new DatabaseSync(":memory:");
+		const currentDb = new DatabaseSync(":memory:");
+
+		try {
+			migratedDb.exec("PRAGMA foreign_keys = ON;");
+			migratedDb.exec(initialMigrationSql);
+			migratedDb.exec(simplifyPostMetadataMigrationSql);
+
+			currentDb.exec("PRAGMA foreign_keys = ON;");
+			currentDb.exec(schemaSql);
+
+			expect(postColumns(migratedDb)).toEqual(postColumns(currentDb));
+			expect(postColumns(currentDb)).toEqual([
+				"id",
+				"notion_page_id",
+				"slug",
+				"title",
+				"cover_url",
+				"status",
+				"visibility",
+				"published_at",
+				"notion_last_edited_time",
+				"content_hash",
+				"last_sync_error",
+				"created_at",
+				"updated_at",
+			]);
+		} finally {
+			migratedDb.close();
+			currentDb.close();
 		}
 	});
 });

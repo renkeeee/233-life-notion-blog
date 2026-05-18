@@ -4,12 +4,8 @@ import { apiGet, apiPost, apiPut } from "../../lib/api-client";
 
 type FieldMapping = {
 	title: string;
-	slug?: string;
-	summary?: string;
-	tags?: string;
 	status: string;
 	publishedAt?: string;
-	cover?: string;
 };
 
 export type SiteSettingsForm = {
@@ -28,29 +24,21 @@ type RedactedSettings = SiteSettingsForm & {
 const emptySettings: SiteSettingsForm = {
 	siteTitle: "233 Life",
 	notionDatabaseUrl:
-		"https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b",
-	notionDatabaseId: "c5e926f6cd3c4671bb0b86737143570b",
+		"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+	notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 	notionToken: "",
 	cdnBaseUrl: "",
 	fieldMapping: {
 		title: "Name",
 		status: "Status",
-		slug: "Slug",
-		summary: "Summary",
-		tags: "Tags",
 		publishedAt: "Published At",
-		cover: "Cover",
 	},
 };
 
 const fieldKeys: Array<keyof FieldMapping> = [
 	"title",
 	"status",
-	"slug",
-	"summary",
-	"tags",
 	"publishedAt",
-	"cover",
 ];
 
 export function SettingsPanel({

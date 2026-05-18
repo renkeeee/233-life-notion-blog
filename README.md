@@ -19,7 +19,7 @@ Create a local Worker secret in `.dev.vars`:
 node -e "console.log('CONFIG_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64url'))" > .dev.vars
 ```
 
-Apply the local D1 migration:
+Apply the local D1 migrations:
 
 ```bash
 npx wrangler d1 migrations apply 233-life-notion-blog --local
@@ -48,11 +48,16 @@ Configure the Notion source in the admin settings page. The default database URL
 is prefilled as:
 
 ```text
-https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b
+https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link
 ```
 
 You still need to provide a Notion integration token and a CDN base URL for R2
 asset delivery.
+
+The supported Notion metadata mapping is intentionally small: title, publish
+status, and an optional published date. Slugs are generated from the title. If a
+Notion page has a page cover, sync uploads it to R2 and stores the CDN URL in
+`posts.cover_url`.
 
 ## Notion Blog Setup
 

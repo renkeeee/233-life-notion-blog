@@ -166,34 +166,8 @@ body {
 
 .post-list h2 a:hover,
 .back-link:hover,
-.tag-row a:hover,
 .markdown a:hover {
 	color: #0e6f6b;
-}
-
-.post-list p,
-.post-summary {
-	max-width: 64ch;
-	margin: 0;
-	color: #4b4944;
-	font-size: 1rem;
-	line-height: 1.65;
-}
-
-.tag-row {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
-	margin-top: 16px;
-}
-
-.tag-row a {
-	border: 1px solid #c9c5ba;
-	border-radius: 999px;
-	color: #42403b;
-	font-size: 0.85rem;
-	font-weight: 650;
-	padding: 5px 10px;
 }
 
 .back-link {
@@ -208,10 +182,6 @@ body {
 	border-bottom: 1px solid #dfddd6;
 	padding-bottom: 24px;
 	margin-bottom: 28px;
-}
-
-.post-detail-header .post-summary {
-	margin-top: 16px;
 }
 
 .post-hero-image {

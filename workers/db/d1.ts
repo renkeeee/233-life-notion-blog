@@ -66,24 +66,16 @@ type PostRow = {
 	id: string;
 	slug: string;
 	title: string;
-	summary: string | null;
 	cover_url: string | null;
-	tags_json: string | null;
 	status: string;
 	visibility: PostVisibility;
 	published_at: string | null;
 	updated_at: string;
 };
 
-type TagCount = {
-	tag: string;
-	count: number;
-};
-
 type ListPublishedOptions = {
 	page: number;
 	limit: number;
-	tag?: string;
 	q?: string;
 };
 
@@ -96,9 +88,7 @@ const publicPostColumnNames = [
 	"id",
 	"slug",
 	"title",
-	"summary",
 	"cover_url",
-	"tags_json",
 	"status",
 	"visibility",
 	"published_at",
@@ -106,35 +96,9 @@ const publicPostColumnNames = [
 ] as const;
 
 const publicPostColumns = publicPostColumnNames.join(", ");
-const sqlTrimWhitespaceChars =
-	"char(9) || char(10) || char(11) || char(12) || char(13) || ' '";
 
 function aliasedPublicPostColumns(alias: string): string {
 	return publicPostColumnNames.map((column) => `${alias}.${column}`).join(", ");
-}
-
-function trimSqlExpression(valueSql: string): string {
-	return `trim(${valueSql}, ${sqlTrimWhitespaceChars})`;
-}
-
-function parseTagsJson(tagsJson: string | null): string[] {
-	if (!tagsJson) {
-		return [];
-	}
-
-	try {
-		const parsed = JSON.parse(tagsJson);
-		if (!Array.isArray(parsed)) {
-			return [];
-		}
-
-		return parsed
-			.filter((tag): tag is string => typeof tag === "string")
-			.map((tag) => tag.trim())
-			.filter((tag) => tag.length > 0);
-	} catch {
-		return [];
-	}
 }
 
 function mapPostRow(row: PostRow): PublicPostRecord {
@@ -142,9 +106,7 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		id: row.id,
 		slug: row.slug,
 		title: row.title,
-		summary: row.summary,
 		coverUrl: row.cover_url,
-		tags: parseTagsJson(row.tags_json),
 		status: row.status,
 		visibility: row.visibility,
 		publishedAt: row.published_at,
@@ -164,38 +126,13 @@ function likePattern(value: string): string {
 }
 
 function publishedFilters(options: {
-	tag?: string;
 	q?: string;
 }): { joins: string; where: string; values: unknown[] } {
 	const clauses = ["p.visibility = 'published'"];
 	const values: unknown[] = [];
 	const q = options.q?.trim();
-	const tag = options.tag?.trim();
 
 	let joins = "";
-
-	if (tag) {
-		const normalizedTagSql = trimSqlExpression("tag.value");
-		clauses.push(
-			`EXISTS (
-				SELECT 1
-				FROM json_each(
-					CASE
-						WHEN json_valid(p.tags_json) THEN
-							CASE
-								WHEN json_type(p.tags_json) = 'array' THEN p.tags_json
-								ELSE '[]'
-							END
-						ELSE '[]'
-					END
-				) AS tag
-				WHERE typeof(tag.value) = 'text'
-				AND ${normalizedTagSql} <> ''
-				AND ${normalizedTagSql} = ?
-			)`,
-		);
-		values.push(tag);
-	}
 
 	if (q) {
 		joins = "LEFT JOIN post_content pc ON pc.post_id = p.id";
@@ -203,12 +140,10 @@ function publishedFilters(options: {
 		clauses.push(
 			`(
 				p.title LIKE ? ESCAPE '\\'
-				OR COALESCE(p.summary, '') LIKE ? ESCAPE '\\'
-				OR p.tags_json LIKE ? ESCAPE '\\'
 				OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
 			)`,
 		);
-		values.push(pattern, pattern, pattern, pattern);
+		values.push(pattern, pattern);
 	}
 
 	return {
@@ -263,14 +198,12 @@ export class PostsRepository {
 				 WHERE p.visibility = 'published'
 				 AND (
 					p.title LIKE ? ESCAPE '\\'
-					OR COALESCE(p.summary, '') LIKE ? ESCAPE '\\'
-					OR p.tags_json LIKE ? ESCAPE '\\'
 					OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
 				 )
 				 ORDER BY p.published_at DESC, p.updated_at DESC
 				 LIMIT ?`,
 			)
-			.bind(pattern, pattern, pattern, pattern, limit)
+			.bind(pattern, pattern, limit)
 			.all<PostRow>();
 
 		return result.results.map(mapPostRow);
@@ -290,35 +223,6 @@ export class PostsRepository {
 		return row ? mapPostRow(row) : null;
 	}
 
-	async tagCounts(): Promise<TagCount[]> {
-		const normalizedTagSql = trimSqlExpression("tag.value");
-		const result = await this.db
-			.prepare(
-				`SELECT ${normalizedTagSql} AS tag, COUNT(*) AS count
-				 FROM posts p,
-				 json_each(
-					CASE
-						WHEN json_valid(p.tags_json) THEN
-							CASE
-								WHEN json_type(p.tags_json) = 'array' THEN p.tags_json
-								ELSE '[]'
-							END
-						ELSE '[]'
-					END
-				 ) AS tag
-				 WHERE p.visibility = 'published'
-				 AND typeof(tag.value) = 'text'
-				 AND ${normalizedTagSql} <> ''
-				 GROUP BY ${normalizedTagSql}
-				 ORDER BY count DESC, tag ASC`,
-			)
-			.all<TagCount>();
-
-		return result.results.map((row) => ({
-			tag: row.tag,
-			count: Number(row.count),
-		}));
-	}
 }
 
 export class PostContentRepository {

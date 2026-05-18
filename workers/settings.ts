@@ -23,11 +23,7 @@ const requiredSettingKeys = [
 	"fieldMapping",
 ] as const satisfies readonly (keyof SiteSettings)[];
 const optionalFieldMappingKeys = [
-	"slug",
-	"summary",
-	"tags",
 	"publishedAt",
-	"cover",
 ] as const satisfies readonly (keyof FieldMapping)[];
 const requiredSettingKeySet = new Set<string>(requiredSettingKeys);
 
@@ -52,7 +48,7 @@ function serializedSettingValue(
 	}
 
 	if (key === "fieldMapping" && isRecord(rawValue)) {
-		return JSON.stringify(rawValue);
+		return JSON.stringify(parseFieldMapping(JSON.stringify(rawValue)));
 	}
 
 	if (rawValue === undefined) {

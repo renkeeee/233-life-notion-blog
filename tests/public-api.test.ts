@@ -9,8 +9,8 @@ import {
 	postDetailResponse,
 } from "../workers/api/public";
 import { PostContentRepository, PostsRepository } from "../workers/db/d1";
-import type { AppEnv, PublicPostRecord } from "../workers/types";
 import schemaSql from "../workers/db/schema.sql?raw";
+import type { AppEnv, PublicPostRecord } from "../workers/types";
 
 type WorkerRequest = Parameters<NonNullable<typeof worker.fetch>>[0];
 
@@ -129,11 +129,11 @@ class SqliteD1Database {
 		this.db
 			.prepare(
 				`INSERT INTO posts (
-					id, notion_page_id, slug, title, summary, cover_url, tags_json,
+					id, notion_page_id, slug, title, cover_url,
 					status, visibility, published_at, notion_last_edited_time,
 					content_hash, last_sync_error, created_at, updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -141,9 +141,7 @@ class SqliteD1Database {
 					row.notion_page_id,
 					row.slug,
 					row.title,
-					row.summary,
 					row.cover_url,
-					row.tags_json,
 					row.status,
 					row.visibility,
 					row.published_at,
@@ -177,20 +175,18 @@ class SqliteD1Database {
 	}
 }
 
+const now = "2026-05-01T00:00:00.000Z";
+
 const publishedPost: PublicPostRecord = {
 	id: "post-1",
 	slug: "published-post",
 	title: "Published post",
-	summary: "Visible summary",
 	coverUrl: "https://cdn.example.com/cover.jpg",
-	tags: ["Life", "Notes"],
 	status: "ready",
 	visibility: "published",
 	publishedAt: "2026-05-01T00:00:00.000Z",
 	updatedAt: "2026-05-02T00:00:00.000Z",
 };
-
-const now = "2026-05-01T00:00:00.000Z";
 
 function publicRequest(pathname: string): Request {
 	return new Request(`https://example.test${pathname}`);
@@ -210,9 +206,7 @@ function postRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 		notion_page_id: "notion-1",
 		slug: "published-post",
 		title: "Published post",
-		summary: "Visible summary",
 		cover_url: "https://cdn.example.com/cover.jpg",
-		tags_json: JSON.stringify(["Life", "Notes"]),
 		status: "ready",
 		visibility: "published",
 		published_at: "2026-05-01T00:00:00.000Z",
@@ -226,7 +220,7 @@ function postRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 }
 
 describe("public response helpers", () => {
-	it("maps repository list results to public summaries", () => {
+	it("maps repository list results to compact public summaries", () => {
 		const response = listPostsResponse(
 			{ items: [publishedPost], total: 1 },
 			{ page: 1, limit: 10 },
@@ -234,11 +228,14 @@ describe("public response helpers", () => {
 
 		expect(response).toEqual({
 			items: [
-				expect.objectContaining({
+				{
 					id: "post-1",
 					slug: "published-post",
-					tags: ["Life", "Notes"],
-				}),
+					title: "Published post",
+					coverUrl: "https://cdn.example.com/cover.jpg",
+					publishedAt: "2026-05-01T00:00:00.000Z",
+					updatedAt: "2026-05-02T00:00:00.000Z",
+				},
 			],
 			total: 1,
 			page: 1,
@@ -251,9 +248,7 @@ describe("public response helpers", () => {
 			id: "post-1",
 			slug: "published-post",
 			title: "Published post",
-			summary: "Visible summary",
 			coverUrl: "https://cdn.example.com/cover.jpg",
-			tags: ["Life", "Notes"],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
 			markdown: "# Hello",
@@ -262,19 +257,17 @@ describe("public response helpers", () => {
 });
 
 describe("PostsRepository", () => {
-	it("maps snake_case rows to public records and sanitizes tags_json", async () => {
+	it("maps snake_case rows to simplified public records", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
 			if (sql.includes("COUNT(DISTINCT p.id)")) {
 				return [{ total: 2 }];
 			}
 			return [
-				postRow({
-					tags_json: JSON.stringify(["Life", 42, "Notes", "", null]),
-				}),
+				postRow(),
 				postRow({
 					id: "post-2",
-					slug: "bad-tags",
-					tags_json: "{bad json",
+					slug: "without-cover",
+					cover_url: null,
 				}),
 			];
 		});
@@ -286,13 +279,12 @@ describe("PostsRepository", () => {
 					id: "post-1",
 					coverUrl: "https://cdn.example.com/cover.jpg",
 					publishedAt: "2026-05-01T00:00:00.000Z",
-					tags: ["Life", "Notes"],
 					updatedAt: "2026-05-02T00:00:00.000Z",
 				}),
 				expect.objectContaining({
 					id: "post-2",
-					slug: "bad-tags",
-					tags: [],
+					slug: "without-cover",
+					coverUrl: null,
 				}),
 			],
 			total: 2,
@@ -307,34 +299,16 @@ describe("PostsRepository", () => {
 
 		expect(fakeDb.calls[0]?.sql).toContain("visibility = 'published'");
 		expect(fakeDb.calls[0]?.sql).toContain("post_content");
+		expect(fakeDb.calls[0]?.sql).not.toContain("summary");
+		expect(fakeDb.calls[0]?.sql).not.toContain("tags_json");
 		expect(fakeDb.calls[0]?.values).toEqual([
-			"%notion api%",
-			"%notion api%",
 			"%notion api%",
 			"%notion api%",
 			20,
 		]);
 	});
 
-	it("returns published tag counts", async () => {
-		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("json_each")) {
-				return [
-					{ tag: "Life", count: 2 },
-					{ tag: "Notes", count: 1 },
-				];
-			}
-			return [];
-		});
-		const repository = new PostsRepository(fakeDb.asD1());
-
-		await expect(repository.tagCounts()).resolves.toEqual([
-			{ tag: "Life", count: 2 },
-			{ tag: "Notes", count: 1 },
-		]);
-	});
-
-	it("applies list pagination, tag filters, search filters, and totals in SQL", async () => {
+	it("applies list pagination, search filters, and totals in SQL", async () => {
 		const db = new SqliteD1Database();
 		try {
 			db.insertPost(
@@ -343,7 +317,6 @@ describe("PostsRepository", () => {
 					notion_page_id: "notion-1",
 					slug: "first-life",
 					title: "First SQL Life",
-					tags_json: JSON.stringify(["Life"]),
 					published_at: "2026-05-03T00:00:00.000Z",
 				}),
 			);
@@ -353,7 +326,6 @@ describe("PostsRepository", () => {
 					notion_page_id: "notion-2",
 					slug: "second-life",
 					title: "Second SQL Life",
-					tags_json: JSON.stringify(["Life"]),
 					published_at: "2026-05-02T00:00:00.000Z",
 				}),
 			);
@@ -361,19 +333,8 @@ describe("PostsRepository", () => {
 				postRow({
 					id: "post-3",
 					notion_page_id: "notion-3",
-					slug: "tech-sql",
-					title: "SQL Tech",
-					tags_json: JSON.stringify(["Tech"]),
-					published_at: "2026-05-01T00:00:00.000Z",
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-4",
-					notion_page_id: "notion-4",
 					slug: "hidden-life",
 					title: "Hidden SQL Life",
-					tags_json: JSON.stringify(["Life"]),
 					visibility: "hidden",
 					published_at: "2026-05-04T00:00:00.000Z",
 				}),
@@ -381,12 +342,10 @@ describe("PostsRepository", () => {
 			db.insertContent("post-1", "Body mentions SQL");
 			db.insertContent("post-2", "Body mentions SQL");
 			db.insertContent("post-3", "Body mentions SQL");
-			db.insertContent("post-4", "Body mentions SQL");
 
 			const result = await new PostsRepository(db.asD1()).listPublished({
 				page: 2,
 				limit: 1,
-				tag: "Life",
 				q: "SQL",
 			});
 
@@ -400,221 +359,10 @@ describe("PostsRepository", () => {
 				call.sql.includes("COUNT(DISTINCT p.id)"),
 			);
 
-			expect(itemQuery?.sql).toContain("json_each");
 			expect(itemQuery?.sql).toContain("ESCAPE '\\'");
-			expect(itemQuery?.values).toEqual([
-				"Life",
-				"%SQL%",
-				"%SQL%",
-				"%SQL%",
-				"%SQL%",
-				1,
-				1,
-			]);
-			expect(countQuery?.values).toEqual([
-				"Life",
-				"%SQL%",
-				"%SQL%",
-				"%SQL%",
-				"%SQL%",
-			]);
-		} finally {
-			db.close();
-		}
-	});
-
-	it("matches tag filters against trimmed string values from JSON arrays only", async () => {
-		const db = new SqliteD1Database();
-		try {
-			db.insertPost(
-				postRow({
-					id: "post-1",
-					notion_page_id: "notion-1",
-					slug: "trimmed-array-tag",
-					title: "Trimmed array tag",
-					tags_json: JSON.stringify([" Life "]),
-					published_at: "2026-05-04T00:00:00.000Z",
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-2",
-					notion_page_id: "notion-2",
-					slug: "scalar-tag",
-					title: "Scalar tag",
-					tags_json: JSON.stringify("Life"),
-					published_at: "2026-05-03T00:00:00.000Z",
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-3",
-					notion_page_id: "notion-3",
-					slug: "object-tag",
-					title: "Object tag",
-					tags_json: JSON.stringify({ tag: "Life" }),
-					published_at: "2026-05-02T00:00:00.000Z",
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-4",
-					notion_page_id: "notion-4",
-					slug: "malformed-tags",
-					title: "Malformed tags",
-					tags_json: "{bad json",
-					published_at: "2026-05-01T00:00:00.000Z",
-				}),
-			);
-
-			const result = await new PostsRepository(db.asD1()).listPublished({
-				page: 1,
-				limit: 10,
-				tag: "Life",
-			});
-
-			expect(result).toEqual({
-				items: [
-					expect.objectContaining({
-						slug: "trimmed-array-tag",
-						tags: ["Life"],
-					}),
-				],
-				total: 1,
-			});
-		} finally {
-			db.close();
-		}
-	});
-
-	it("matches tag filters against JS-trimmed string values from JSON arrays", async () => {
-		const db = new SqliteD1Database();
-		try {
-			db.insertPost(
-				postRow({
-					id: "post-1",
-					notion_page_id: "notion-1",
-					slug: "js-trimmed-array-tag",
-					title: "JS trimmed array tag",
-					tags_json: JSON.stringify(["\tLife\n"]),
-					published_at: "2026-05-04T00:00:00.000Z",
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-2",
-					notion_page_id: "notion-2",
-					slug: "other-tag",
-					title: "Other tag",
-					tags_json: JSON.stringify(["Notes"]),
-					published_at: "2026-05-03T00:00:00.000Z",
-				}),
-			);
-
-			const result = await new PostsRepository(db.asD1()).listPublished({
-				page: 1,
-				limit: 10,
-				tag: "Life",
-			});
-
-			expect(result).toEqual({
-				items: [
-					expect.objectContaining({
-						slug: "js-trimmed-array-tag",
-						tags: ["Life"],
-					}),
-				],
-				total: 1,
-			});
-		} finally {
-			db.close();
-		}
-	});
-
-	it("counts trimmed tags from JSON arrays only", async () => {
-		const db = new SqliteD1Database();
-		try {
-			db.insertPost(
-				postRow({
-					id: "post-1",
-					notion_page_id: "notion-1",
-					slug: "trimmed-life",
-					tags_json: JSON.stringify([" Life ", "", "Notes"]),
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-2",
-					notion_page_id: "notion-2",
-					slug: "second-life",
-					tags_json: JSON.stringify(["Life"]),
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-3",
-					notion_page_id: "notion-3",
-					slug: "scalar-life",
-					tags_json: JSON.stringify("Life"),
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-4",
-					notion_page_id: "notion-4",
-					slug: "object-life",
-					tags_json: JSON.stringify({ tag: "Life" }),
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-5",
-					notion_page_id: "notion-5",
-					slug: "malformed-tags",
-					tags_json: "{bad json",
-				}),
-			);
-
-			await expect(new PostsRepository(db.asD1()).tagCounts()).resolves.toEqual([
-				{ tag: "Life", count: 2 },
-				{ tag: "Notes", count: 1 },
-			]);
-		} finally {
-			db.close();
-		}
-	});
-
-	it("counts JS-trimmed tags and ignores JS-whitespace-only tags", async () => {
-		const db = new SqliteD1Database();
-		try {
-			db.insertPost(
-				postRow({
-					id: "post-1",
-					notion_page_id: "notion-1",
-					slug: "js-whitespace-life",
-					tags_json: JSON.stringify([
-						"\tLife\n",
-						"\t",
-						"\n",
-						"\v",
-						"\f",
-						"\r",
-						" ",
-					]),
-				}),
-			);
-			db.insertPost(
-				postRow({
-					id: "post-2",
-					notion_page_id: "notion-2",
-					slug: "plain-life",
-					tags_json: JSON.stringify(["Life"]),
-				}),
-			);
-
-			await expect(new PostsRepository(db.asD1()).tagCounts()).resolves.toEqual([
-				{ tag: "Life", count: 2 },
-			]);
+			expect(itemQuery?.sql).not.toContain("json_each");
+			expect(itemQuery?.values).toEqual(["%SQL%", "%SQL%", 1, 1]);
+			expect(countQuery?.values).toEqual(["%SQL%", "%SQL%"]);
 		} finally {
 			db.close();
 		}
@@ -662,13 +410,7 @@ describe("PostsRepository", () => {
 				call.sql.includes("post_content"),
 			);
 			expect(searchCall?.sql).toContain("ESCAPE '\\'");
-			expect(searchCall?.values).toEqual([
-				"%\\%%",
-				"%\\%%",
-				"%\\%%",
-				"%\\%%",
-				20,
-			]);
+			expect(searchCall?.values).toEqual(["%\\%%", "%\\%%", 20]);
 		} finally {
 			db.close();
 		}
@@ -700,31 +442,30 @@ describe("handlePublicApi", () => {
 		await expect(response.json()).resolves.toEqual({ ok: true });
 	});
 
-	it("lists posts with pagination and tag filtering", async () => {
+	it("lists posts with pagination", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
 			if (sql.includes("COUNT(DISTINCT p.id)")) {
 				return [{ total: 1 }];
 			}
 			if (sql.includes("SELECT DISTINCT")) {
-				return [
-					postRow({
-						id: "post-1",
-						slug: "life-post",
-						tags_json: JSON.stringify(["Life"]),
-					}),
-				];
+				return [postRow({ id: "post-1", slug: "life-post" })];
 			}
 			return [];
 		});
 
 		const response = await handlePublicApi(
-			publicRequest("/api/posts?page=1&limit=1&tag=Life"),
+			publicRequest("/api/posts?page=1&limit=1"),
 			envWithDb(fakeDb.asD1()),
 		);
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({
-			items: [expect.objectContaining({ slug: "life-post", tags: ["Life"] })],
+			items: [
+				expect.objectContaining({
+					slug: "life-post",
+					coverUrl: "https://cdn.example.com/cover.jpg",
+				}),
+			],
 			total: 1,
 			page: 1,
 			limit: 1,
@@ -790,12 +531,15 @@ describe("handlePublicApi", () => {
 		);
 
 		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual(
-			expect.objectContaining({
-				slug: "hello world",
-				markdown: "# Hello world",
-			}),
-		);
+		await expect(response.json()).resolves.toEqual({
+			id: "post-1",
+			slug: "hello world",
+			title: "Published post",
+			coverUrl: "https://cdn.example.com/cover.jpg",
+			publishedAt: "2026-05-01T00:00:00.000Z",
+			updatedAt: "2026-05-02T00:00:00.000Z",
+			markdown: "# Hello world",
+		});
 	});
 
 	it("returns structured 404 when post markdown content is missing", async () => {
@@ -824,8 +568,8 @@ describe("handlePublicApi", () => {
 			publicRequest("/api/posts/missing"),
 			envWithDb(fakeDb.asD1()),
 		);
-		const unknownRoute = await handlePublicApi(
-			publicRequest("/api/nope"),
+		const oldTagsRoute = await handlePublicApi(
+			publicRequest("/api/tags"),
 			envWithDb(fakeDb.asD1()),
 		);
 
@@ -833,34 +577,9 @@ describe("handlePublicApi", () => {
 		await expect(missingPost.json()).resolves.toEqual({
 			error: { code: "NOT_FOUND", message: "Post not found" },
 		});
-		expect(unknownRoute.status).toBe(404);
-		await expect(unknownRoute.json()).resolves.toEqual({
+		expect(oldTagsRoute.status).toBe(404);
+		await expect(oldTagsRoute.json()).resolves.toEqual({
 			error: { code: "NOT_FOUND", message: "Route not found" },
-		});
-	});
-
-	it("returns tags with published counts", async () => {
-		const fakeDb = new FakeD1Database((sql) => {
-			if (sql.includes("json_each")) {
-				return [
-					{ tag: "Life", count: 2 },
-					{ tag: "Notes", count: 1 },
-				];
-			}
-			return [];
-		});
-
-		const response = await handlePublicApi(
-			publicRequest("/api/tags"),
-			envWithDb(fakeDb.asD1()),
-		);
-
-		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual({
-			items: [
-				{ tag: "Life", count: 2 },
-				{ tag: "Notes", count: 1 },
-			],
 		});
 	});
 
@@ -871,7 +590,6 @@ describe("handlePublicApi", () => {
 					postRow({
 						slug: "api-post",
 						title: "API post",
-						tags_json: JSON.stringify(["Tech"]),
 					}),
 				];
 			}

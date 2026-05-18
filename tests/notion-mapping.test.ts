@@ -22,12 +22,8 @@ describe("inferFieldMapping", () => {
 
 		expect(mapping).toEqual({
 			title: "Title",
-			slug: "Post Slug",
-			summary: "Excerpt",
-			tags: "Tags",
 			status: "Status",
 			publishedAt: "Published At",
-			cover: "Cover",
 		});
 	});
 
@@ -42,8 +38,6 @@ describe("inferFieldMapping", () => {
 
 		expect(mapping).toEqual({
 			title: "Name",
-			slug: "URL",
-			summary: "description",
 			status: "published-status",
 			publishedAt: "Published_Date",
 		});
@@ -61,18 +55,16 @@ describe("inferFieldMapping", () => {
 
 		expect(mapping).toEqual({
 			title: "标题",
-			summary: "摘要",
-			tags: "标签",
 			status: "状态",
 			publishedAt: "发布日期",
-			cover: "封面",
 		});
 	});
 
-	it("does not reuse a title property named Name as the slug", () => {
+	it("does not map Notion properties for locally generated slugs", () => {
 		const mapping = inferFieldMapping({
 			Name: property("title"),
 			Published: property("checkbox"),
+			Slug: property("rich_text"),
 		});
 
 		expect(mapping).toEqual({
@@ -113,7 +105,6 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status",
-			cover: "Cover URL",
 		});
 
 		expect(
@@ -135,7 +126,6 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status",
-			tags: "Status Tags",
 		});
 	});
 

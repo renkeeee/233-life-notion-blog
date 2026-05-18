@@ -234,11 +234,12 @@ async function changePassword(
 function testSettings(notionToken = "ntn_secret"): SiteSettings {
 	return {
 		siteTitle: "233 Life",
-		notionDatabaseUrl: "https://www.notion.so/example/database",
-		notionDatabaseId: "database-id",
+		notionDatabaseUrl:
+			"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 		notionToken,
 		cdnBaseUrl: "https://cdn.example.com",
-		fieldMapping: { title: "Name", status: "Status", tags: "Tags" },
+		fieldMapping: { title: "Name", status: "Status" },
 	};
 }
 
@@ -794,13 +795,13 @@ describe("admin Notion schema API", () => {
 		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const request = new Request(input, init);
 			expect(request.url).toBe(
-				"https://api.notion.com/v1/databases/c5e926f6cd3c4671bb0b86737143570b",
+				"https://api.notion.com/v1/databases/3646b3023c2380fc886af37685393dd4",
 			);
 			expect(request.headers.get("Authorization")).toBe("Bearer ntn_secret");
 
 			return Response.json({
 				object: "database",
-				id: "c5e926f6cd3c4671bb0b86737143570b",
+				id: "3646b3023c2380fc886af37685393dd4",
 				properties: {
 					Name: { type: "title" },
 					Status: { type: "status" },
@@ -815,7 +816,7 @@ describe("admin Notion schema API", () => {
 				adminRequest("/api/admin/notion/schema", {
 					body: JSON.stringify({
 						notionDatabaseUrl:
-							"https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b",
+							"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
 						notionToken: "ntn_secret",
 					}),
 					headers: {
@@ -830,7 +831,7 @@ describe("admin Notion schema API", () => {
 
 			expect(response.status).toBe(200);
 			await expect(response.json()).resolves.toEqual({
-				databaseId: "c5e926f6cd3c4671bb0b86737143570b",
+				databaseId: "3646b3023c2380fc886af37685393dd4",
 				properties: {
 					Name: { type: "title" },
 					Status: { type: "status" },
@@ -839,7 +840,6 @@ describe("admin Notion schema API", () => {
 				recommendedFieldMapping: {
 					title: "Name",
 					status: "Status",
-					tags: "Tags",
 				},
 			});
 		} finally {

@@ -5,6 +5,7 @@ import {
 	generateEncryptionKey,
 	hashPassword,
 	passwordHashNeedsRehash,
+	randomToken,
 	sha256Hex,
 	verifyPassword,
 } from "../workers/crypto";
@@ -91,6 +92,18 @@ describe("crypto helpers", () => {
 		);
 	});
 
+	it("creates random tokens with the requested byte length", () => {
+		expect(randomToken(16)).toMatch(/^[0-9a-f]{32}$/);
+	});
+
+	it("rejects invalid random token byte lengths", () => {
+		for (const bytes of [0, -1, 1.5]) {
+			expect(() => randomToken(bytes)).toThrow(
+				"Random token byte length must be a positive safe integer",
+			);
+		}
+	});
+
 	it("hashes and verifies passwords", async () => {
 		const hash = await hashPassword("123456");
 		expect(hash).not.toContain("123456");
@@ -172,9 +185,10 @@ describe("crypto helpers", () => {
 		const wrongKey = testEncryptionKey(2);
 		const encrypted = await encryptString("secret-value", key);
 		const parts = encrypted.split(".");
-		const tampered = `${parts[0]}.${parts[1]}.${parts[2].slice(0, -1)}${
-			parts[2].endsWith("A") ? "B" : "A"
-		}`;
+		const tamperedCiphertext = `${parts[2].startsWith("A") ? "B" : "A"}${parts[2].slice(
+			1,
+		)}`;
+		const tampered = `${parts[0]}.${parts[1]}.${tamperedCiphertext}`;
 
 		await expect(decryptString(tampered, key)).rejects.toThrow();
 		await expect(decryptString(encrypted, wrongKey)).rejects.toThrow();

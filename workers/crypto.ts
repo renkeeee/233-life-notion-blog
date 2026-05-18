@@ -149,6 +149,10 @@ export async function sha256Hex(input: string | ArrayBuffer): Promise<string> {
 }
 
 export function randomToken(bytes = 32): string {
+	if (!Number.isSafeInteger(bytes) || bytes <= 0) {
+		throw new Error("Random token byte length must be a positive safe integer");
+	}
+
 	const buffer = new Uint8Array(bytes);
 	crypto.getRandomValues(buffer);
 

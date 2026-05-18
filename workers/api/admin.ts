@@ -17,6 +17,12 @@ import {
 } from "../settings";
 import { runSync as defaultRunSync, type RunSyncInput } from "../sync";
 import type { AppEnv, SiteSettings } from "../types";
+import { NotionApiError, NotionClient } from "../notion/client";
+import {
+	inferFieldMapping,
+	parseNotionDatabaseId,
+	type NotionProperties,
+} from "../notion/database";
 
 type LoginBody = {
 	password: string;
@@ -31,6 +37,12 @@ type ManualSyncBody = {
 	rangeStart: string | null;
 	rangeEnd: string | null;
 	force: boolean;
+};
+
+type NotionSchemaBody = {
+	notionDatabaseId: string;
+	notionToken: string;
+	dataSourceId?: string;
 };
 
 type AdminApiOptions = {
@@ -128,6 +140,44 @@ function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
 		rangeEnd,
 		force,
 	};
+}
+
+function validateNotionSchemaBody(
+	body: Record<string, unknown>,
+): NotionSchemaBody {
+	const notionToken = body.notionToken;
+
+	if (typeof notionToken !== "string" || notionToken.length === 0) {
+		throw new Error("Notion token is required");
+	}
+
+	if (notionToken.length > maxPasswordLength) {
+		throw new Error(`Notion token must be at most ${maxPasswordLength} characters`);
+	}
+
+	const notionDatabaseId =
+		typeof body.notionDatabaseId === "string" && body.notionDatabaseId.length > 0
+			? parseNotionDatabaseId(body.notionDatabaseId)
+			: typeof body.notionDatabaseUrl === "string" &&
+				  body.notionDatabaseUrl.length > 0
+				? parseNotionDatabaseId(body.notionDatabaseUrl)
+				: null;
+
+	if (!notionDatabaseId) {
+		throw new Error("Notion database URL or id is required");
+	}
+
+	const dataSourceId = body.dataSourceId;
+
+	if (dataSourceId !== undefined) {
+		if (typeof dataSourceId !== "string" || dataSourceId.length === 0) {
+			throw new Error("dataSourceId must be a non-empty string");
+		}
+
+		return { notionDatabaseId, notionToken, dataSourceId };
+	}
+
+	return { notionDatabaseId, notionToken };
 }
 
 function requiredOptionalDateString(
@@ -493,6 +543,50 @@ function settingsLoadError(): Response {
 	return errorJson("INTERNAL_ERROR", "Settings could not be loaded", 500);
 }
 
+function notionSchemaLoadError(): Response {
+	return errorJson("INTERNAL_ERROR", "Notion schema could not be loaded", 500);
+}
+
+function notionSchemaError(error: unknown): Response {
+	if (error instanceof NotionApiError) {
+		if (error.status === 401 || error.status === 403) {
+			return errorJson(
+				"NOTION_AUTH_FAILED",
+				"Notion authentication failed",
+				401,
+			);
+		}
+
+		if (error.status === 404) {
+			return errorJson(
+				"NOTION_DATABASE_NOT_FOUND",
+				"Notion database not found",
+				404,
+			);
+		}
+
+		if (error.status === 429) {
+			return errorJson("NOTION_RATE_LIMITED", "Notion API rate limited", 429);
+		}
+
+		return notionSchemaLoadError();
+	}
+
+	if (
+		error instanceof Error &&
+		(error.message.startsWith("FIELD_MAPPING_INVALID") ||
+			error.message.startsWith("NOTION_DATA_SOURCE_AMBIGUOUS"))
+	) {
+		return errorJson(
+			"FIELD_MAPPING_INVALID",
+			"Notion schema does not match the required blog fields",
+			400,
+		);
+	}
+
+	return notionSchemaLoadError();
+}
+
 function siteSettingRows(rows: SettingRow[]): SettingRow[] {
 	return rows.filter((row) => row.key !== adminPasswordHashKey);
 }
@@ -595,6 +689,55 @@ async function handlePutSettings(
 	return json(redactSettings(parsedSettings));
 }
 
+async function loadNotionSchema(
+	body: NotionSchemaBody,
+): Promise<NotionProperties> {
+	return new NotionClient(body.notionToken).schemaForDatabase(
+		body.notionDatabaseId,
+		body.dataSourceId ? { dataSourceId: body.dataSourceId } : {},
+	);
+}
+
+async function handleNotionSchema(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: NotionSchemaBody;
+
+	try {
+		body = validateNotionSchemaBody(await readJsonObject(request));
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid Notion schema request";
+
+		return errorJson("BAD_REQUEST", message, 400);
+	}
+
+	try {
+		const properties = await loadNotionSchema(body);
+
+		return json({
+			databaseId: body.notionDatabaseId,
+			properties,
+			recommendedFieldMapping: inferFieldMapping(properties),
+		});
+	} catch (error) {
+		return notionSchemaError(error);
+	}
+}
+
 async function handleManualSync(
 	request: Request,
 	env: AppEnv,
@@ -667,6 +810,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/settings" && request.method === "PUT") {
 		return handlePutSettings(request, env);
+	}
+
+	if (url.pathname === "/api/admin/notion/schema" && request.method === "POST") {
+		return handleNotionSchema(request, env);
 	}
 
 	if (url.pathname === "/api/admin/sync" && request.method === "POST") {

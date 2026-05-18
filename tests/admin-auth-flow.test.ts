@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { handleAdminApi } from "../workers/api/admin";
 import { shouldBootstrapPassword } from "../workers/auth";
 import { decryptString, generateEncryptionKey } from "../workers/crypto";
@@ -784,5 +784,66 @@ describe("admin settings API", () => {
 		expect(tokenRow?.encrypted).toBe(1);
 		expect(tokenRow?.value).not.toBe("ntn_secret");
 		expect(await decryptString(tokenRow!.value, rootKey)).toBe("ntn_secret");
+	});
+});
+
+describe("admin Notion schema API", () => {
+	it("retrieves a Notion schema and returns recommended field mappings", async () => {
+		const { env } = testEnv();
+		const session = await usableAdminSession(env);
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const request = new Request(input, init);
+			expect(request.url).toBe(
+				"https://api.notion.com/v1/databases/c5e926f6cd3c4671bb0b86737143570b",
+			);
+			expect(request.headers.get("Authorization")).toBe("Bearer ntn_secret");
+
+			return Response.json({
+				object: "database",
+				id: "c5e926f6cd3c4671bb0b86737143570b",
+				properties: {
+					Name: { type: "title" },
+					Status: { type: "status" },
+					Tags: { type: "multi_select" },
+				},
+			});
+		});
+		vi.stubGlobal("fetch", fetcher);
+
+		try {
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/notion/schema", {
+					body: JSON.stringify({
+						notionDatabaseUrl:
+							"https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b",
+						notionToken: "ntn_secret",
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				databaseId: "c5e926f6cd3c4671bb0b86737143570b",
+				properties: {
+					Name: { type: "title" },
+					Status: { type: "status" },
+					Tags: { type: "multi_select" },
+				},
+				recommendedFieldMapping: {
+					title: "Name",
+					status: "Status",
+					tags: "Tags",
+				},
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

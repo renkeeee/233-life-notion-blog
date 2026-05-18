@@ -295,15 +295,15 @@ async function loadSettings(env: AppEnv): Promise<SiteSettings> {
 async function latestSuccessfulSync(db: D1Database): Promise<string | null> {
 	const row = await db
 		.prepare(
-			`SELECT finished_at
+			`SELECT started_at
 			 FROM sync_runs
-			 WHERE status = 'success' AND finished_at IS NOT NULL
+			 WHERE status = 'success'
 			 ORDER BY finished_at DESC
 			 LIMIT 1`,
 		)
-		.first<{ finished_at: string }>();
+		.first<{ started_at: string }>();
 
-	return row?.finished_at ?? null;
+	return row?.started_at ?? null;
 }
 
 async function syncPage(
@@ -318,9 +318,11 @@ async function syncPage(
 	const startedAt = deps.now();
 	let postId: string | null = null;
 	let postPersisted = false;
+	let existingBeforeSync = false;
 
 	try {
 		const existing = await existingPostState(env.DB, page.id);
+		existingBeforeSync = existing !== null;
 
 		if (
 			existing &&
@@ -348,18 +350,25 @@ async function syncPage(
 		postId = existing?.id ?? metadata.id;
 
 		if (metadata.visibility === "archived") {
-			await upsertPost(env.DB, { ...metadata, id: postId }, existing?.content_hash ?? null, deps);
+			await executeBatch(env.DB, [
+				prepareUpsertPost(
+					env.DB,
+					{ ...metadata, id: postId },
+					existing?.content_hash ?? null,
+					deps,
+				),
+				prepareInsertSyncItem(env.DB, {
+					id: itemId,
+					runId,
+					notionPageId: page.id,
+					postId,
+					action: "archived",
+					status: "success",
+					startedAt,
+					finishedAt: deps.now(),
+				}),
+			]);
 			postPersisted = true;
-			await insertSyncItem(env.DB, {
-				id: itemId,
-				runId,
-				notionPageId: page.id,
-				postId,
-				action: "archived",
-				status: "success",
-				startedAt,
-				finishedAt: deps.now(),
-			});
 			return "archived";
 		}
 
@@ -373,23 +382,25 @@ async function syncPage(
 			!input.force &&
 			existingContent.block_snapshot_hash === blockSnapshotHash
 		) {
-			await upsertPost(
-				env.DB,
-				{ ...metadata, id: postId },
-				existingContent.content_hash,
-				deps,
-			);
+			await executeBatch(env.DB, [
+				prepareUpsertPost(
+					env.DB,
+					{ ...metadata, id: postId },
+					existingContent.content_hash,
+					deps,
+				),
+				prepareInsertSyncItem(env.DB, {
+					id: itemId,
+					runId,
+					notionPageId: page.id,
+					postId,
+					action: metadata.visibility === "hidden" ? "unpublished" : "metadata_only",
+					status: "success",
+					startedAt,
+					finishedAt: deps.now(),
+				}),
+			]);
 			postPersisted = true;
-			await insertSyncItem(env.DB, {
-				id: itemId,
-				runId,
-				notionPageId: page.id,
-				postId,
-				action: metadata.visibility === "hidden" ? "unpublished" : "metadata_only",
-				status: "success",
-				startedAt,
-				finishedAt: deps.now(),
-			});
 			return metadata.visibility === "hidden" ? "unpublished" : "metadata_only";
 		}
 
@@ -400,36 +411,38 @@ async function syncPage(
 			? (await cacheAsset(env, settings, metadata.coverUrl, deps)).cdnUrl
 			: null;
 
-		await upsertPost(
-			env.DB,
-			{ ...metadata, id: postId, coverUrl },
-			contentHash,
-			deps,
-		);
+		await executeBatch(env.DB, [
+			prepareUpsertPost(
+				env.DB,
+				{ ...metadata, id: postId, coverUrl },
+				contentHash,
+				deps,
+			),
+			prepareUpsertPostContent(
+				env.DB,
+				postId,
+				markdown,
+				blockSnapshotHash,
+				contentHash,
+				assetResult.resourceRefs,
+				deps,
+			),
+			prepareInsertSyncItem(env.DB, {
+				id: itemId,
+				runId,
+				notionPageId: page.id,
+				postId,
+				action: metadata.visibility === "hidden" ? "unpublished" : existing ? "updated" : "created",
+				status: "success",
+				startedAt,
+				finishedAt: deps.now(),
+			}),
+		]);
 		postPersisted = true;
-		await upsertPostContent(
-			env.DB,
-			postId,
-			markdown,
-			blockSnapshotHash,
-			contentHash,
-			assetResult.resourceRefs,
-			deps,
-		);
-		await insertSyncItem(env.DB, {
-			id: itemId,
-			runId,
-			notionPageId: page.id,
-			postId,
-			action: metadata.visibility === "hidden" ? "unpublished" : existing ? "updated" : "created",
-			status: "success",
-			startedAt,
-			finishedAt: deps.now(),
-		});
 
 		return metadata.visibility === "hidden" ? "unpublished" : existing ? "updated" : "created";
 	} catch (error) {
-		if (postId && postPersisted) {
+		if (postId && (postPersisted || existingBeforeSync)) {
 			await markPostSyncError(env.DB, postId, publicErrorMessage(error), deps);
 		}
 
@@ -568,14 +581,20 @@ async function cacheAsset(
 				mime_type, size, cdn_url, created_at, last_seen_at
 			)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(source_fingerprint) DO UPDATE SET
-				notion_file_json = excluded.notion_file_json,
-				content_hash = excluded.content_hash,
-				r2_key = excluded.r2_key,
-				mime_type = excluded.mime_type,
-				size = excluded.size,
-				cdn_url = excluded.cdn_url,
-				last_seen_at = excluded.last_seen_at`,
+				ON CONFLICT(source_fingerprint) DO UPDATE SET
+					notion_file_json = excluded.notion_file_json,
+					content_hash = excluded.content_hash,
+					r2_key = excluded.r2_key,
+					mime_type = excluded.mime_type,
+					size = excluded.size,
+					cdn_url = excluded.cdn_url,
+					last_seen_at = excluded.last_seen_at
+				ON CONFLICT(r2_key) DO UPDATE SET
+					content_hash = excluded.content_hash,
+					mime_type = COALESCE(assets.mime_type, excluded.mime_type),
+					size = COALESCE(assets.size, excluded.size),
+					cdn_url = excluded.cdn_url,
+					last_seen_at = excluded.last_seen_at`,
 		)
 		.bind(
 			deps.id(),
@@ -671,15 +690,15 @@ async function finishSyncRun(
 		.run();
 }
 
-async function upsertPost(
+function prepareUpsertPost(
 	db: D1Database,
 	post: PostMetadata,
 	contentHash: string | null,
 	deps: ResolvedSyncDependencies,
-): Promise<void> {
+): D1PreparedStatement {
 	const now = deps.now();
 
-	await db
+	return db
 		.prepare(
 			`INSERT INTO posts (
 				id, notion_page_id, slug, title, summary, cover_url, tags_json,
@@ -716,11 +735,10 @@ async function upsertPost(
 			contentHash,
 			now,
 			now,
-		)
-		.run();
+		);
 }
 
-async function upsertPostContent(
+function prepareUpsertPostContent(
 	db: D1Database,
 	postId: string,
 	markdown: string,
@@ -728,10 +746,10 @@ async function upsertPostContent(
 	contentHash: string,
 	resourceRefs: ResourceRefRecord[],
 	deps: ResolvedSyncDependencies,
-): Promise<void> {
+): D1PreparedStatement {
 	const now = deps.now();
 
-	await db
+	return db
 		.prepare(
 			`INSERT INTO post_content (
 				post_id, markdown, block_snapshot_hash, content_hash,
@@ -753,8 +771,7 @@ async function upsertPostContent(
 			JSON.stringify(resourceRefs),
 			now,
 			now,
-		)
-		.run();
+		);
 }
 
 async function insertSyncItem(
@@ -771,7 +788,21 @@ async function insertSyncItem(
 		finishedAt: string;
 	},
 ): Promise<void> {
-	await db
+	await prepareInsertSyncItem(db, item).run();
+}
+
+function prepareInsertSyncItem(db: D1Database, item: {
+	id: string;
+	runId: string;
+	notionPageId: string;
+	postId: string | null;
+	action: SyncItemAction;
+	status: "success" | "skipped" | "failed";
+	error?: unknown;
+	startedAt: string;
+	finishedAt: string;
+}): D1PreparedStatement {
+	return db
 		.prepare(
 			`INSERT INTO sync_items (
 				id, sync_run_id, notion_page_id, post_id, action, status,
@@ -790,8 +821,31 @@ async function insertSyncItem(
 			publicErrorMessage(item.error),
 			item.startedAt,
 			item.finishedAt,
-		)
-		.run();
+		);
+}
+
+async function executeBatch(
+	db: D1Database,
+	statements: D1PreparedStatement[],
+): Promise<void> {
+	if (statements.length === 0) {
+		return;
+	}
+
+	const batch = (
+		db as {
+			batch?: (statements: D1PreparedStatement[]) => Promise<unknown>;
+		}
+	).batch;
+
+	if (!batch) {
+		throw new SyncError(
+			"INTERNAL_ERROR",
+			"D1 batch support is required for page sync commits",
+		);
+	}
+
+	await batch.call(db, statements);
 }
 
 async function markPostSyncError(

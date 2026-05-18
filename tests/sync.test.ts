@@ -75,6 +75,25 @@ class SqliteD1Database {
 		) as unknown as D1PreparedStatement;
 	}
 
+	async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
+		this.db.exec("BEGIN");
+		try {
+			const results: D1Result[] = [];
+			for (const statement of statements) {
+				results.push(await statement.run());
+			}
+			this.db.exec("COMMIT");
+			return results;
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
+	}
+
+	exec(sql: string): void {
+		this.db.exec(sql);
+	}
+
 	insertSetting(row: SettingRow): void {
 		this.db
 			.prepare(
@@ -356,6 +375,53 @@ describe("Notion page mapping", () => {
 });
 
 describe("runSync", () => {
+	it("uses the previous successful run start time as the incremental lower bound", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			db.exec(
+				`INSERT INTO sync_runs (
+					id, trigger_type, started_at, finished_at, status, force
+				)
+				VALUES (
+					'previous-run', 'cron',
+					'2026-05-18T00:00:00.000Z',
+					'2026-05-18T00:05:00.000Z',
+					'success', 0
+				)`,
+			);
+
+			await runSync(
+				envWithDb(db),
+				{ triggerType: "cron", force: false },
+				{
+					id: (() => {
+						let index = 0;
+						return () => {
+							index += 1;
+							return index === 1 ? "run-window" : `item-${index}`;
+						};
+					})(),
+					now: () => fixedNow,
+					notionSource: {
+						async listPages(_settings, window) {
+							expect(window).toEqual({
+								start: "2026-05-18T00:00:00.000Z",
+								end: null,
+							});
+							return [];
+						},
+						async listBlocks() {
+							return [];
+						},
+					},
+				},
+			);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("writes synced Notion pages, Markdown content, uploaded assets, and sync history", async () => {
 		const db = new SqliteD1Database();
 		const bucket = new FakeAssetBucket();
@@ -437,6 +503,101 @@ describe("runSync", () => {
 				status: "success",
 				post_id: "notion-page-1",
 			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("deduplicates different Notion asset URLs that download to the same content hash", async () => {
+		const db = new SqliteD1Database();
+		const bucket = new FakeAssetBucket();
+		try {
+			await seedSettings(db);
+			const blocks: NotionBlock[] = [
+				{
+					id: "image-1",
+					type: "image",
+					image: {
+						type: "external",
+						external: { url: "https://notion-assets.example.com/a.png" },
+					},
+				},
+				{
+					id: "image-2",
+					type: "image",
+					image: {
+						type: "external",
+						external: { url: "https://notion-assets.example.com/b.png" },
+					},
+				},
+			];
+
+			await runSync(
+				envWithDb(db, bucket),
+				{ triggerType: "manual", force: true },
+				syncDependencies([syncPage()], blocks),
+			);
+
+			expect(
+				db.row<{ status: string; created_count: number; failed_count: number }>(
+					"SELECT status, created_count, failed_count FROM sync_runs WHERE id = ?",
+					"run-1",
+				),
+			).toEqual({
+				status: "success",
+				created_count: 1,
+				failed_count: 0,
+			});
+			expect(db.rows("SELECT * FROM assets")).toHaveLength(1);
+			expect(bucket.puts).toHaveLength(1);
+			const content = db.row<{ markdown: string }>(
+				"SELECT markdown FROM post_content WHERE post_id = ?",
+				"notion-page-1",
+			);
+			expect(content.markdown).toContain("https://cdn.example.com/assets/");
+			expect(content.markdown).not.toContain("notion-assets.example.com");
+		} finally {
+			db.close();
+		}
+	});
+
+	it("does not publish a new post row when content persistence fails", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			db.exec(
+				`CREATE TRIGGER fail_post_content_insert
+				 BEFORE INSERT ON post_content
+				 BEGIN
+					SELECT RAISE(FAIL, 'post content unavailable');
+				 END;`,
+			);
+
+			await runSync(
+				envWithDb(db),
+				{ triggerType: "manual", force: true },
+				syncDependencies([syncPage()]),
+			);
+
+			expect(
+				db.row<{ status: string; created_count: number; failed_count: number }>(
+					"SELECT status, created_count, failed_count FROM sync_runs WHERE id = ?",
+					"run-1",
+				),
+			).toEqual({
+				status: "partial",
+				created_count: 0,
+				failed_count: 1,
+			});
+			expect(
+				db.rows("SELECT * FROM posts WHERE notion_page_id = ?", "notion-page-1"),
+			).toHaveLength(0);
+			expect(
+				db.row<{ status: string; post_id: string | null }>(
+					"SELECT status, post_id FROM sync_items WHERE sync_run_id = ?",
+					"run-1",
+				),
+			).toEqual({ status: "failed", post_id: null });
 		} finally {
 			db.close();
 		}

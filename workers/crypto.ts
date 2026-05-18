@@ -17,7 +17,7 @@ function bytesToHex(bytes: Uint8Array): string {
 	);
 }
 
-function bytesToBase64Url(bytes: Uint8Array): string {
+export function bytesToBase64Url(bytes: Uint8Array): string {
 	let binary = "";
 
 	for (let index = 0; index < bytes.length; index += 1) {
@@ -30,7 +30,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
 		.replaceAll("=", "");
 }
 
-function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
+export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
 	if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
 		throw new Error("Invalid base64url value");
 	}
@@ -47,7 +47,7 @@ function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
 	return bytes;
 }
 
-function constantTimeEqual(left: string, right: string): boolean {
+export function constantTimeEqual(left: string, right: string): boolean {
 	const maxLength = Math.max(left.length, right.length);
 	let diff = left.length ^ right.length;
 

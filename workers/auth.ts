@@ -1,4 +1,9 @@
-import { randomToken } from "./crypto";
+import {
+	base64UrlToBytes,
+	bytesToBase64Url,
+	constantTimeEqual,
+	randomToken,
+} from "./crypto";
 
 export interface AdminSession {
 	csrfToken: string;
@@ -8,36 +13,6 @@ export interface AdminSession {
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 7;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-	let binary = "";
-
-	for (let index = 0; index < bytes.length; index += 1) {
-		binary += String.fromCharCode(bytes[index]);
-	}
-
-	return btoa(binary)
-		.replaceAll("+", "-")
-		.replaceAll("/", "_")
-		.replaceAll("=", "");
-}
-
-function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
-	if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
-		throw new Error("Invalid base64url value");
-	}
-
-	const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
-	const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-	const binary = atob(padded);
-	const bytes = new Uint8Array(binary.length);
-
-	for (let index = 0; index < binary.length; index += 1) {
-		bytes[index] = binary.charCodeAt(index);
-	}
-
-	return bytes;
-}
 
 function rootKeyBytes(rootKey: string): Uint8Array<ArrayBuffer> {
 	try {
@@ -63,25 +38,18 @@ async function signingKey(rootKey: string): Promise<CryptoKey> {
 	);
 }
 
-async function signPayload(payload: string, rootKey: string): Promise<string> {
+async function signTokenParts(
+	version: string,
+	payload: string,
+	rootKey: string,
+): Promise<string> {
 	const signature = await crypto.subtle.sign(
 		"HMAC",
 		await signingKey(rootKey),
-		textEncoder.encode(payload),
+		textEncoder.encode(`${version}.${payload}`),
 	);
 
 	return bytesToBase64Url(new Uint8Array(signature));
-}
-
-function constantTimeEqual(left: string, right: string): boolean {
-	const maxLength = Math.max(left.length, right.length);
-	let diff = left.length ^ right.length;
-
-	for (let index = 0; index < maxLength; index += 1) {
-		diff |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
-	}
-
-	return diff === 0;
 }
 
 function parseSessionPayload(payload: string): AdminSession {
@@ -93,7 +61,7 @@ function parseSessionPayload(payload: string): AdminSession {
 	if (
 		typeof parsed.csrfToken !== "string" ||
 		typeof parsed.expiresAt !== "number" ||
-		!Number.isFinite(parsed.expiresAt)
+		!Number.isSafeInteger(parsed.expiresAt)
 	) {
 		throw new Error("Invalid session");
 	}
@@ -104,21 +72,37 @@ function parseSessionPayload(payload: string): AdminSession {
 	};
 }
 
+function validateSession(session: AdminSession, now: number): void {
+	if (
+		session.csrfToken.length === 0 ||
+		!Number.isSafeInteger(session.expiresAt) ||
+		session.expiresAt <= now ||
+		session.expiresAt > now + sessionTtlMs
+	) {
+		throw new Error("Invalid session");
+	}
+}
+
 export async function createSessionToken(
 	rootKey: string,
 	csrfToken = randomToken(24),
 	now = Date.now(),
 ): Promise<string> {
+	if (csrfToken.length === 0) {
+		throw new Error("Invalid session");
+	}
+
+	const session = {
+		csrfToken,
+		expiresAt: now + sessionTtlMs,
+	} satisfies AdminSession;
+	validateSession(session, now);
+
 	const payload = bytesToBase64Url(
-		textEncoder.encode(
-			JSON.stringify({
-				csrfToken,
-				expiresAt: now + sessionTtlMs,
-			} satisfies AdminSession),
-		),
+		textEncoder.encode(JSON.stringify(session)),
 	);
 
-	return `v1.${payload}.${await signPayload(payload, rootKey)}`;
+	return `v1.${payload}.${await signTokenParts("v1", payload, rootKey)}`;
 }
 
 export async function verifySessionToken(
@@ -134,17 +118,14 @@ export async function verifySessionToken(
 		}
 
 		const [, payload, signature] = parts;
-		const expectedSignature = await signPayload(payload, rootKey);
+		const expectedSignature = await signTokenParts("v1", payload, rootKey);
 
 		if (!constantTimeEqual(signature, expectedSignature)) {
 			throw new Error("Invalid session");
 		}
 
 		const session = parseSessionPayload(payload);
-
-		if (session.expiresAt <= now) {
-			throw new Error("Invalid session");
-		}
+		validateSession(session, now);
 
 		return session;
 	} catch {

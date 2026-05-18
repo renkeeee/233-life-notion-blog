@@ -1,12 +1,46 @@
 import { describe, expect, it } from "vitest";
 import { handleAdminApi, validateLoginBody } from "../workers/api/admin";
+import { generateEncryptionKey } from "../workers/crypto";
+import type { SettingRow } from "../workers/settings";
 import type { AppEnv } from "../workers/types";
 
-const env: AppEnv = {
-	DB: {} as D1Database,
-	BLOG_ASSETS: {} as R2Bucket,
-	CONFIG_ENCRYPTION_KEY: "test-encryption-key",
-};
+function createFakeD1(): D1Database {
+	const rows = new Map<string, SettingRow>();
+
+	return {
+		prepare() {
+			return {
+				bind(...values: unknown[]) {
+					return {
+						async first<T>() {
+							return (rows.get(String(values[0])) ?? null) as T | null;
+						},
+						async run() {
+							const [key, value, encrypted, updatedAt] = values;
+							rows.set(String(key), {
+								key: String(key),
+								value: String(value),
+								encrypted: encrypted as 0 | 1,
+								updated_at: String(updatedAt),
+							});
+						},
+					};
+				},
+				async all<T>() {
+					return { results: Array.from(rows.values()) as T[], success: true };
+				},
+			};
+		},
+	} as unknown as D1Database;
+}
+
+function testEnv(): AppEnv {
+	return {
+		DB: createFakeD1(),
+		BLOG_ASSETS: {} as R2Bucket,
+		CONFIG_ENCRYPTION_KEY: generateEncryptionKey(),
+	};
+}
 
 function adminRequest(
 	pathname: string,
@@ -32,27 +66,31 @@ describe("admin login validation", () => {
 });
 
 describe("admin API routes", () => {
-	it("accepts a login body without echoing password details", async () => {
+	it("logs in without echoing password details", async () => {
 		const response = await handleAdminApi(
 			adminRequest("/api/admin/login", {
-				body: JSON.stringify({ password: "secret" }),
+				body: JSON.stringify({ password: "123456" }),
 				headers: { "content-type": "application/json" },
 				method: "POST",
 			}),
-			env,
+			testEnv(),
 		);
 
 		expect(response.status).toBe(200);
 		const body = await response.json();
-		expect(body).toEqual({ ok: true });
-		expect(JSON.stringify(body)).not.toContain("secret");
-		expect(JSON.stringify(body)).not.toContain("6");
+		expect(body).toEqual({
+			authenticated: true,
+			csrfToken: expect.any(String),
+		});
+		expect(body).not.toHaveProperty("password");
+		expect(body).not.toHaveProperty("passwordLength");
+		expect(JSON.stringify(body)).not.toContain("123456");
 	});
 
-	it("returns the temporary unauthenticated admin identity", async () => {
+	it("returns the unauthenticated admin identity when no session exists", async () => {
 		const response = await handleAdminApi(
 			adminRequest("/api/admin/me", { method: "GET" }),
-			env,
+			testEnv(),
 		);
 
 		expect(response.status).toBe(200);
@@ -62,7 +100,7 @@ describe("admin API routes", () => {
 	it("returns the admin not found shape for unknown admin routes", async () => {
 		const response = await handleAdminApi(
 			adminRequest("/api/admin/nope", { method: "GET" }),
-			env,
+			testEnv(),
 		);
 
 		expect(response.status).toBe(404);
@@ -78,12 +116,32 @@ describe("admin API routes", () => {
 				headers: { "content-type": "application/json" },
 				method: "POST",
 			}),
-			env,
+			testEnv(),
 		);
 
 		expect(response.status).toBe(400);
 		await expect(response.json()).resolves.toEqual({
 			error: { code: "BAD_REQUEST", message: "Invalid request body" },
+		});
+	});
+
+	it.each([
+		["missing", {}],
+		["empty", { password: "" }],
+		["non-string", { password: 123 }],
+	])("returns bad request JSON for %s login password", async (_name, body) => {
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/login", {
+				body: JSON.stringify(body),
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+			testEnv(),
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "BAD_REQUEST", message: "Password is required" },
 		});
 	});
 });

@@ -10,9 +10,15 @@ export interface AdminSession {
 	expiresAt: number;
 }
 
+export const initialAdminPassword = "123456";
+
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 7;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+
+export function shouldBootstrapPassword(storedHash: string | null): boolean {
+	return storedHash === null;
+}
 
 function rootKeyBytes(rootKey: string): Uint8Array<ArrayBuffer> {
 	try {

@@ -1,5 +1,6 @@
 import { handleAdminApi } from "./api/admin";
 import { handlePublicApi } from "./api/public";
+import { runSync } from "./sync";
 import type { AppEnv } from "./types";
 
 export function routeKind(request: Request): "api" | "app" {
@@ -25,5 +26,8 @@ export default {
 		}
 
 		return new Response("Not found", { status: 404 });
+	},
+	scheduled(_controller, env, ctx) {
+		ctx.waitUntil(runSync(env, { triggerType: "cron", force: false }));
 	},
 } satisfies ExportedHandler<AppEnv>;

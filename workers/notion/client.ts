@@ -1,4 +1,5 @@
 import type { NotionProperties } from "./database";
+import type { NotionBlock } from "./blocks";
 
 const NOTION_API_BASE_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2026-03-11";
@@ -45,6 +46,12 @@ export interface NotionDataSource {
 export interface NotionDataSourceReference {
 	id: string;
 	name?: string;
+}
+
+export interface NotionListResponse<T> {
+	results?: T[];
+	has_more?: boolean;
+	next_cursor?: string | null;
 }
 
 export class NotionClient {
@@ -109,6 +116,95 @@ export class NotionClient {
 
 	async schemaForDataSource(dataSourceId: string): Promise<NotionProperties> {
 		return (await this.retrieveDataSource(dataSourceId)).properties;
+	}
+
+	async queryDatabaseOrDataSourcePages<T = Record<string, unknown>>(
+		databaseId: string,
+		body: Record<string, unknown> = {},
+	): Promise<T[]> {
+		return this.paginatedPost<T>(
+			await this.queryPathForDatabase(databaseId),
+			body,
+		);
+	}
+
+	async listBlockTree(blockId: string): Promise<NotionBlock[]> {
+		const blocks = await this.paginatedGet<NotionBlock>(
+			`/blocks/${blockId}/children`,
+		);
+
+		for (const block of blocks) {
+			if (block.has_children === true && typeof block.id === "string") {
+				block.children = await this.listBlockTree(block.id);
+			}
+		}
+
+		return blocks;
+	}
+
+	private async queryPathForDatabase(databaseId: string): Promise<string> {
+		const database = await this.retrieveDatabase(databaseId);
+
+		if (database.properties) {
+			return `/databases/${databaseId}/query`;
+		}
+
+		const dataSources = database.data_sources ?? [];
+		if (dataSources.length === 0) {
+			throw new Error("FIELD_MAPPING_INVALID: Notion database has no data sources");
+		}
+
+		if (dataSources.length > 1) {
+			throw new Error(
+				"NOTION_DATA_SOURCE_AMBIGUOUS: Notion database has multiple data sources; configure dataSourceId",
+			);
+		}
+
+		return `/data_sources/${dataSources[0].id}/query`;
+	}
+
+	private async paginatedPost<T>(
+		path: string,
+		body: Record<string, unknown>,
+	): Promise<T[]> {
+		const results: T[] = [];
+		let startCursor: string | undefined;
+
+		do {
+			const response = await this.request<NotionListResponse<T>>(path, {
+				method: "POST",
+				body: JSON.stringify({
+					...body,
+					page_size: body.page_size ?? 100,
+					...(startCursor ? { start_cursor: startCursor } : {}),
+				}),
+			});
+
+			results.push(...(response.results ?? []));
+			startCursor = response.has_more ? (response.next_cursor ?? undefined) : undefined;
+		} while (startCursor);
+
+		return results;
+	}
+
+	private async paginatedGet<T>(path: string): Promise<T[]> {
+		const results: T[] = [];
+		let startCursor: string | undefined;
+
+		do {
+			const params = new URLSearchParams({ page_size: "100" });
+			if (startCursor) {
+				params.set("start_cursor", startCursor);
+			}
+			const response = await this.request<NotionListResponse<T>>(
+				`${path}?${params}`,
+			);
+
+			results.push(...(response.results ?? []));
+			startCursor = response.has_more ? (response.next_cursor ?? undefined) : undefined;
+		} while (startCursor);
+
+		return results;
 	}
 
 	private urlFor(path: string): string {

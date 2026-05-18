@@ -416,6 +416,121 @@ describe("NotionClient", () => {
 		);
 		expect(paths).toEqual([`/v1/data_sources/${dataSourceId}`]);
 	});
+
+	it("queries the only data source for current database responses", async () => {
+		const requests: Request[] = [];
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input, init) => {
+				const request = new Request(input, init);
+				requests.push(request);
+				const url = new URL(request.url);
+
+				if (url.pathname === `/v1/databases/${databaseId}`) {
+					return Response.json({
+						object: "database",
+						id: databaseId,
+						data_sources: [{ id: dataSourceId, name: "Blog posts" }],
+					});
+				}
+
+				return Response.json({
+					object: "list",
+					has_more: false,
+					next_cursor: null,
+					results: [{ object: "page", id: "page-1" }],
+				});
+			},
+		});
+
+		await expect(
+			client.queryDatabaseOrDataSourcePages(databaseId, {
+				filter: {
+					timestamp: "last_edited_time",
+					last_edited_time: { on_or_after: "2026-05-18T00:00:00.000Z" },
+				},
+			}),
+		).resolves.toEqual([{ object: "page", id: "page-1" }]);
+		expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+			`/v1/databases/${databaseId}`,
+			`/v1/data_sources/${dataSourceId}/query`,
+		]);
+		await expect(requests[1].json()).resolves.toMatchObject({
+			page_size: 100,
+			filter: {
+				timestamp: "last_edited_time",
+			},
+		});
+	});
+
+	it("paginates block children and attaches nested child blocks", async () => {
+		const paths: string[] = [];
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input) => {
+				const url = new URL(input.toString());
+				paths.push(`${url.pathname}?${url.searchParams}`);
+
+				if (
+					url.pathname === "/v1/blocks/root/children" &&
+					url.searchParams.get("start_cursor") === "next-page"
+				) {
+					return Response.json({
+						object: "list",
+						has_more: false,
+						next_cursor: null,
+						results: [
+							{
+								id: "sibling",
+								type: "paragraph",
+								paragraph: { rich_text: [{ plain_text: "Sibling" }] },
+							},
+						],
+					});
+				}
+
+				if (url.pathname === "/v1/blocks/root/children") {
+					return Response.json({
+						object: "list",
+						has_more: true,
+						next_cursor: "next-page",
+						results: [
+							{
+								id: "child-with-children",
+								type: "paragraph",
+								has_children: true,
+								paragraph: { rich_text: [{ plain_text: "Parent" }] },
+							},
+						],
+					});
+				}
+
+				return Response.json({
+					object: "list",
+					has_more: false,
+					next_cursor: null,
+					results: [
+						{
+							id: "nested-child",
+							type: "paragraph",
+							paragraph: { rich_text: [{ plain_text: "Nested" }] },
+						},
+					],
+				});
+			},
+		});
+
+		await expect(client.listBlockTree("root")).resolves.toMatchObject([
+			{
+				id: "child-with-children",
+				children: [{ id: "nested-child" }],
+			},
+			{ id: "sibling" },
+		]);
+		expect(paths).toEqual([
+			"/v1/blocks/root/children?page_size=100",
+			"/v1/blocks/root/children?page_size=100&start_cursor=next-page",
+			"/v1/blocks/child-with-children/children?page_size=100",
+		]);
+	});
 });
 
 function property(type: string): { type: string } {

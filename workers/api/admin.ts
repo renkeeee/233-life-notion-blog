@@ -15,6 +15,7 @@ import {
 	serializeSettingsForStorage,
 	type SettingRow,
 } from "../settings";
+import { runSync as defaultRunSync, type RunSyncInput } from "../sync";
 import type { AppEnv, SiteSettings } from "../types";
 
 type LoginBody = {
@@ -24,6 +25,19 @@ type LoginBody = {
 type PasswordChangeBody = {
 	currentPassword: string;
 	newPassword: string;
+};
+
+type ManualSyncBody = {
+	rangeStart: string | null;
+	rangeEnd: string | null;
+	force: boolean;
+};
+
+type AdminApiOptions = {
+	runSync?: (
+		env: AppEnv,
+		input: RunSyncInput,
+	) => Promise<{ runId: string }>;
 };
 
 const adminPasswordHashKey = "adminPasswordHash";
@@ -88,6 +102,42 @@ function validatePasswordChangeBody(
 		currentPassword: body.currentPassword,
 		newPassword: body.newPassword,
 	};
+}
+
+function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
+	const rangeStart = optionalDateString(body.rangeStart, "rangeStart");
+	const rangeEnd = optionalDateString(body.rangeEnd, "rangeEnd");
+	const force = body.force ?? false;
+
+	if (typeof force !== "boolean") {
+		throw new Error("force must be a boolean");
+	}
+
+	if (
+		rangeStart !== null &&
+		rangeEnd !== null &&
+		Date.parse(rangeStart) > Date.parse(rangeEnd)
+	) {
+		throw new Error("rangeStart must be before or equal to rangeEnd");
+	}
+
+	return {
+		rangeStart,
+		rangeEnd,
+		force,
+	};
+}
+
+function optionalDateString(value: unknown, name: string): string | null {
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+		throw new Error(`${name} must be an ISO date string or null`);
+	}
+
+	return value;
 }
 
 function adminNotFound(): Response {
@@ -510,9 +560,53 @@ async function handlePutSettings(
 	return json(redactSettings(parsedSettings));
 }
 
+async function handleManualSync(
+	request: Request,
+	env: AppEnv,
+	options: AdminApiOptions,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: ManualSyncBody;
+
+	try {
+		body = validateManualSyncBody(await readJsonObject(request));
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid request body";
+
+		return errorJson("BAD_REQUEST", message, 400);
+	}
+
+	try {
+		const syncRunner = options.runSync ?? defaultRunSync;
+		return json(
+			await syncRunner(env, {
+				triggerType: "manual",
+				rangeStart: body.rangeStart,
+				rangeEnd: body.rangeEnd,
+				force: body.force,
+			}),
+		);
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Sync failed", 500);
+	}
+}
+
 export async function handleAdminApi(
 	request: Request,
 	env: AppEnv,
+	options: AdminApiOptions = {},
 ): Promise<Response> {
 	const url = new URL(request.url);
 
@@ -538,6 +632,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/settings" && request.method === "PUT") {
 		return handlePutSettings(request, env);
+	}
+
+	if (url.pathname === "/api/admin/sync" && request.method === "POST") {
+		return handleManualSync(request, env, options);
 	}
 
 	return adminNotFound();

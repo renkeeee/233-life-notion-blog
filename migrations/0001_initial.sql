@@ -1,0 +1,98 @@
+CREATE TABLE IF NOT EXISTS settings (
+	key TEXT PRIMARY KEY,
+	value TEXT NOT NULL,
+	encrypted INTEGER NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+	id TEXT PRIMARY KEY,
+	notion_page_id TEXT NOT NULL UNIQUE,
+	slug TEXT NOT NULL UNIQUE,
+	title TEXT NOT NULL,
+	summary TEXT,
+	cover_url TEXT,
+	tags_json TEXT NOT NULL DEFAULT '[]',
+	status TEXT NOT NULL,
+	visibility TEXT NOT NULL CHECK (visibility IN ('published', 'hidden', 'archived')),
+	published_at TEXT,
+	notion_last_edited_time TEXT NOT NULL,
+	content_hash TEXT,
+	last_sync_error TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
+	ON posts (visibility, published_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_posts_notion_last_edited_time
+	ON posts (notion_last_edited_time);
+
+CREATE TABLE IF NOT EXISTS post_content (
+	post_id TEXT PRIMARY KEY,
+	markdown TEXT NOT NULL,
+	block_snapshot_hash TEXT NOT NULL,
+	content_hash TEXT NOT NULL,
+	resource_refs_json TEXT NOT NULL DEFAULT '[]',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+	id TEXT PRIMARY KEY,
+	source_fingerprint TEXT NOT NULL UNIQUE,
+	notion_file_json TEXT,
+	content_hash TEXT NOT NULL,
+	r2_key TEXT NOT NULL UNIQUE,
+	mime_type TEXT,
+	size INTEGER,
+	cdn_url TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	last_seen_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_assets_content_hash
+	ON assets (content_hash);
+
+CREATE TABLE IF NOT EXISTS sync_runs (
+	id TEXT PRIMARY KEY,
+	trigger_type TEXT NOT NULL CHECK (trigger_type IN ('cron', 'manual')),
+	started_at TEXT NOT NULL,
+	finished_at TEXT,
+	status TEXT NOT NULL CHECK (status IN ('running', 'success', 'partial', 'failed')),
+	range_start TEXT,
+	range_end TEXT,
+	force INTEGER NOT NULL DEFAULT 0,
+	created_count INTEGER NOT NULL DEFAULT 0,
+	updated_count INTEGER NOT NULL DEFAULT 0,
+	metadata_only_count INTEGER NOT NULL DEFAULT 0,
+	skipped_count INTEGER NOT NULL DEFAULT 0,
+	unpublished_count INTEGER NOT NULL DEFAULT 0,
+	archived_count INTEGER NOT NULL DEFAULT 0,
+	failed_count INTEGER NOT NULL DEFAULT 0,
+	error_code TEXT,
+	error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at
+	ON sync_runs (started_at DESC);
+
+CREATE TABLE IF NOT EXISTS sync_items (
+	id TEXT PRIMARY KEY,
+	sync_run_id TEXT NOT NULL,
+	notion_page_id TEXT NOT NULL,
+	post_id TEXT,
+	action TEXT NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('success', 'skipped', 'failed')),
+	error_code TEXT,
+	error_message TEXT,
+	started_at TEXT NOT NULL,
+	finished_at TEXT,
+	FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE,
+	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_items_run_id
+	ON sync_items (sync_run_id);

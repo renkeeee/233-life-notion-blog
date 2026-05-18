@@ -1,0 +1,46 @@
+export interface AppEnv {
+	DB: D1Database;
+	BLOG_ASSETS: R2Bucket;
+	CONFIG_ENCRYPTION_KEY: string;
+	VALUE_FROM_CLOUDFLARE?: string;
+}
+
+export type ApiErrorCode =
+	| "BAD_REQUEST"
+	| "UNAUTHORIZED"
+	| "FORBIDDEN"
+	| "NOT_FOUND"
+	| "NOTION_AUTH_FAILED"
+	| "NOTION_DATABASE_NOT_FOUND"
+	| "FIELD_MAPPING_INVALID"
+	| "NOTION_RATE_LIMITED"
+	| "ASSET_DOWNLOAD_FAILED"
+	| "R2_UPLOAD_FAILED"
+	| "CONFIG_DECRYPT_FAILED"
+	| "SYNC_ALREADY_RUNNING";
+
+export interface ApiErrorBody {
+	error: {
+		code: ApiErrorCode;
+		message: string;
+	};
+}
+
+export interface FieldMapping {
+	title: string;
+	slug?: string;
+	summary?: string;
+	tags?: string;
+	status: string;
+	publishedAt?: string;
+	cover?: string;
+}
+
+export interface SiteSettings {
+	siteTitle: string;
+	notionDatabaseUrl: string;
+	notionDatabaseId: string;
+	notionToken: string;
+	cdnBaseUrl: string;
+	fieldMapping: FieldMapping;
+}

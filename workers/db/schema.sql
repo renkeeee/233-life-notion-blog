@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS settings (
 	key TEXT PRIMARY KEY,
 	value TEXT NOT NULL,
-	encrypted INTEGER NOT NULL DEFAULT 0,
+	encrypted INTEGER NOT NULL DEFAULT 0 CHECK (encrypted IN (0, 1)),
 	updated_at TEXT NOT NULL
 );
 
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS assets (
 	content_hash TEXT NOT NULL,
 	r2_key TEXT NOT NULL UNIQUE,
 	mime_type TEXT,
-	size INTEGER,
+	size INTEGER CHECK (size IS NULL OR size >= 0),
 	cdn_url TEXT NOT NULL,
 	created_at TEXT NOT NULL,
 	last_seen_at TEXT NOT NULL
@@ -65,13 +65,13 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 	range_start TEXT,
 	range_end TEXT,
 	force INTEGER NOT NULL DEFAULT 0,
-	created_count INTEGER NOT NULL DEFAULT 0,
-	updated_count INTEGER NOT NULL DEFAULT 0,
-	metadata_only_count INTEGER NOT NULL DEFAULT 0,
-	skipped_count INTEGER NOT NULL DEFAULT 0,
-	unpublished_count INTEGER NOT NULL DEFAULT 0,
-	archived_count INTEGER NOT NULL DEFAULT 0,
-	failed_count INTEGER NOT NULL DEFAULT 0,
+	created_count INTEGER NOT NULL DEFAULT 0 CHECK (created_count >= 0),
+	updated_count INTEGER NOT NULL DEFAULT 0 CHECK (updated_count >= 0),
+	metadata_only_count INTEGER NOT NULL DEFAULT 0 CHECK (metadata_only_count >= 0),
+	skipped_count INTEGER NOT NULL DEFAULT 0 CHECK (skipped_count >= 0),
+	unpublished_count INTEGER NOT NULL DEFAULT 0 CHECK (unpublished_count >= 0),
+	archived_count INTEGER NOT NULL DEFAULT 0 CHECK (archived_count >= 0),
+	failed_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_count >= 0),
 	error_code TEXT,
 	error_message TEXT
 );
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS sync_items (
 	sync_run_id TEXT NOT NULL,
 	notion_page_id TEXT NOT NULL,
 	post_id TEXT,
-	action TEXT NOT NULL,
+	action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'metadata_only', 'skipped', 'unpublished', 'archived')),
 	status TEXT NOT NULL CHECK (status IN ('success', 'skipped', 'failed')),
 	error_code TEXT,
 	error_message TEXT,
@@ -96,3 +96,6 @@ CREATE TABLE IF NOT EXISTS sync_items (
 
 CREATE INDEX IF NOT EXISTS idx_sync_items_run_id
 	ON sync_items (sync_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_sync_items_notion_page_id
+	ON sync_items (notion_page_id);

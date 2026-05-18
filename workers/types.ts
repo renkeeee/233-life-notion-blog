@@ -32,6 +32,7 @@ export type ApiErrorCode =
 	| "ASSET_DOWNLOAD_FAILED"
 	| "R2_UPLOAD_FAILED"
 	| "CONFIG_DECRYPT_FAILED"
+	| "INTERNAL_ERROR"
 	| "SYNC_ALREADY_RUNNING";
 
 export interface ApiErrorBody {

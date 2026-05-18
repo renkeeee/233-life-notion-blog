@@ -81,6 +81,7 @@ describe("admin API routes", () => {
 		expect(body).toEqual({
 			authenticated: true,
 			csrfToken: expect.any(String),
+			mustChangePassword: true,
 		});
 		expect(body).not.toHaveProperty("password");
 		expect(body).not.toHaveProperty("passwordLength");

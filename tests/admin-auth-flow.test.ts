@@ -62,12 +62,97 @@ function createFakeD1(initialRows: SettingRow[] = []): {
 	return { db, rows };
 }
 
+function createStorageFailingD1(initialRows: SettingRow[] = []): {
+	db: D1Database;
+	rows: Map<string, SettingRow>;
+} {
+	const fake = createFakeD1(initialRows);
+
+	return {
+		db: {
+			...fake.db,
+			async batch() {
+				throw new Error("D1 unavailable: secret details");
+			},
+		} as unknown as D1Database,
+		rows: fake.rows,
+	};
+}
+
+function createListFailingD1(initialRows: SettingRow[] = []): {
+	db: D1Database;
+	rows: Map<string, SettingRow>;
+} {
+	const fake = createFakeD1(initialRows);
+	const db = {
+		...fake.db,
+		prepare(sql: string) {
+			const statement = fake.db.prepare(sql);
+
+			if (sql.includes("ORDER BY key")) {
+				return {
+					...statement,
+					async all() {
+						throw new Error("D1 list unavailable: secret details");
+					},
+				};
+			}
+
+			return statement;
+		},
+	} as unknown as D1Database;
+
+	return { db, rows: fake.rows };
+}
+
 function testEnv(rootKey = generateEncryptionKey(), rows: SettingRow[] = []): {
 	env: AppEnv;
 	rows: Map<string, SettingRow>;
 	rootKey: string;
 } {
 	const fake = createFakeD1(rows);
+
+	return {
+		env: {
+			DB: fake.db,
+			BLOG_ASSETS: {} as R2Bucket,
+			CONFIG_ENCRYPTION_KEY: rootKey,
+		},
+		rows: fake.rows,
+		rootKey,
+	};
+}
+
+function storageFailingEnv(
+	rootKey = generateEncryptionKey(),
+	rows: SettingRow[] = [],
+): {
+	env: AppEnv;
+	rows: Map<string, SettingRow>;
+	rootKey: string;
+} {
+	const fake = createStorageFailingD1(rows);
+
+	return {
+		env: {
+			DB: fake.db,
+			BLOG_ASSETS: {} as R2Bucket,
+			CONFIG_ENCRYPTION_KEY: rootKey,
+		},
+		rows: fake.rows,
+		rootKey,
+	};
+}
+
+function listFailingEnv(
+	rootKey = generateEncryptionKey(),
+	rows: SettingRow[] = [],
+): {
+	env: AppEnv;
+	rows: Map<string, SettingRow>;
+	rootKey: string;
+} {
+	const fake = createListFailingD1(rows);
 
 	return {
 		env: {
@@ -109,6 +194,28 @@ async function loginSession(env: AppEnv): Promise<{
 	};
 }
 
+async function changePassword(
+	env: AppEnv,
+	session: { cookie: string; csrfToken: string },
+	body: Record<string, unknown>,
+	init: RequestInit = {},
+): Promise<Response> {
+	return handleAdminApi(
+		adminRequest("/api/admin/password", {
+			body: JSON.stringify(body),
+			headers: {
+				"content-type": "application/json",
+				cookie: session.cookie,
+				"x-csrf-token": session.csrfToken,
+				...(init.headers ?? {}),
+			},
+			method: "POST",
+			...init,
+		}),
+		env,
+	);
+}
+
 function testSettings(notionToken = "ntn_secret"): SiteSettings {
 	return {
 		siteTitle: "233 Life",
@@ -130,7 +237,7 @@ describe("admin password bootstrap", () => {
 });
 
 describe("admin authentication flow", () => {
-	it("accepts the initial password, sets an HttpOnly session cookie, returns CSRF, and stores a PBKDF2 hash", async () => {
+	it("accepts the initial password, sets a Secure HttpOnly session cookie, returns CSRF and mustChangePassword, and stores a PBKDF2 hash", async () => {
 		const { env, rows } = testEnv();
 		const response = await login(env);
 		const body = await response.json();
@@ -141,11 +248,13 @@ describe("admin authentication flow", () => {
 		expect(body).toEqual({
 			authenticated: true,
 			csrfToken: expect.any(String),
+			mustChangePassword: true,
 		});
 		expect(body).not.toHaveProperty("password");
 		expect(String(body)).not.toContain("123456");
 		expect(cookie).toContain("admin_session=");
 		expect(cookie).toContain("HttpOnly");
+		expect(cookie).toContain("Secure");
 		expect(cookie).toContain("SameSite=Lax");
 		expect(cookie).toContain("Path=/");
 		expect(cookie).toContain("Max-Age=604800");
@@ -153,6 +262,102 @@ describe("admin authentication flow", () => {
 		expect(passwordRow?.value).toMatch(/^pbkdf2-sha256:210000:/);
 		expect(passwordRow?.value).not.toBe("123456");
 		expect(JSON.stringify(body)).not.toContain("123456");
+	});
+
+	it("requires a session and matching CSRF token to change the admin password", async () => {
+		const { env } = testEnv();
+		const session = await loginSession(env);
+		const unauthenticatedResponse = await handleAdminApi(
+			adminRequest("/api/admin/password", {
+				body: JSON.stringify({
+					currentPassword: "123456",
+					newPassword: "changed-password",
+				}),
+				headers: { "content-type": "application/json" },
+				method: "POST",
+			}),
+			env,
+		);
+		const missingCsrfResponse = await handleAdminApi(
+			adminRequest("/api/admin/password", {
+				body: JSON.stringify({
+					currentPassword: "123456",
+					newPassword: "changed-password",
+				}),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+				},
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(missingCsrfResponse.status).toBe(403);
+		await expect(missingCsrfResponse.json()).resolves.toEqual({
+			error: { code: "FORBIDDEN", message: "Invalid CSRF token" },
+		});
+	});
+
+	it("rejects default, too short, and too long replacement passwords", async () => {
+		const { env } = testEnv();
+		const session = await loginSession(env);
+		const defaultResponse = await changePassword(env, session, {
+			currentPassword: "123456",
+			newPassword: "123456",
+		});
+		const shortResponse = await changePassword(env, session, {
+			currentPassword: "123456",
+			newPassword: "short",
+		});
+		const longResponse = await changePassword(env, session, {
+			currentPassword: "123456",
+			newPassword: "a".repeat(1025),
+		});
+
+		expect(defaultResponse.status).toBe(400);
+		expect(shortResponse.status).toBe(400);
+		expect(longResponse.status).toBe(400);
+		await expect(defaultResponse.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "New password cannot be the initial password",
+			},
+		});
+	});
+
+	it("updates the stored password hash and stops accepting the bootstrap password", async () => {
+		const { env, rows } = testEnv();
+		const session = await loginSession(env);
+		const changeResponse = await changePassword(env, session, {
+			currentPassword: "123456",
+			newPassword: "changed-password",
+		});
+		const oldPasswordResponse = await login(env, "123456");
+		const newPasswordResponse = await login(env, "changed-password");
+		const newPasswordBody = await newPasswordResponse.json();
+
+		expect(changeResponse.status).toBe(200);
+		await expect(changeResponse.json()).resolves.toEqual({ ok: true });
+		expect(rows.get("adminPasswordHash")?.value).not.toContain("123456");
+		expect(oldPasswordResponse.status).toBe(401);
+		expect(newPasswordResponse.status).toBe(200);
+		expect(newPasswordBody).toEqual({
+			authenticated: true,
+			csrfToken: expect.any(String),
+		});
+		expect(newPasswordBody).not.toHaveProperty("mustChangePassword");
+	});
+
+	it("does not treat a malformed stored password hash as missing bootstrap state", async () => {
+		const { env, rows } = testEnv(generateEncryptionKey(), [
+			settingRow("adminPasswordHash", "not-a-password-hash"),
+		]);
+		const response = await login(env, "123456");
+
+		expect(response.status).toBe(401);
+		expect(rows.get("adminPasswordHash")?.value).toBe("not-a-password-hash");
 	});
 
 	it("rejects wrong passwords without setting a session cookie", async () => {
@@ -229,6 +434,7 @@ describe("admin authentication flow", () => {
 		expect(cookie).toContain("admin_session=");
 		expect(cookie).toContain("Max-Age=0");
 		expect(cookie).toContain("HttpOnly");
+		expect(cookie).toContain("Secure");
 	});
 });
 
@@ -284,6 +490,89 @@ describe("admin settings API", () => {
 		expect(response.status).toBe(404);
 		await expect(response.json()).resolves.toEqual({
 			error: { code: "NOT_FOUND", message: "Settings not found" },
+		});
+	});
+
+	it("returns CONFIG_DECRYPT_FAILED for corrupted encrypted settings without leaking raw errors", async () => {
+		const { env, rows, rootKey } = testEnv();
+		const session = await loginSession(env);
+		await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(testSettings()),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+		rows.set("notionToken", {
+			...rows.get("notionToken")!,
+			value: "v1.corrupted.ciphertext",
+		});
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(rootKey).toHaveLength(43);
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "CONFIG_DECRYPT_FAILED",
+				message: "Stored settings could not be decrypted",
+			},
+		});
+	});
+
+	it("returns INTERNAL_ERROR for settings storage failures without leaking raw errors", async () => {
+		const { env } = storageFailingEnv();
+		const session = await loginSession(env);
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(testSettings()),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "INTERNAL_ERROR",
+				message: "Settings could not be saved",
+			},
+		});
+	});
+
+	it("returns INTERNAL_ERROR for settings load failures without leaking raw errors", async () => {
+		const { env } = listFailingEnv();
+		const session = await loginSession(env);
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "INTERNAL_ERROR",
+				message: "Settings could not be loaded",
+			},
 		});
 	});
 

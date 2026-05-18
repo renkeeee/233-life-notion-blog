@@ -21,9 +21,16 @@ type LoginBody = {
 	password: string;
 };
 
+type PasswordChangeBody = {
+	currentPassword: string;
+	newPassword: string;
+};
+
 const adminPasswordHashKey = "adminPasswordHash";
 const adminSessionCookie = "admin_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
+const minChangedPasswordLength = 8;
+const maxPasswordLength = 1024;
 
 export function validateLoginBody(body: Record<string, unknown>): LoginBody {
 	if (typeof body.password !== "string" || body.password.length === 0) {
@@ -31,6 +38,42 @@ export function validateLoginBody(body: Record<string, unknown>): LoginBody {
 	}
 
 	return { password: body.password };
+}
+
+function validatePasswordChangeBody(
+	body: Record<string, unknown>,
+): PasswordChangeBody {
+	if (
+		typeof body.currentPassword !== "string" ||
+		body.currentPassword.length === 0
+	) {
+		throw new Error("Current password is required");
+	}
+
+	if (typeof body.newPassword !== "string" || body.newPassword.length === 0) {
+		throw new Error("New password is required");
+	}
+
+	if (body.newPassword === initialAdminPassword) {
+		throw new Error("New password cannot be the initial password");
+	}
+
+	if (body.newPassword.length < minChangedPasswordLength) {
+		throw new Error(
+			`New password must be at least ${minChangedPasswordLength} characters`,
+		);
+	}
+
+	if (body.newPassword.length > maxPasswordLength) {
+		throw new Error(
+			`New password must be at most ${maxPasswordLength} characters`,
+		);
+	}
+
+	return {
+		currentPassword: body.currentPassword,
+		newPassword: body.newPassword,
+	};
 }
 
 function adminNotFound(): Response {
@@ -55,6 +98,7 @@ function sessionCookie(value: string, maxAge: number): string {
 		maxAge,
 		path: "/",
 		sameSite: "Lax",
+		secure: true,
 	});
 }
 
@@ -95,12 +139,12 @@ function requireCsrf(request: Request, session: AdminSession): Response | null {
 async function authenticatePassword(
 	password: string,
 	repository: SettingsRepository,
-): Promise<boolean> {
+): Promise<{ authenticated: boolean; mustChangePassword: boolean }> {
 	const storedHash = (await repository.get(adminPasswordHashKey))?.value ?? null;
 
 	if (shouldBootstrapPassword(storedHash)) {
 		if (password !== initialAdminPassword) {
-			return false;
+			return { authenticated: false, mustChangePassword: false };
 		}
 
 		await repository.put({
@@ -109,14 +153,20 @@ async function authenticatePassword(
 			encrypted: 0,
 			updated_at: new Date().toISOString(),
 		});
-		return true;
+		return { authenticated: true, mustChangePassword: true };
 	}
 
 	if (storedHash === null) {
-		return false;
+		return { authenticated: false, mustChangePassword: false };
 	}
 
-	return verifyPassword(password, storedHash);
+	const authenticated = await verifyPassword(password, storedHash);
+
+	return {
+		authenticated,
+		mustChangePassword:
+			authenticated && (await verifyPassword(initialAdminPassword, storedHash)),
+	};
 }
 
 async function handleLogin(
@@ -138,9 +188,9 @@ async function handleLogin(
 	}
 
 	const repository = new SettingsRepository(env.DB);
-	const authenticated = await authenticatePassword(loginBody.password, repository);
+	const authResult = await authenticatePassword(loginBody.password, repository);
 
-	if (!authenticated) {
+	if (!authResult.authenticated) {
 		return invalidCredentials();
 	}
 
@@ -151,12 +201,64 @@ async function handleLogin(
 	);
 
 	return json(
-		{ authenticated: true, csrfToken },
+		{
+			authenticated: true,
+			csrfToken,
+			...(authResult.mustChangePassword ? { mustChangePassword: true } : {}),
+		},
 		200,
 		new Headers({
 			"set-cookie": sessionCookie(token, sessionMaxAgeSeconds),
 		}),
 	);
+}
+
+async function handlePasswordChange(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: PasswordChangeBody;
+
+	try {
+		body = validatePasswordChangeBody(await readJsonObject(request));
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid request body";
+
+		return errorJson("BAD_REQUEST", message, 400);
+	}
+
+	const repository = new SettingsRepository(env.DB);
+	const storedHash = (await repository.get(adminPasswordHashKey))?.value ?? null;
+
+	if (storedHash === null) {
+		return invalidCredentials();
+	}
+
+	if (!(await verifyPassword(body.currentPassword, storedHash))) {
+		return invalidCredentials();
+	}
+
+	await repository.put({
+		key: adminPasswordHashKey,
+		value: await hashPassword(body.newPassword),
+		encrypted: 0,
+		updated_at: new Date().toISOString(),
+	});
+
+	return json({ ok: true });
 }
 
 async function handleMe(request: Request, env: AppEnv): Promise<Response> {
@@ -198,6 +300,31 @@ function isMissingSettingsError(error: unknown): boolean {
 	return error instanceof Error && error.message.startsWith("Missing setting:");
 }
 
+function isSettingsValidationError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		(error.message.startsWith("Invalid setting:") ||
+			error.message.startsWith("Missing setting:") ||
+			error.message.startsWith("Unknown setting key:"))
+	);
+}
+
+function configDecryptError(): Response {
+	return errorJson(
+		"CONFIG_DECRYPT_FAILED",
+		"Stored settings could not be decrypted",
+		500,
+	);
+}
+
+function settingsSaveError(): Response {
+	return errorJson("INTERNAL_ERROR", "Settings could not be saved", 500);
+}
+
+function settingsLoadError(): Response {
+	return errorJson("INTERNAL_ERROR", "Settings could not be loaded", 500);
+}
+
 function siteSettingRows(rows: SettingRow[]): SettingRow[] {
 	return rows.filter((row) => row.key !== adminPasswordHashKey);
 }
@@ -212,10 +339,18 @@ async function handleGetSettings(
 		return session;
 	}
 
+	const repository = new SettingsRepository(env.DB);
+	let rows: SettingRow[];
+
 	try {
-		const repository = new SettingsRepository(env.DB);
+		rows = await repository.list();
+	} catch {
+		return settingsLoadError();
+	}
+
+	try {
 		const settings = await parseSettingsFromRows(
-			siteSettingRows(await repository.list()),
+			siteSettingRows(rows),
 			env.CONFIG_ENCRYPTION_KEY,
 		);
 
@@ -225,7 +360,7 @@ async function handleGetSettings(
 			return errorJson("NOT_FOUND", "Settings not found", 404);
 		}
 
-		return errorJson("BAD_REQUEST", "Invalid settings", 400);
+		return configDecryptError();
 	}
 }
 
@@ -253,22 +388,43 @@ async function handlePutSettings(
 		return errorJson("BAD_REQUEST", "Invalid request body", 400);
 	}
 
+	const settings = body as unknown as SiteSettings;
+	let rows: SettingRow[];
+	let parsedSettings: SiteSettings;
+
 	try {
-		const settings = body as unknown as SiteSettings;
-		const rows = await serializeSettingsForStorage(
+		rows = await serializeSettingsForStorage(
 			settings,
 			env.CONFIG_ENCRYPTION_KEY,
 		);
-		const parsedSettings = await parseSettingsFromRows(
+	} catch (error) {
+		if (isSettingsValidationError(error)) {
+			return errorJson("BAD_REQUEST", "Invalid settings", 400);
+		}
+
+		return configDecryptError();
+	}
+
+	try {
+		parsedSettings = await parseSettingsFromRows(
 			rows,
 			env.CONFIG_ENCRYPTION_KEY,
 		);
-		await new SettingsRepository(env.DB).putMany(rows);
+	} catch (error) {
+		if (isSettingsValidationError(error)) {
+			return errorJson("BAD_REQUEST", "Invalid settings", 400);
+		}
 
-		return json(redactSettings(parsedSettings));
-	} catch {
-		return errorJson("BAD_REQUEST", "Invalid settings", 400);
+		return configDecryptError();
 	}
+
+	try {
+		await new SettingsRepository(env.DB).putMany(rows);
+	} catch {
+		return settingsSaveError();
+	}
+
+	return json(redactSettings(parsedSettings));
 }
 
 export async function handleAdminApi(
@@ -287,6 +443,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/logout" && request.method === "POST") {
 		return handleLogout(request, env);
+	}
+
+	if (url.pathname === "/api/admin/password" && request.method === "POST") {
+		return handlePasswordChange(request, env);
 	}
 
 	if (url.pathname === "/api/admin/settings" && request.method === "GET") {

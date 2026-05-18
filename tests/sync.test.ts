@@ -650,6 +650,41 @@ describe("admin manual sync API", () => {
 			db.close();
 		}
 	});
+
+	it("rejects impossible ISO calendar dates", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/sync", {
+					body: JSON.stringify({
+						rangeStart: "2026-02-30T00:00:00.000Z",
+						rangeEnd: null,
+						force: false,
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				error: {
+					code: "BAD_REQUEST",
+					message: "rangeStart must be an ISO date string or null",
+				},
+			});
+		} finally {
+			db.close();
+		}
+	});
 });
 
 describe("scheduled sync", () => {

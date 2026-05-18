@@ -1,8 +1,8 @@
 {
 	"name": "233-life-notion-blog",
-	"description": "Build a full-stack web application with React Router 7.",
+	"description": "Build a React SPA with a Cloudflare API Worker.",
 	"cloudflare": {
-		"label": "React Router Framework Starter",
+		"label": "React SPA API Worker",
 		"products": [
 			"Workers"
 		],
@@ -14,20 +14,19 @@
 		"publish": true
 	},
 	"dependencies": {
-		"isbot": "5.1.32",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"react-router": "7.9.6"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "1.15.3",
-		"@react-router/dev": "7.9.6",
 		"@tailwindcss/vite": "4.1.17",
 		"@testing-library/jest-dom": "^6.9.1",
 		"@testing-library/react": "^16.3.2",
 		"@types/node": "24.10.1",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
+		"@vitejs/plugin-react": "^5.1.4",
 		"jsdom": "^29.1.1",
 		"tailwindcss": "4.1.17",
 		"typescript": "5.9.3",
@@ -38,15 +37,15 @@
 	},
 	"private": true,
 	"scripts": {
-		"build": "react-router build",
-		"cf-typegen": "wrangler types && react-router typegen",
-		"check": "tsc && react-router build && wrangler deploy --dry-run",
+		"build": "vite build",
+		"cf-typegen": "wrangler types",
+		"check": "tsc -b && vite build && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
-		"dev": "react-router dev",
+		"dev": "vite dev",
 		"preview": "npm run build && vite preview",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"typecheck": "npm run typegen && tsc -b"
+		"typecheck": "tsc -b"
 	},
 	"type": "module"
 }

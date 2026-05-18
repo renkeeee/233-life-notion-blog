@@ -1,23 +1,25 @@
-import { createRequestHandler } from "react-router";
-
-declare module "react-router" {
-	export interface AppLoadContext {
-		cloudflare: {
-			env: Env;
-			ctx: ExecutionContext;
-		};
-	}
+function json(data: unknown, init?: ResponseInit) {
+	return Response.json(data, {
+		...init,
+		headers: {
+			"content-type": "application/json",
+			...init?.headers,
+		},
+	});
 }
 
-const requestHandler = createRequestHandler(
-	() => import("virtual:react-router/server-build"),
-	import.meta.env.MODE,
-);
-
 export default {
-	fetch(request, env, ctx) {
-		return requestHandler(request, {
-			cloudflare: { env, ctx },
-		});
+	fetch(request) {
+		const url = new URL(request.url);
+
+		if (url.pathname === "/api/health") {
+			return json({ ok: true });
+		}
+
+		if (url.pathname.startsWith("/api/")) {
+			return json({ error: "Not found" }, { status: 404 });
+		}
+
+		return new Response("Not found", { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;

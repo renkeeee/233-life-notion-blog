@@ -106,9 +106,15 @@ const publicPostColumnNames = [
 ] as const;
 
 const publicPostColumns = publicPostColumnNames.join(", ");
+const sqlTrimWhitespaceChars =
+	"char(9) || char(10) || char(11) || char(12) || char(13) || ' '";
 
 function aliasedPublicPostColumns(alias: string): string {
 	return publicPostColumnNames.map((column) => `${alias}.${column}`).join(", ");
+}
+
+function trimSqlExpression(valueSql: string): string {
+	return `trim(${valueSql}, ${sqlTrimWhitespaceChars})`;
 }
 
 function parseTagsJson(tagsJson: string | null): string[] {
@@ -169,6 +175,7 @@ function publishedFilters(options: {
 	let joins = "";
 
 	if (tag) {
+		const normalizedTagSql = trimSqlExpression("tag.value");
 		clauses.push(
 			`EXISTS (
 				SELECT 1
@@ -183,8 +190,8 @@ function publishedFilters(options: {
 					END
 				) AS tag
 				WHERE typeof(tag.value) = 'text'
-				AND trim(tag.value) <> ''
-				AND trim(tag.value) = ?
+				AND ${normalizedTagSql} <> ''
+				AND ${normalizedTagSql} = ?
 			)`,
 		);
 		values.push(tag);
@@ -284,9 +291,10 @@ export class PostsRepository {
 	}
 
 	async tagCounts(): Promise<TagCount[]> {
+		const normalizedTagSql = trimSqlExpression("tag.value");
 		const result = await this.db
 			.prepare(
-				`SELECT trim(tag.value) AS tag, COUNT(*) AS count
+				`SELECT ${normalizedTagSql} AS tag, COUNT(*) AS count
 				 FROM posts p,
 				 json_each(
 					CASE
@@ -300,8 +308,8 @@ export class PostsRepository {
 				 ) AS tag
 				 WHERE p.visibility = 'published'
 				 AND typeof(tag.value) = 'text'
-				 AND trim(tag.value) <> ''
-				 GROUP BY trim(tag.value)
+				 AND ${normalizedTagSql} <> ''
+				 GROUP BY ${normalizedTagSql}
 				 ORDER BY count DESC, tag ASC`,
 			)
 			.all<TagCount>();

@@ -487,6 +487,50 @@ describe("PostsRepository", () => {
 		}
 	});
 
+	it("matches tag filters against JS-trimmed string values from JSON arrays", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "js-trimmed-array-tag",
+					title: "JS trimmed array tag",
+					tags_json: JSON.stringify(["\tLife\n"]),
+					published_at: "2026-05-04T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "other-tag",
+					title: "Other tag",
+					tags_json: JSON.stringify(["Notes"]),
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+
+			const result = await new PostsRepository(db.asD1()).listPublished({
+				page: 1,
+				limit: 10,
+				tag: "Life",
+			});
+
+			expect(result).toEqual({
+				items: [
+					expect.objectContaining({
+						slug: "js-trimmed-array-tag",
+						tags: ["Life"],
+					}),
+				],
+				total: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("counts trimmed tags from JSON arrays only", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -534,6 +578,42 @@ describe("PostsRepository", () => {
 			await expect(new PostsRepository(db.asD1()).tagCounts()).resolves.toEqual([
 				{ tag: "Life", count: 2 },
 				{ tag: "Notes", count: 1 },
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("counts JS-trimmed tags and ignores JS-whitespace-only tags", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "js-whitespace-life",
+					tags_json: JSON.stringify([
+						"\tLife\n",
+						"\t",
+						"\n",
+						"\v",
+						"\f",
+						"\r",
+						" ",
+					]),
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "plain-life",
+					tags_json: JSON.stringify(["Life"]),
+				}),
+			);
+
+			await expect(new PostsRepository(db.asD1()).tagCounts()).resolves.toEqual([
+				{ tag: "Life", count: 2 },
 			]);
 		} finally {
 			db.close();

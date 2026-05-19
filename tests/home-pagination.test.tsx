@@ -138,6 +138,38 @@ describe("home pagination", () => {
 		expect(screen.queryByText("Hidden list tag")).toBeNull();
 	});
 
+	it("expands the search input from the icon button and collapses it on blur", async () => {
+		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [],
+			total: 0,
+			page: 1,
+			limit: 20,
+		});
+
+		render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("No posts have been published yet.");
+		expect(screen.queryByText("Search posts")).toBeNull();
+
+		const searchForm = screen.getByRole("search");
+		const input = screen.getByLabelText("Search posts");
+		const searchButton = screen.getByRole("button", { name: "Search" });
+
+		expect(searchForm).not.toHaveClass("expanded");
+		fireEvent.click(searchButton);
+
+		expect(searchForm).toHaveClass("expanded");
+		expect(input).toHaveFocus();
+
+		fireEvent.change(input, { target: { value: "quiet" } });
+		fireEvent.blur(input);
+		expect(searchForm).not.toHaveClass("expanded");
+	});
+
 	it("opens the tag picker and filters posts by the selected tag", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
 			if (url === "/api/posts?page=1&limit=20") {

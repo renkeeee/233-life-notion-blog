@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FocusEvent, FormEvent } from "react";
+import { FiSearch } from "react-icons/fi";
 import { useNavigate } from "react-router";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
 import { apiGet } from "../lib/api-client";
@@ -103,11 +104,13 @@ function PostListSkeleton({
 export default function Home() {
 	const navigate = useNavigate();
 	const [query, setQuery] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
 	const [selectedTag, setSelectedTag] = useState<string | null>(null);
 	const [tagPickerOpen, setTagPickerOpen] = useState(false);
 	const [tagsState, setTagsState] = useState<TagsState>({ status: "idle" });
 	const [state, setState] = useState<LoadState>({ status: "loading" });
 	const loadMoreRef = useRef<HTMLDivElement | null>(null);
+	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const activeRequestRef = useRef(0);
 	const fetchingRef = useRef(false);
 
@@ -264,6 +267,12 @@ export default function Home() {
 		return () => observer.disconnect();
 	}, [canAutoLoadMore, loadNextPage]);
 
+	useEffect(() => {
+		if (searchOpen) {
+			searchInputRef.current?.focus();
+		}
+	}, [searchOpen]);
+
 	function loadMoreContent() {
 		if (state.status !== "success" || state.posts.length >= state.total) {
 			return null;
@@ -296,7 +305,18 @@ export default function Home() {
 		const trimmed = query.trim();
 		if (trimmed) {
 			navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+			return;
 		}
+
+		setSearchOpen(true);
+	}
+
+	function collapseSearchIfEmpty(event: FocusEvent<HTMLFormElement>) {
+		if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+			return;
+		}
+
+		setSearchOpen(false);
 	}
 
 	return (
@@ -311,16 +331,30 @@ export default function Home() {
 						Tags
 					</button>
 				</div>
-				<form className="search-form" onSubmit={submitSearch}>
-					<label htmlFor="home-search">Search posts</label>
+				<form
+					className={`search-form expandable${searchOpen ? " expanded" : ""}`}
+					onBlur={collapseSearchIfEmpty}
+					onSubmit={submitSearch}
+					role="search"
+				>
 					<div>
 						<input
 							id="home-search"
+							ref={searchInputRef}
+							aria-label="Search posts"
 							value={query}
 							onChange={(event) => setQuery(event.currentTarget.value)}
 							placeholder="Keyword"
+							tabIndex={searchOpen ? 0 : -1}
 						/>
-						<button type="submit">Search</button>
+						<button
+							type="submit"
+							aria-expanded={searchOpen}
+							aria-label="Search"
+							onClick={() => setSearchOpen(true)}
+						>
+							<FiSearch aria-hidden="true" focusable="false" />
+						</button>
 					</div>
 				</form>
 			</header>

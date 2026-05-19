@@ -107,12 +107,13 @@ describe("crypto helpers", () => {
 	it("hashes and verifies passwords", async () => {
 		const hash = await hashPassword("123456");
 		expect(hash).not.toContain("123456");
+		expect(hash.split(":")[1]).toBe("100000");
 		expect(await verifyPassword("123456", hash)).toBe(true);
 		expect(await verifyPassword("bad", hash)).toBe(false);
 	});
 
-	it("verifies stored password hashes with valid non-default iteration counts", async () => {
-		const stored = await storedPasswordHash("123456", "legacy-salt", 150_000);
+	it("verifies stored password hashes at the Workers-supported iteration limit", async () => {
+		const stored = await storedPasswordHash("123456", "legacy-salt", 100_000);
 
 		expect(await verifyPassword("123456", stored)).toBe(true);
 		expect(await verifyPassword("bad", stored)).toBe(false);
@@ -130,10 +131,7 @@ describe("crypto helpers", () => {
 			verifyPassword("123456", `pbkdf2-sha256:99999:salt:${fakeSha256Hex}`),
 		).resolves.toBe(false);
 		await expect(
-			verifyPassword(
-				"123456",
-				`pbkdf2-sha256:1000001:salt:${fakeSha256Hex}`,
-			),
+			verifyPassword("123456", `pbkdf2-sha256:100001:salt:${fakeSha256Hex}`),
 		).resolves.toBe(false);
 	});
 
@@ -142,7 +140,7 @@ describe("crypto helpers", () => {
 		const legacyHash = await storedPasswordHash(
 			"123456",
 			"legacy-salt",
-			150_000,
+			100_001,
 		);
 
 		expect(passwordHashNeedsRehash(currentHash)).toBe(false);

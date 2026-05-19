@@ -1,5 +1,5 @@
-const passwordHashIterations = 210_000;
-const passwordHashMaxIterations = 1_000_000;
+const passwordHashIterations = 100_000;
+const passwordHashMaxIterations = 100_000;
 const passwordHashMinIterations = 100_000;
 const passwordHashAlgorithm = "pbkdf2-sha256";
 const textDecoder = new TextDecoder();

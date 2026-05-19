@@ -275,7 +275,7 @@ describe("admin authentication flow", () => {
 		expect(cookie).toContain("Path=/");
 		expect(cookie).toContain("Max-Age=604800");
 		expect(passwordRow?.encrypted).toBe(0);
-		expect(passwordRow?.value).toMatch(/^pbkdf2-sha256:210000:/);
+		expect(passwordRow?.value).toMatch(/^pbkdf2-sha256:100000:/);
 		expect(passwordRow?.value).not.toBe("123456");
 		expect(JSON.stringify(body)).not.toContain("123456");
 	});

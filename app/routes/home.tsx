@@ -61,8 +61,8 @@ export default function Home() {
 		<main className="public-shell">
 			<header className="public-header">
 				<div>
-					<p className="eyebrow">233.life</p>
-					<h1>Life, written in quiet moments.</h1>
+					<p className="eyebrow">Life, written in quiet moments.</p>
+					<h1>233.life</h1>
 				</div>
 				<form className="search-form" onSubmit={submitSearch}>
 					<label htmlFor="home-search">Search posts</label>

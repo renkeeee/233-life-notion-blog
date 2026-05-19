@@ -35,10 +35,12 @@ describe("public brand", () => {
 				</MemoryRouter>,
 			);
 
-			expect(screen.getByText("233.life")).toBeTruthy();
+			expect(screen.getByText("Life, written in quiet moments.")).toHaveClass(
+				"eyebrow",
+			);
 			expect(
 				screen.getByRole("heading", {
-					name: "Life, written in quiet moments.",
+					name: "233.life",
 				}),
 			).toBeTruthy();
 			expect(screen.queryByText("Public blog")).toBeNull();

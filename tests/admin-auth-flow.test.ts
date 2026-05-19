@@ -775,7 +775,19 @@ describe("admin settings API", () => {
 
 		expect(missingCsrfResponse.status).toBe(403);
 		expect(invalidResponse.status).toBe(400);
+		await expect(invalidResponse.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Invalid setting: siteTitle",
+			},
+		});
 		expect(invalidMappingResponse.status).toBe(400);
+		await expect(invalidMappingResponse.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Invalid setting: fieldMapping",
+			},
+		});
 		expect(redactedResponse.status).toBe(400);
 		await expect(response.json()).resolves.toMatchObject({
 			siteTitle: "233 Life",
@@ -785,6 +797,34 @@ describe("admin settings API", () => {
 		expect(tokenRow?.encrypted).toBe(1);
 		expect(tokenRow?.value).not.toBe("ntn_secret");
 		expect(await decryptString(tokenRow!.value, rootKey)).toBe("ntn_secret");
+	});
+
+	it("returns the invalid setting name when CDN base URL is missing", async () => {
+		const { env } = testEnv();
+		const session = await usableAdminSession(env);
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify({
+					...testSettings(),
+					cdnBaseUrl: "",
+				}),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Invalid setting: cdnBaseUrl",
+			},
+		});
 	});
 
 	it("reuses the stored Notion token when saving settings without re-entering it", async () => {

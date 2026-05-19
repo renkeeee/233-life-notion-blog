@@ -538,6 +538,10 @@ function isSettingsValidationError(error: unknown): boolean {
 	);
 }
 
+function settingsValidationMessage(error: unknown): string {
+	return error instanceof Error ? error.message : "Invalid settings";
+}
+
 function configDecryptError(): Response {
 	return errorJson(
 		"CONFIG_DECRYPT_FAILED",
@@ -702,7 +706,7 @@ async function handlePutSettings(
 		);
 	} catch (error) {
 		if (isSettingsValidationError(error)) {
-			return errorJson("BAD_REQUEST", "Invalid settings", 400);
+			return errorJson("BAD_REQUEST", settingsValidationMessage(error), 400);
 		}
 
 		return configDecryptError();
@@ -715,7 +719,7 @@ async function handlePutSettings(
 		);
 	} catch (error) {
 		if (isSettingsValidationError(error)) {
-			return errorJson("BAD_REQUEST", "Invalid settings", 400);
+			return errorJson("BAD_REQUEST", settingsValidationMessage(error), 400);
 		}
 
 		return configDecryptError();

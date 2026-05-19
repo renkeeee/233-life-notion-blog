@@ -134,6 +134,38 @@ describe("SettingsPanel", () => {
 		}
 	});
 
+	it("shows a local validation message when CDN base URL is empty", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			siteTitle: "233 Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "",
+			fieldMapping: {
+				title: "Name",
+				status: "Status",
+				publishedStatusValues: ["Published", "已发布"],
+			},
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({});
+		try {
+			render(<SettingsPanel csrfToken="csrf-token" />);
+
+			await screen.findByText(
+				"Settings loaded. Re-enter the Notion token when saving changes.",
+			);
+			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+			await screen.findByText("CDN base URL is required.");
+			expect(apiPut).not.toHaveBeenCalled();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
 	it("shows schema test errors without unavailable endpoint copy", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			siteTitle: "233 Life",

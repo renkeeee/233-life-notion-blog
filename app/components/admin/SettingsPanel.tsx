@@ -194,8 +194,27 @@ export function SettingsPanel({
 		};
 	}
 
+	function validateSettingsForSave(): string | null {
+		if (!hasStoredToken && settings.notionToken.trim().length === 0) {
+			return "Notion token is required.";
+		}
+
+		if (settings.cdnBaseUrl.trim().length === 0) {
+			return "CDN base URL is required.";
+		}
+
+		return null;
+	}
+
 	async function save(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
+		const validationError = validateSettingsForSave();
+
+		if (validationError) {
+			setStatus(validationError);
+			return;
+		}
+
 		setSaving(true);
 		setStatus("Saving settings...");
 		try {

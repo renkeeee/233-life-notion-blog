@@ -157,13 +157,6 @@ body {
 	padding: 10px 16px;
 }
 
-.load-more-status {
-	margin: 0;
-	color: #706d66;
-	font-size: 0.92rem;
-	font-weight: 650;
-}
-
 .load-more-error {
 	display: flex;
 	align-items: center;
@@ -176,6 +169,99 @@ body {
 
 .load-more-error p {
 	margin: 0;
+}
+
+.post-list-skeleton {
+	display: grid;
+	gap: 0;
+	margin-top: 18px;
+	width: 100%;
+}
+
+.post-list-skeleton.compact {
+	margin-top: 0;
+}
+
+.post-skeleton-item {
+	display: grid;
+	grid-template-columns: minmax(0, 220px) 1fr;
+	gap: 22px;
+	border-top: 1px solid #dfddd6;
+	padding: 26px 0;
+}
+
+.post-skeleton-item:first-child {
+	border-top: 0;
+}
+
+.post-list-skeleton.compact .post-skeleton-item {
+	grid-template-columns: minmax(0, 96px) 1fr;
+	padding: 18px 0;
+}
+
+.skeleton-block,
+.skeleton-line {
+	overflow: hidden;
+	position: relative;
+	background: #e5e1d8;
+}
+
+.skeleton-block::after,
+.skeleton-line::after {
+	position: absolute;
+	inset: 0;
+	transform: translateX(-100%);
+	background: linear-gradient(
+		90deg,
+		rgb(255 255 255 / 0),
+		rgb(255 255 255 / 0.58),
+		rgb(255 255 255 / 0)
+	);
+	animation: skeleton-shimmer 1.35s ease-in-out infinite;
+	content: "";
+}
+
+.skeleton-cover-block {
+	aspect-ratio: 4 / 3;
+	border-radius: 8px;
+}
+
+.post-skeleton-body {
+	display: grid;
+	align-content: start;
+	gap: 12px;
+	padding-top: 4px;
+}
+
+.skeleton-line {
+	height: 14px;
+	border-radius: 999px;
+}
+
+.skeleton-meta-line {
+	width: min(44%, 180px);
+}
+
+.skeleton-title-line {
+	width: min(86%, 520px);
+	height: 30px;
+}
+
+.skeleton-short-line {
+	width: min(58%, 360px);
+}
+
+@keyframes skeleton-shimmer {
+	to {
+		transform: translateX(100%);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.skeleton-block::after,
+	.skeleton-line::after {
+		animation: none;
+	}
 }
 
 .post-list {
@@ -754,7 +840,9 @@ body {
 
 @media (max-width: 720px) {
 	.public-header,
-	.post-list-item {
+	.post-list-item,
+	.post-skeleton-item,
+	.post-list-skeleton.compact .post-skeleton-item {
 		display: block;
 	}
 
@@ -764,6 +852,10 @@ body {
 
 	.post-list-cover {
 		display: block;
+		margin-bottom: 16px;
+	}
+
+	.skeleton-cover-block {
 		margin-bottom: 16px;
 	}
 

@@ -49,6 +49,21 @@ describe("home pagination", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("shows a post list skeleton while the first page is loading", () => {
+		vi.spyOn(apiClient, "apiGet").mockReturnValue(new Promise(() => {}));
+
+		render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		expect(screen.getByLabelText("Loading posts")).toHaveClass(
+			"post-list-skeleton",
+		);
+		expect(screen.queryByText("Loading posts...")).toBeNull();
+	});
+
 	it("loads the next posts page when the bottom sentinel enters view", async () => {
 		installIntersectionObserver();
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {

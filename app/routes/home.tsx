@@ -51,6 +51,36 @@ function mergePosts(
 	return [...currentPosts, ...uniqueNextPosts];
 }
 
+function PostListSkeleton({
+	count = 3,
+	compact = false,
+	label = "Loading posts",
+}: {
+	count?: number;
+	compact?: boolean;
+	label?: string;
+}) {
+	return (
+		<div
+			className={`post-list-skeleton${compact ? " compact" : ""}`}
+			aria-busy="true"
+			aria-label={label}
+			role="status"
+		>
+			{Array.from({ length: count }, (_, index) => (
+				<article className="post-skeleton-item" key={index} aria-hidden="true">
+					<div className="skeleton-block skeleton-cover-block" />
+					<div className="post-skeleton-body">
+						<div className="skeleton-line skeleton-meta-line" />
+						<div className="skeleton-line skeleton-title-line" />
+						<div className="skeleton-line skeleton-short-line" />
+					</div>
+				</article>
+			))}
+		</div>
+	);
+}
+
 export default function Home() {
 	const navigate = useNavigate();
 	const [query, setQuery] = useState("");
@@ -189,7 +219,7 @@ export default function Home() {
 		}
 
 		if (state.loadingMore) {
-			return <p className="load-more-status">Loading more posts...</p>;
+			return <PostListSkeleton count={2} compact label="Loading more posts" />;
 		}
 
 		if (state.loadMoreError) {
@@ -239,7 +269,7 @@ export default function Home() {
 				</form>
 			</header>
 
-			{state.status === "loading" ? <p className="state-note">Loading posts...</p> : null}
+			{state.status === "loading" ? <PostListSkeleton /> : null}
 			{state.status === "error" ? (
 				<p className="state-note state-error">{state.message}</p>
 			) : null}

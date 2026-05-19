@@ -261,7 +261,34 @@ describe("PasswordChangePanel", () => {
 });
 
 describe("SyncPanel", () => {
-	it("uses date-time inputs and submits ISO sync ranges", async () => {
+	function fillDateTime(
+		label: string,
+		value: {
+			year: string;
+			month: string;
+			day: string;
+			hour: string;
+			minute: string;
+		},
+	) {
+		fireEvent.change(screen.getByLabelText(`${label} year`), {
+			target: { value: value.year },
+		});
+		fireEvent.change(screen.getByLabelText(`${label} month`), {
+			target: { value: value.month },
+		});
+		fireEvent.change(screen.getByLabelText(`${label} day`), {
+			target: { value: value.day },
+		});
+		fireEvent.change(screen.getByLabelText(`${label} hour`), {
+			target: { value: value.hour },
+		});
+		fireEvent.change(screen.getByLabelText(`${label} minute`), {
+			target: { value: value.minute },
+		});
+	}
+
+	it("uses the library date-time picker and submits ISO sync ranges", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [
 				{
@@ -276,24 +303,38 @@ describe("SyncPanel", () => {
 			.spyOn(apiClient, "apiPost")
 			.mockResolvedValue({ runId: "sync-run-2" });
 		try {
-			render(<SyncPanel csrfToken="csrf-token" />);
+			const { container } = render(<SyncPanel csrfToken="csrf-token" />);
 
 			await screen.findByText("Recent sync runs");
-			const rangeStart = screen.getByLabelText("Range start");
-			const rangeEnd = screen.getByLabelText("Range end");
-			expect(rangeStart).toHaveAttribute("type", "datetime-local");
-			expect(rangeEnd).toHaveAttribute("type", "datetime-local");
+			expect(
+				container.querySelector('input[type="datetime-local"]:not([hidden])'),
+			).toBeNull();
+			expect(container.querySelectorAll(".react-datetime-picker")).toHaveLength(2);
+			expect(screen.getByLabelText("Range start year")).toBeTruthy();
+			expect(screen.getByLabelText("Range end year")).toBeTruthy();
 
-			fireEvent.change(rangeStart, { target: { value: "2026-05-18T09:30" } });
-			fireEvent.change(rangeEnd, { target: { value: "2026-05-18T10:45" } });
+			fillDateTime("Range start", {
+				year: "2026",
+				month: "5",
+				day: "18",
+				hour: "9",
+				minute: "30",
+			});
+			fillDateTime("Range end", {
+				year: "2026",
+				month: "5",
+				day: "18",
+				hour: "10",
+				minute: "45",
+			});
 			fireEvent.click(screen.getByRole("button", { name: "Start sync" }));
 
 			await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
 			expect(apiPost).toHaveBeenCalledWith(
 				"/api/admin/sync",
 				{
-					rangeStart: new Date("2026-05-18T09:30").toISOString(),
-					rangeEnd: new Date("2026-05-18T10:45").toISOString(),
+					rangeStart: new Date(2026, 4, 18, 9, 30).toISOString(),
+					rangeEnd: new Date(2026, 4, 18, 10, 45).toISOString(),
 					force: false,
 				},
 				"csrf-token",

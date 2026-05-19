@@ -404,6 +404,14 @@ body {
 	font-weight: 700;
 }
 
+.admin-datetime-field {
+	display: grid;
+	gap: 6px;
+	color: #45433d;
+	font-size: 0.9rem;
+	font-weight: 700;
+}
+
 .admin-form input,
 .admin-form textarea,
 .admin-login input {
@@ -415,6 +423,67 @@ body {
 	color: #20201d;
 	min-height: 40px;
 	padding: 9px 11px;
+}
+
+.admin-date-time-picker {
+	width: 100%;
+}
+
+.admin-date-time-picker .react-datetime-picker__wrapper {
+	box-sizing: border-box;
+	border: 1px solid #c8c3b7;
+	border-radius: 6px;
+	background: #fff;
+	color: #20201d;
+	min-height: 40px;
+	padding: 4px 9px;
+}
+
+.admin-date-time-picker input {
+	border: 0;
+	background: transparent;
+	color: #20201d;
+	font: inherit;
+	font-weight: 600;
+	min-height: auto;
+	padding: 0 1px;
+}
+
+.admin-date-time-picker button,
+.react-calendar button {
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: #20201d;
+	cursor: pointer;
+	font: inherit;
+	font-weight: 650;
+	min-height: auto;
+	padding: 6px;
+}
+
+.admin-date-time-picker button:hover,
+.react-calendar button:hover {
+	background: #edf7f6;
+}
+
+.react-datetime-picker__calendar {
+	z-index: 20;
+}
+
+.react-calendar {
+	border: 1px solid #d2cdc1;
+	border-radius: 8px;
+	box-shadow: 0 18px 40px rgba(35, 35, 31, 0.16);
+	color: #20201d;
+	font-family: var(--font-sans);
+}
+
+.react-calendar__tile--active,
+.react-calendar__tile--active:enabled:hover,
+.react-calendar__tile--active:enabled:focus {
+	background: #0e6f6b;
+	color: #fff;
 }
 
 .admin-form textarea {

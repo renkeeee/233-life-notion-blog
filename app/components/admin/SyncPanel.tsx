@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import DateTimePicker from "react-datetime-picker";
 import { apiGet, apiPost } from "../../lib/api-client";
 
 type SyncRun = {
@@ -13,17 +14,54 @@ type SyncRun = {
 	finishedAt?: string | null;
 };
 
-function toIsoDateTime(value: string): string | null {
+type DateTimeValue = Date | null;
+
+function toIsoDateTime(value: DateTimeValue): string | null {
 	if (!value) {
 		return null;
 	}
 
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) {
+	if (Number.isNaN(value.getTime())) {
 		throw new Error("Invalid date/time range.");
 	}
 
-	return date.toISOString();
+	return value.toISOString();
+}
+
+function AdminDateTimePicker({
+	label,
+	value,
+	onChange,
+	disabled,
+}: {
+	label: string;
+	value: DateTimeValue;
+	onChange: (value: DateTimeValue) => void;
+	disabled?: boolean;
+}) {
+	return (
+		<label className="admin-datetime-field">
+			<span>{label}</span>
+			<DateTimePicker
+				className="admin-date-time-picker"
+				calendarAriaLabel={`${label} calendar`}
+				clearAriaLabel={`Clear ${label}`}
+				dayAriaLabel={`${label} day`}
+				disableClock
+				disabled={disabled}
+				format="yyyy-MM-dd HH:mm"
+				hourAriaLabel={`${label} hour`}
+				locale="en-US"
+				maxDetail="minute"
+				minuteAriaLabel={`${label} minute`}
+				monthAriaLabel={`${label} month`}
+				nativeInputAriaLabel={`${label} ISO value`}
+				onChange={onChange}
+				value={value}
+				yearAriaLabel={`${label} year`}
+			/>
+		</label>
+	);
 }
 
 export function SyncPanel({
@@ -33,8 +71,8 @@ export function SyncPanel({
 	csrfToken: string;
 	disabled?: boolean;
 }) {
-	const [rangeStart, setRangeStart] = useState("");
-	const [rangeEnd, setRangeEnd] = useState("");
+	const [rangeStart, setRangeStart] = useState<DateTimeValue>(null);
+	const [rangeEnd, setRangeEnd] = useState<DateTimeValue>(null);
 	const [force, setForce] = useState(false);
 	const [status, setStatus] = useState("Ready to sync.");
 	const [runs, setRuns] = useState<SyncRun[]>([]);
@@ -101,26 +139,18 @@ export function SyncPanel({
 				</p>
 			) : null}
 			<form className="admin-form inline" onSubmit={startSync}>
-				<label>
-					Range start
-					<input
-						type="datetime-local"
-						value={rangeStart}
-						onChange={(event) => setRangeStart(event.currentTarget.value)}
-						step={60}
-						disabled={disabled}
-					/>
-				</label>
-				<label>
-					Range end
-					<input
-						type="datetime-local"
-						value={rangeEnd}
-						onChange={(event) => setRangeEnd(event.currentTarget.value)}
-						step={60}
-						disabled={disabled}
-					/>
-				</label>
+				<AdminDateTimePicker
+					label="Range start"
+					value={rangeStart}
+					onChange={setRangeStart}
+					disabled={disabled}
+				/>
+				<AdminDateTimePicker
+					label="Range end"
+					value={rangeEnd}
+					onChange={setRangeEnd}
+					disabled={disabled}
+				/>
 				<label className="admin-checkbox">
 					<input
 						type="checkbox"

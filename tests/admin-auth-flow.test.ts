@@ -951,4 +951,42 @@ describe("admin Notion schema API", () => {
 			vi.unstubAllGlobals();
 		}
 	});
+
+	it("returns unexpected schema loading error messages for diagnostics", async () => {
+		const { env } = testEnv();
+		const session = await usableAdminSession(env);
+		const fetcher = vi.fn(async () => {
+			throw new TypeError("fetch failed");
+		});
+		vi.stubGlobal("fetch", fetcher);
+
+		try {
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/notion/schema", {
+					body: JSON.stringify({
+						notionDatabaseUrl:
+							"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+						notionToken: "ntn_secret",
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(500);
+			await expect(response.json()).resolves.toEqual({
+				error: {
+					code: "INTERNAL_ERROR",
+					message: "Notion schema could not be loaded: fetch failed",
+				},
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
 });

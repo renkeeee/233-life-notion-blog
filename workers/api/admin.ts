@@ -554,10 +554,6 @@ function settingsLoadError(): Response {
 	return errorJson("INTERNAL_ERROR", "Settings could not be loaded", 500);
 }
 
-function notionSchemaLoadError(): Response {
-	return errorJson("INTERNAL_ERROR", "Notion schema could not be loaded", 500);
-}
-
 function notionSchemaError(error: unknown): Response {
 	if (error instanceof NotionApiError) {
 		if (error.status === 401 || error.status === 403) {
@@ -607,7 +603,23 @@ function notionSchemaError(error: unknown): Response {
 		);
 	}
 
-	return notionSchemaLoadError();
+	return errorJson(
+		"INTERNAL_ERROR",
+		`Notion schema could not be loaded: ${safeErrorMessage(error)}`,
+		500,
+	);
+}
+
+function safeErrorMessage(error: unknown): string {
+	if (error instanceof Error && error.message.length > 0) {
+		return error.message;
+	}
+
+	if (typeof error === "string" && error.length > 0) {
+		return error;
+	}
+
+	return "Unknown error";
 }
 
 function siteSettingRows(rows: SettingRow[]): SettingRow[] {

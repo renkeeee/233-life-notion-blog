@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiPut } from "../../lib/api-client";
 type FieldMapping = {
 	title: string;
 	status: string;
+	category?: string;
 	tags?: string;
 	publishedAt?: string;
 	publishedStatusValues?: string[];
@@ -52,13 +53,14 @@ const emptySettings: SiteSettingsForm = {
 	fieldMapping: {
 		title: "Name",
 		status: "Status",
+		category: "Category",
 		tags: "Tags",
 		publishedAt: "Published At",
 		publishedStatusValues: defaultPublishedStatusValues,
 	},
 };
 
-type FieldNameKey = "title" | "status" | "tags" | "publishedAt";
+type FieldNameKey = "title" | "status" | "category" | "tags" | "publishedAt";
 
 const fieldKeys: Array<{
 	key: FieldNameKey;
@@ -71,6 +73,12 @@ const fieldKeys: Array<{
 		key: "status",
 		typeDescription: "Notion type: status, select, or checkbox",
 		allowedTypes: ["status", "select", "checkbox"],
+	},
+	{
+		key: "category",
+		typeDescription: "Notion type: select, status, title, or rich_text",
+		allowedTypes: ["select", "status", "title", "rich_text"],
+		optional: true,
 	},
 	{
 		key: "tags",
@@ -112,6 +120,8 @@ function normalizeSettings(settings: RedactedSettings): SiteSettingsForm {
 		cdnBaseUrl: settings.cdnBaseUrl,
 		fieldMapping: {
 			...settings.fieldMapping,
+			category:
+				settings.fieldMapping.category ?? emptySettings.fieldMapping.category,
 			tags: settings.fieldMapping.tags ?? emptySettings.fieldMapping.tags,
 			publishedStatusValues:
 				settings.fieldMapping.publishedStatusValues &&
@@ -416,6 +426,9 @@ export function SettingsPanel({
 							: {}),
 						...(typeof recommended.status === "string" && recommended.status
 							? { status: recommended.status }
+							: {}),
+						...(typeof recommended.category === "string"
+							? { category: recommended.category }
 							: {}),
 						...(typeof recommended.tags === "string"
 							? { tags: recommended.tags }

@@ -14,6 +14,7 @@ describe("inferFieldMapping", () => {
 			Title: property("title"),
 			"Post Slug": property("rich_text"),
 			Excerpt: property("rich_text"),
+			Category: property("select"),
 			Tags: property("multi_select"),
 			Status: property("status"),
 			"Published At": property("date"),
@@ -23,6 +24,7 @@ describe("inferFieldMapping", () => {
 		expect(mapping).toEqual({
 			title: "Title",
 			status: "Status",
+			category: "Category",
 			tags: "Tags",
 			publishedAt: "Published At",
 			publishedStatusValues: ["Published", "已发布"],
@@ -51,6 +53,7 @@ describe("inferFieldMapping", () => {
 			标题: property("title"),
 			状态: property("select"),
 			摘要: property("rich_text"),
+			分类: property("select"),
 			标签: property("multi_select"),
 			发布日期: property("date"),
 			封面: property("url"),
@@ -59,6 +62,7 @@ describe("inferFieldMapping", () => {
 		expect(mapping).toEqual({
 			title: "标题",
 			status: "状态",
+			category: "分类",
 			tags: "标签",
 			publishedAt: "发布日期",
 			publishedStatusValues: ["Published", "已发布"],

@@ -29,6 +29,7 @@ function testSettings(notionToken = "ntn_secret"): SiteSettings {
 		fieldMapping: {
 			title: "Name",
 			status: "Status",
+			category: "Category",
 			tags: "Tags",
 			publishedStatusValues: ["Published", "已发布"],
 		},
@@ -112,6 +113,7 @@ describe("settings storage helpers", () => {
 					JSON.stringify({
 						title: "Name",
 						status: "Status",
+						category: "Category",
 						publishedAt: "Published At",
 						publishedStatusValues: ["Live", "Ready"],
 						summary: "Summary",
@@ -126,6 +128,7 @@ describe("settings storage helpers", () => {
 		expect(parsed.fieldMapping).toEqual({
 			title: "Name",
 			status: "Status",
+			category: "Category",
 			tags: "Tags",
 			publishedAt: "Published At",
 			publishedStatusValues: ["Live", "Ready"],
@@ -150,6 +153,7 @@ describe("settings storage helpers", () => {
 		);
 
 		expect(parsed.fieldMapping.tags).toBe("Tags");
+		expect(parsed.fieldMapping.category).toBe("Category");
 		expect(parsed.fieldMapping.publishedStatusValues).toEqual([
 			"Published",
 			"已发布",
@@ -174,6 +178,26 @@ describe("settings storage helpers", () => {
 		);
 
 		expect(parsed.fieldMapping.tags).toBe("");
+	});
+
+	it("keeps an explicitly disabled category mapping", async () => {
+		const rootKey = generateEncryptionKey();
+		const parsed = await parseSettingsFromRows(
+			[
+				settingRow("siteTitle", "233 Life"),
+				settingRow("notionDatabaseUrl", "url"),
+				settingRow("notionDatabaseId", "id"),
+				settingRow("notionToken", "ntn_secret"),
+				settingRow("cdnBaseUrl", "https://cdn.example.com"),
+				settingRow(
+					"fieldMapping",
+					JSON.stringify({ title: "Name", status: "Status", category: "" }),
+				),
+			],
+			rootKey,
+		);
+
+		expect(parsed.fieldMapping.category).toBe("");
 	});
 
 	it("throws when required settings are missing", async () => {

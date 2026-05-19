@@ -169,6 +169,7 @@ function settings(): SiteSettings {
 		fieldMapping: {
 			title: "Name",
 			status: "Status",
+			category: "Category",
 			tags: "Tags",
 			publishedAt: "Published At",
 			publishedStatusValues: ["Published", "已发布"],
@@ -223,6 +224,10 @@ function syncPage(overrides: Partial<NotionSyncPage> = {}): NotionSyncPage {
 			Tags: {
 				type: "multi_select",
 				multi_select: [{ name: "Life" }, { name: "Notes" }],
+			},
+			Category: {
+				type: "select",
+				select: { name: "Reflection" },
 			},
 			Status: {
 				type: "status",
@@ -377,6 +382,7 @@ describe("Notion page mapping", () => {
 			slug: "hello-notion",
 			title: "Hello Notion",
 			coverUrl: "https://notion-assets.example.com/page-cover.png",
+			category: "Reflection",
 			tags: ["Life", "Notes"],
 			status: "Published",
 			visibility: "published",
@@ -495,6 +501,7 @@ describe("runSync", () => {
 				title: string;
 				excerpt: string;
 				cover_url: string | null;
+				category: string | null;
 				visibility: string;
 				content_hash: string | null;
 				last_sync_error: string | null;
@@ -533,6 +540,7 @@ describe("runSync", () => {
 				title: "Hello Notion",
 				excerpt: "Hello body",
 				cover_url: asset.cdn_url,
+				category: "Reflection",
 				visibility: "published",
 				last_sync_error: null,
 			});
@@ -622,6 +630,7 @@ describe("runSync", () => {
 				db.row<{
 					slug: string;
 					title: string;
+					category: string | null;
 					status: string;
 					visibility: string;
 					published_at: string | null;
@@ -631,6 +640,7 @@ describe("runSync", () => {
 			).toMatchObject({
 				slug: "hello-notion",
 				title: "Hello Notion",
+				category: "Reflection",
 				status: "Published",
 				visibility: "published",
 				published_at: "2026-05-18",

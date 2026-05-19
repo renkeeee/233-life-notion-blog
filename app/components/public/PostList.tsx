@@ -6,6 +6,7 @@ export type PublicPostSummary = {
 	title: string;
 	excerpt: string;
 	coverUrl: string | null;
+	category: string | null;
 	tags: string[];
 	publishedAt: string | null;
 	updatedAt: string;

@@ -68,6 +68,7 @@ type PostRow = {
 	title: string;
 	excerpt: string;
 	cover_url: string | null;
+	category: string | null;
 	status: string;
 	visibility: PostVisibility;
 	published_at: string | null;
@@ -79,6 +80,7 @@ type ListPublishedOptions = {
 	limit: number;
 	q?: string;
 	tag?: string;
+	category?: string;
 };
 
 type ListPublishedResult = {
@@ -91,12 +93,15 @@ export type PublicTagRecord = {
 	count: number;
 };
 
+export type PublicCategoryRecord = PublicTagRecord;
+
 const publicPostColumnNames = [
 	"id",
 	"slug",
 	"title",
 	"excerpt",
 	"cover_url",
+	"category",
 	"status",
 	"visibility",
 	"published_at",
@@ -116,6 +121,7 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		title: row.title,
 		excerpt: row.excerpt,
 		coverUrl: row.cover_url,
+		category: row.category,
 		tags: [],
 		status: row.status,
 		visibility: row.visibility,
@@ -138,11 +144,13 @@ function likePattern(value: string): string {
 function publishedFilters(options: {
 	q?: string;
 	tag?: string;
+	category?: string;
 }): { joins: string; where: string; values: unknown[] } {
 	const clauses = ["p.visibility = 'published'"];
 	const values: unknown[] = [];
 	const q = options.q?.trim();
 	const tag = options.tag?.trim();
+	const category = options.category?.trim();
 
 	let joins = "";
 
@@ -151,12 +159,18 @@ function publishedFilters(options: {
 		values.push(tag);
 	}
 
+	if (category) {
+		clauses.push("p.category = ?");
+		values.push(category);
+	}
+
 	if (q) {
 		joins += "LEFT JOIN post_content pc ON pc.post_id = p.id";
 		const pattern = likePattern(q);
 		clauses.push(
 			`(
 				p.title LIKE ? ESCAPE '\\'
+				OR COALESCE(p.category, '') LIKE ? ESCAPE '\\'
 				OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
 				OR EXISTS (
 					SELECT 1
@@ -166,7 +180,7 @@ function publishedFilters(options: {
 				)
 			)`,
 		);
-		values.push(pattern, pattern, pattern);
+		values.push(pattern, pattern, pattern, pattern);
 	}
 
 	return {
@@ -221,6 +235,7 @@ export class PostsRepository {
 				 WHERE p.visibility = 'published'
 				 AND (
 					p.title LIKE ? ESCAPE '\\'
+					OR COALESCE(p.category, '') LIKE ? ESCAPE '\\'
 					OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
 					OR EXISTS (
 						SELECT 1
@@ -232,7 +247,7 @@ export class PostsRepository {
 				 ORDER BY p.published_at DESC, p.updated_at DESC
 				 LIMIT ?`,
 			)
-			.bind(pattern, pattern, pattern, limit)
+			.bind(pattern, pattern, pattern, pattern, limit)
 			.all<PostRow>();
 
 		return this.withTags(result.results.map(mapPostRow));
@@ -281,6 +296,25 @@ export class PostsRepository {
 				 WHERE p.visibility = 'published'
 				 GROUP BY pt.tag
 				 ORDER BY count DESC, pt.tag ASC`,
+			)
+			.all<{ name: string; count: number }>();
+
+		return result.results.map((row) => ({
+			name: row.name,
+			count: Number(row.count),
+		}));
+	}
+
+	async listCategories(): Promise<PublicCategoryRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT p.category AS name, COUNT(DISTINCT p.id) AS count
+				 FROM posts p
+				 WHERE p.visibility = 'published'
+				 AND p.category IS NOT NULL
+				 AND TRIM(p.category) <> ''
+				 GROUP BY p.category
+				 ORDER BY count DESC, p.category ASC`,
 			)
 			.all<{ name: string; count: number }>();
 

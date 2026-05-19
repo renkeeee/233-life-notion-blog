@@ -20,6 +20,7 @@ function formatDate(value: string | null): string {
 
 export function PostDetail({ post }: { post: PublicPostDetail }) {
 	const tags = post.tags ?? [];
+	const category = post.category?.trim() ?? "";
 
 	return (
 		<article className="post-detail">
@@ -33,13 +34,27 @@ export function PostDetail({ post }: { post: PublicPostDetail }) {
 					</time>
 				</p>
 				<h1>{post.title}</h1>
-				{tags.length > 0 ? (
-					<div className="post-tags detail-tags" aria-label="Post tags">
-						{tags.map((tag) => (
-							<span className="post-tag" key={tag}>
-								{tag}
-							</span>
-						))}
+				{tags.length > 0 || category ? (
+					<div className="post-taxonomy-row">
+						{tags.length > 0 ? (
+							<div className="post-tags detail-tags" aria-label="Post tags">
+								{tags.map((tag) => (
+									<span className="post-tag" key={tag}>
+										{tag}
+									</span>
+								))}
+							</div>
+						) : (
+							<div />
+						)}
+						{category ? (
+							<div
+								className="post-category detail-category"
+								aria-label="Post category"
+							>
+								{category}
+							</div>
+						) : null}
 					</div>
 				) : null}
 			</header>

@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS posts (
 	last_sync_error TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	excerpt TEXT NOT NULL DEFAULT ''
+	excerpt TEXT NOT NULL DEFAULT '',
+	category TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
@@ -27,6 +28,9 @@ CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
 
 CREATE INDEX IF NOT EXISTS idx_posts_notion_last_edited_time
 	ON posts (notion_last_edited_time);
+
+CREATE INDEX IF NOT EXISTS idx_posts_category
+	ON posts (category);
 
 CREATE TABLE IF NOT EXISTS post_tags (
 	post_id TEXT NOT NULL,

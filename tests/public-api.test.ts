@@ -131,11 +131,11 @@ class SqliteD1Database {
 		this.db
 			.prepare(
 				`INSERT INTO posts (
-					id, notion_page_id, slug, title, excerpt, cover_url,
+					id, notion_page_id, slug, title, excerpt, cover_url, category,
 					status, visibility, published_at, notion_last_edited_time,
 					content_hash, last_sync_error, created_at, updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -145,6 +145,7 @@ class SqliteD1Database {
 					row.title,
 					row.excerpt,
 					row.cover_url,
+					row.category,
 					row.status,
 					row.visibility,
 					row.published_at,
@@ -197,6 +198,7 @@ const publishedPost: PublicPostRecord = {
 	title: "Published post",
 	excerpt: "Opening text for the published post.",
 	coverUrl: "https://cdn.example.com/cover.jpg",
+	category: "Essay",
 	tags: ["Life", "Notes"],
 	status: "ready",
 	visibility: "published",
@@ -224,6 +226,7 @@ function postRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 		title: "Published post",
 		excerpt: "Opening text for the published post.",
 		cover_url: "https://cdn.example.com/cover.jpg",
+		category: "Essay",
 		status: "ready",
 		visibility: "published",
 		published_at: "2026-05-01T00:00:00.000Z",
@@ -251,6 +254,7 @@ describe("public response helpers", () => {
 					title: "Published post",
 					excerpt: "Opening text for the published post.",
 					coverUrl: "https://cdn.example.com/cover.jpg",
+					category: "Essay",
 					tags: ["Life", "Notes"],
 					publishedAt: "2026-05-01T00:00:00.000Z",
 					updatedAt: "2026-05-02T00:00:00.000Z",
@@ -269,6 +273,7 @@ describe("public response helpers", () => {
 			title: "Published post",
 			excerpt: "Opening text for the published post.",
 			coverUrl: "https://cdn.example.com/cover.jpg",
+			category: "Essay",
 			tags: ["Life", "Notes"],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
@@ -325,6 +330,7 @@ describe("PostsRepository", () => {
 				expect.objectContaining({
 					id: "post-1",
 					coverUrl: "https://cdn.example.com/cover.jpg",
+					category: "Essay",
 					publishedAt: "2026-05-01T00:00:00.000Z",
 					updatedAt: "2026-05-02T00:00:00.000Z",
 				}),
@@ -349,6 +355,7 @@ describe("PostsRepository", () => {
 		expect(fakeDb.calls[0]?.sql).not.toContain("summary");
 		expect(fakeDb.calls[0]?.sql).not.toContain("tags_json");
 		expect(fakeDb.calls[0]?.values).toEqual([
+			"%notion api%",
 			"%notion api%",
 			"%notion api%",
 			"%notion api%",
@@ -409,8 +416,20 @@ describe("PostsRepository", () => {
 
 			expect(itemQuery?.sql).toContain("ESCAPE '\\'");
 			expect(itemQuery?.sql).not.toContain("json_each");
-			expect(itemQuery?.values).toEqual(["%SQL%", "%SQL%", "%SQL%", 1, 1]);
-			expect(countQuery?.values).toEqual(["%SQL%", "%SQL%", "%SQL%"]);
+			expect(itemQuery?.values).toEqual([
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+				1,
+				1,
+			]);
+			expect(countQuery?.values).toEqual([
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+				"%SQL%",
+			]);
 		} finally {
 			db.close();
 		}
@@ -471,6 +490,60 @@ describe("PostsRepository", () => {
 		}
 	});
 
+	it("filters published posts by category and keeps category metadata in results", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "essay-post",
+					title: "Essay post",
+					category: "Essay",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "note-post",
+					title: "Note post",
+					category: "Note",
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "hidden-essay",
+					title: "Hidden essay",
+					category: "Essay",
+					visibility: "hidden",
+				}),
+			);
+
+			await expect(
+				new PostsRepository(db.asD1()).listPublished({
+					page: 1,
+					limit: 20,
+					category: "Essay",
+				}),
+			).resolves.toEqual({
+				items: [
+					expect.objectContaining({
+						slug: "essay-post",
+						category: "Essay",
+					}),
+				],
+				total: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("lists tags with published post counts", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -498,6 +571,45 @@ describe("PostsRepository", () => {
 			await expect(new PostsRepository(db.asD1()).listTags()).resolves.toEqual([
 				{ name: "Life", count: 2 },
 				{ name: "Notes", count: 1 },
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists categories with published post counts", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1", category: "Essay" }));
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-post",
+					category: "Essay",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "note-post",
+					category: "Note",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-4",
+					notion_page_id: "notion-4",
+					slug: "hidden-post",
+					category: "Essay",
+					visibility: "hidden",
+				}),
+			);
+
+			await expect(new PostsRepository(db.asD1()).listCategories()).resolves.toEqual([
+				{ name: "Essay", count: 2 },
+				{ name: "Note", count: 1 },
 			]);
 		} finally {
 			db.close();
@@ -546,7 +658,13 @@ describe("PostsRepository", () => {
 				call.sql.includes("post_content"),
 			);
 			expect(searchCall?.sql).toContain("ESCAPE '\\'");
-			expect(searchCall?.values).toEqual(["%\\%%", "%\\%%", "%\\%%", 20]);
+			expect(searchCall?.values).toEqual([
+				"%\\%%",
+				"%\\%%",
+				"%\\%%",
+				"%\\%%",
+				20,
+			]);
 		} finally {
 			db.close();
 		}
@@ -713,6 +831,7 @@ describe("handlePublicApi", () => {
 				title: "Published post",
 				excerpt: "Opening text for the published post.",
 				coverUrl: "https://cdn.example.com/cover.jpg",
+				category: "Essay",
 				tags: [],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
@@ -786,6 +905,36 @@ describe("handlePublicApi", () => {
 				items: [
 					{ name: "Life", count: 2 },
 					{ name: "Notes", count: 1 },
+				],
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("returns public category counts", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1", category: "Essay" }));
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "note-post",
+					category: "Note",
+				}),
+			);
+
+			const response = await handlePublicApi(
+				publicRequest("/api/categories"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				items: [
+					{ name: "Essay", count: 1 },
+					{ name: "Note", count: 1 },
 				],
 			});
 		} finally {

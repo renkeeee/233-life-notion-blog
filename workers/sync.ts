@@ -77,6 +77,7 @@ export interface PostMetadata {
 	title: string;
 	excerpt: string;
 	coverUrl: string | null;
+	category: string | null;
 	tags: string[];
 	status: string;
 	visibility: PostVisibility;
@@ -112,6 +113,7 @@ interface ExistingPostState {
 	title: string;
 	excerpt: string;
 	cover_url: string | null;
+	category: string | null;
 	status: string;
 	visibility: PostVisibility;
 	published_at: string | null;
@@ -211,6 +213,9 @@ export function mapNotionPageToPostMetadata(
 		title,
 		excerpt: "",
 		coverUrl: pageCoverUrl(page),
+		category: mapping.category
+			? categoryProperty(properties[mapping.category])
+			: null,
 		tags: mapping.tags ? tagProperty(properties[mapping.tags]) : [],
 		status: String(status),
 		visibility: archived
@@ -553,7 +558,7 @@ async function existingPostState(
 		.prepare(
 			`SELECT
 				id, notion_last_edited_time, content_hash, slug, title, excerpt, cover_url,
-				status, visibility, published_at
+				category, status, visibility, published_at
 			 FROM posts
 			 WHERE notion_page_id = ?
 			 LIMIT 1`,
@@ -603,6 +608,7 @@ function postMetadataChanged(
 		existing.slug !== metadata.slug ||
 		existing.title !== metadata.title ||
 		existing.cover_url !== metadata.coverUrl ||
+		existing.category !== metadata.category ||
 		existing.status !== metadata.status ||
 		existing.visibility !== metadata.visibility ||
 		existing.published_at !== metadata.publishedAt ||
@@ -809,16 +815,17 @@ function prepareUpsertPost(
 	return db
 		.prepare(
 			`INSERT INTO posts (
-				id, notion_page_id, slug, title, excerpt, cover_url,
+				id, notion_page_id, slug, title, excerpt, cover_url, category,
 				status, visibility, published_at, notion_last_edited_time,
 				content_hash, last_sync_error, created_at, updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
 			ON CONFLICT(notion_page_id) DO UPDATE SET
 				slug = excluded.slug,
 				title = excluded.title,
 				excerpt = excluded.excerpt,
 				cover_url = excluded.cover_url,
+				category = excluded.category,
 				status = excluded.status,
 				visibility = excluded.visibility,
 				published_at = excluded.published_at,
@@ -834,6 +841,7 @@ function prepareUpsertPost(
 			post.title,
 			post.excerpt,
 			post.coverUrl,
+			post.category,
 			post.status,
 			post.visibility,
 			post.publishedAt,
@@ -1068,6 +1076,21 @@ function tagProperty(property: unknown): string[] {
 	}
 
 	return [];
+}
+
+function categoryProperty(property: unknown): string | null {
+	const value = propertyValue(property);
+
+	if (Array.isArray(value)) {
+		return normalizeTags(value)[0] ?? null;
+	}
+
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		return trimmed.length > 0 ? trimmed : null;
+	}
+
+	return null;
 }
 
 function normalizeTags(values: unknown[]): string[] {

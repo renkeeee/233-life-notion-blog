@@ -21,6 +21,15 @@ type TagsResponse = {
 	items: TagSummary[];
 };
 
+type CategorySummary = {
+	name: string;
+	count: number;
+};
+
+type CategoriesResponse = {
+	items: CategorySummary[];
+};
+
 type LoadState =
 	| { status: "loading" }
 	| { status: "error"; message: string }
@@ -40,11 +49,21 @@ type TagsState =
 	| { status: "error"; message: string }
 	| { status: "success"; tags: TagSummary[] };
 
+type CategoriesState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "error"; message: string }
+	| { status: "success"; categories: CategorySummary[] };
+
 type LoadMode = "replace" | "append";
 
 const homePageSize = 20;
 
-function postsPath(page: number, tag: string | null): string {
+function postsPath(
+	page: number,
+	tag: string | null,
+	category: string | null,
+): string {
 	const params = new URLSearchParams({
 		page: String(page),
 		limit: String(homePageSize),
@@ -52,6 +71,10 @@ function postsPath(page: number, tag: string | null): string {
 
 	if (tag) {
 		params.set("tag", tag);
+	}
+
+	if (category) {
+		params.set("category", category);
 	}
 
 	return `/api/posts?${params.toString()}`;
@@ -105,6 +128,11 @@ export default function Home() {
 	const navigate = useNavigate();
 	const [query, setQuery] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
+	const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+	const [categoriesOpen, setCategoriesOpen] = useState(false);
+	const [categoriesState, setCategoriesState] = useState<CategoriesState>({
+		status: "idle",
+	});
 	const [selectedTag, setSelectedTag] = useState<string | null>(null);
 	const [tagPickerOpen, setTagPickerOpen] = useState(false);
 	const [tagsState, setTagsState] = useState<TagsState>({ status: "idle" });
@@ -114,82 +142,87 @@ export default function Home() {
 	const activeRequestRef = useRef(0);
 	const fetchingRef = useRef(false);
 
-	const loadPosts = useCallback(async (page: number, mode: LoadMode) => {
-		if (fetchingRef.current && mode === "append") {
-			return;
-		}
-
-		fetchingRef.current = true;
-		const requestId = activeRequestRef.current + 1;
-		activeRequestRef.current = requestId;
-
-		if (mode === "replace") {
-			setState({ status: "loading" });
-		} else {
-			setState((current) =>
-				current.status === "success"
-					? { ...current, loadingMore: true, loadMoreError: null }
-					: current,
-			);
-		}
-
-		try {
-			const response = await apiGet<PostsResponse>(postsPath(page, selectedTag));
-
-			if (activeRequestRef.current !== requestId) {
+	const loadPosts = useCallback(
+		async (page: number, mode: LoadMode) => {
+			if (fetchingRef.current && mode === "append") {
 				return;
 			}
 
-			setState((current) => {
-				if (mode === "append" && current.status === "success") {
+			fetchingRef.current = true;
+			const requestId = activeRequestRef.current + 1;
+			activeRequestRef.current = requestId;
+
+			if (mode === "replace") {
+				setState({ status: "loading" });
+			} else {
+				setState((current) =>
+					current.status === "success"
+						? { ...current, loadingMore: true, loadMoreError: null }
+						: current,
+				);
+			}
+
+			try {
+				const response = await apiGet<PostsResponse>(
+					postsPath(page, selectedTag, selectedCategory),
+				);
+
+				if (activeRequestRef.current !== requestId) {
+					return;
+				}
+
+				setState((current) => {
+					if (mode === "append" && current.status === "success") {
+						return {
+							...current,
+							posts: mergePosts(current.posts, response.items),
+							total: response.total,
+							page: response.page,
+							limit: response.limit,
+							loadingMore: false,
+							loadMoreError: null,
+						};
+					}
+
 					return {
-						...current,
-						posts: mergePosts(current.posts, response.items),
+						status: "success",
+						posts: response.items,
 						total: response.total,
 						page: response.page,
 						limit: response.limit,
 						loadingMore: false,
 						loadMoreError: null,
 					};
+				});
+			} catch (error: unknown) {
+				if (activeRequestRef.current !== requestId) {
+					return;
 				}
 
-				return {
-					status: "success",
-					posts: response.items,
-					total: response.total,
-					page: response.page,
-					limit: response.limit,
-					loadingMore: false,
-					loadMoreError: null,
-				};
-			});
-		} catch (error: unknown) {
-			if (activeRequestRef.current !== requestId) {
-				return;
+				if (mode === "append") {
+					setState((current) =>
+						current.status === "success"
+							? {
+									...current,
+									loadingMore: false,
+									loadMoreError: errorMessage(error),
+								}
+							: current,
+					);
+				} else {
+					setState({
+						status: "error",
+						message: errorMessage(error),
+					});
+				}
+			} finally {
+				if (activeRequestRef.current === requestId) {
+					fetchingRef.current = false;
+				}
 			}
-
-			if (mode === "append") {
-				setState((current) =>
-					current.status === "success"
-						? {
-								...current,
-								loadingMore: false,
-								loadMoreError: errorMessage(error),
-						  }
-						: current,
-				);
-			} else {
-				setState({
-					status: "error",
-					message: errorMessage(error),
-				});
-			}
-		} finally {
-			if (activeRequestRef.current === requestId) {
-				fetchingRef.current = false;
-			}
-		}
-	}, [selectedTag]);
+		},
+		[selectedCategory, selectedTag],
+	);
 
 	useEffect(() => {
 		void loadPosts(1, "replace");
@@ -211,6 +244,33 @@ export default function Home() {
 				message: errorMessage(error),
 			});
 		}
+	}
+
+	async function loadCategories() {
+		setCategoriesState({ status: "loading" });
+		try {
+			const response = await apiGet<CategoriesResponse>("/api/categories");
+			setCategoriesState({
+				status: "success",
+				categories: response.items,
+			});
+		} catch (error: unknown) {
+			setCategoriesState({
+				status: "error",
+				message: errorMessage(error),
+			});
+		}
+	}
+
+	function toggleCategories() {
+		setCategoriesOpen((current) => !current);
+		if (categoriesState.status === "idle") {
+			void loadCategories();
+		}
+	}
+
+	function selectCategory(category: string | null) {
+		setSelectedCategory(category);
 	}
 
 	function openTagPicker() {
@@ -327,6 +387,60 @@ export default function Home() {
 					<h1 className="site-title">233.life</h1>
 				</div>
 				<div className="public-header-actions">
+					<div
+						className={`category-switcher${categoriesOpen ? " expanded" : ""}`}
+					>
+						{categoriesOpen ? (
+							<div className="category-list" aria-label="Categories">
+								<button
+									type="button"
+									aria-label="All categories"
+									className={`category-option${
+										selectedCategory === null ? " active" : ""
+									}`}
+									onClick={() => selectCategory(null)}
+								>
+									All
+								</button>
+								{categoriesState.status === "loading" ? (
+									<span className="category-state">Loading</span>
+								) : null}
+								{categoriesState.status === "error" ? (
+									<button
+										type="button"
+										className="category-option"
+										onClick={() => void loadCategories()}
+									>
+										Retry
+									</button>
+								) : null}
+								{categoriesState.status === "success"
+									? categoriesState.categories.map((category) => (
+											<button
+												type="button"
+												aria-label={`${category.name} ${category.count}`}
+												className={`category-option${
+													selectedCategory === category.name ? " active" : ""
+												}`}
+												key={category.name}
+												onClick={() => selectCategory(category.name)}
+											>
+												<span>{category.name}</span>
+												<span>{category.count}</span>
+											</button>
+										))
+									: null}
+							</div>
+						) : null}
+						<button
+							className="category-entry-button"
+							type="button"
+							aria-expanded={categoriesOpen}
+							onClick={toggleCategories}
+						>
+							Categories
+						</button>
+					</div>
 					<button className="tag-entry-button" type="button" onClick={openTagPicker}>
 						Tags
 					</button>
@@ -373,9 +487,11 @@ export default function Home() {
 			) : null}
 			{state.status === "success" && state.posts.length === 0 ? (
 				<p className="state-note">
-					{selectedTag
-						? "No posts match this tag yet."
-						: "No posts have been published yet."}
+					{selectedCategory
+						? "No posts match this category yet."
+						: selectedTag
+							? "No posts match this tag yet."
+							: "No posts have been published yet."}
 				</p>
 			) : null}
 			{state.status === "success" && state.posts.length > 0 ? (

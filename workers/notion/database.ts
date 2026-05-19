@@ -74,13 +74,19 @@ export function inferFieldMapping(properties: NotionProperties): FieldMapping {
 	const tags = findProperty(entries, {
 		aliases: ["tags", "tag", "topics", "topic", "标签"],
 		types: ["multi_select", "select"],
-	}, used) ?? findProperty(entries, {
-		aliases: ["category", "categories", "分类"],
-		types: ["multi_select", "select"],
 	}, used);
 	if (tags) {
 		mapping.tags = tags;
 		used.add(tags);
+	}
+
+	const category = findProperty(entries, {
+		aliases: ["category", "categories", "section", "sections", "分类", "类别"],
+		types: ["select", "status", "rich_text"],
+	}, used);
+	if (category) {
+		mapping.category = category;
+		used.add(category);
 	}
 
 	const publishedAt = findProperty(entries, {

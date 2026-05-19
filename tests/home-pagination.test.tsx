@@ -37,6 +37,7 @@ function post(overrides: Partial<PublicPostSummary> = {}): PublicPostSummary {
 		title: "First post",
 		excerpt: "The first few words from the post body.",
 		coverUrl: null,
+		category: null,
 		tags: [],
 		publishedAt: "2026-05-01T00:00:00.000Z",
 		updatedAt: "2026-05-01T00:00:00.000Z",
@@ -171,7 +172,7 @@ describe("home pagination", () => {
 		expect(searchForm).not.toHaveClass("expanded");
 	});
 
-	it("keeps the tag and search controls in one header action row", async () => {
+	it("keeps the category, tag, and search controls in one header action row", async () => {
 		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [],
 			total: 0,
@@ -188,11 +189,64 @@ describe("home pagination", () => {
 		await screen.findByText("No posts have been published yet.");
 
 		const actions = container.querySelector(".public-header-actions");
+		const categoryButton = screen.getByRole("button", { name: "Categories" });
 		const tagButton = screen.getByRole("button", { name: "Tags" });
 		const searchForm = screen.getByRole("search");
 
+		expect(actions).toContainElement(categoryButton);
 		expect(actions).toContainElement(tagButton);
 		expect(actions).toContainElement(searchForm);
+	});
+
+	it("expands categories and filters posts by the selected category", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
+			if (url === "/api/posts?page=1&limit=20") {
+				return Promise.resolve({
+					items: [post({ title: "First post" })],
+					total: 2,
+					page: 1,
+					limit: 20,
+				});
+			}
+			if (url === "/api/categories") {
+				return Promise.resolve({
+					items: [
+						{ name: "Essay", count: 1 },
+						{ name: "Note", count: 1 },
+					],
+				});
+			}
+			if (url === "/api/posts?page=1&limit=20&category=Essay") {
+				return Promise.resolve({
+					items: [post({ title: "Essay post", category: "Essay" })],
+					total: 1,
+					page: 1,
+					limit: 20,
+				});
+			}
+
+			return Promise.reject(new Error(`Unexpected URL: ${url}`));
+		});
+
+		render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByRole("heading", { name: "First post" });
+		fireEvent.click(screen.getByRole("button", { name: "Categories" }));
+		await screen.findByRole("button", { name: "Essay 1" });
+		fireEvent.click(screen.getByRole("button", { name: "Essay 1" }));
+
+		await screen.findByRole("heading", { name: "Essay post" });
+		expect(apiGet).toHaveBeenCalledWith(
+			"/api/posts?page=1&limit=20&category=Essay",
+		);
+		expect(screen.getByRole("button", { name: "All categories" })).toHaveClass(
+			"category-option",
+		);
+		expect(screen.queryByText("Essay", { selector: ".post-list-item *" })).toBeNull();
 	});
 
 	it("opens the tag picker and filters posts by the selected tag", async () => {

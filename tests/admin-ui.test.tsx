@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
@@ -28,10 +28,14 @@ describe("SettingsPanel", () => {
 		).toBeTruthy();
 		expect(screen.getByLabelText("title")).toBeTruthy();
 		expect(screen.getByLabelText("status")).toBeTruthy();
+		expect(screen.getByLabelText("category")).toBeTruthy();
 		expect(screen.getByLabelText("tags")).toBeTruthy();
 		expect(screen.getByLabelText("publishedAt")).toBeTruthy();
 		expect(screen.getByText("Notion type: title")).toBeTruthy();
 		expect(screen.getByText("Notion type: status, select, or checkbox")).toBeTruthy();
+		expect(
+			screen.getByText("Notion type: select, status, title, or rich_text"),
+		).toBeTruthy();
 		expect(screen.getByText("Notion type: multi_select or select")).toBeTruthy();
 		expect(screen.getByText("Notion type: date or created_time")).toBeTruthy();
 		expect(screen.getByLabelText("Published status values")).toHaveValue(
@@ -244,6 +248,7 @@ describe("SettingsPanel", () => {
 			recommendedFieldMapping: {
 				title: "Headline",
 				status: "Publish",
+				category: "Category",
 				tags: "Tags",
 				publishedAt: "Published On",
 				publishedStatusValues: ["Published"],
@@ -260,6 +265,7 @@ describe("SettingsPanel", () => {
 			fieldMapping: {
 				title: "Headline",
 				status: "Publish",
+				category: "Category",
 				tags: "Tags",
 				publishedAt: "Published On",
 				publishedStatusValues: ["Published", "Draft"],
@@ -276,10 +282,24 @@ describe("SettingsPanel", () => {
 			await screen.findByText("Schema loaded. Field choices were updated from Notion.");
 			expect(screen.getByLabelText("title")).toHaveValue("Headline");
 			expect(screen.getByLabelText("status")).toHaveValue("Publish");
+			expect(screen.getByLabelText("category")).toHaveValue("Category");
 			expect(screen.getByLabelText("tags")).toHaveValue("Tags");
 			expect(screen.getByLabelText("publishedAt")).toHaveValue("Published On");
-			expect(screen.getByRole("option", { name: "Headline (title)" })).toBeTruthy();
-			expect(screen.queryByRole("option", { name: "Name (rich_text)" })).toBeNull();
+			expect(
+				within(screen.getByLabelText("title")).getByRole("option", {
+					name: "Headline (title)",
+				}),
+			).toBeTruthy();
+			expect(
+				within(screen.getByLabelText("title")).queryByRole("option", {
+					name: "Name (rich_text)",
+				}),
+			).toBeNull();
+			expect(
+				within(screen.getByLabelText("category")).getByRole("option", {
+					name: "Name (rich_text)",
+				}),
+			).toBeTruthy();
 			expect(screen.getByText("Options from Publish")).toBeTruthy();
 
 			fireEvent.click(screen.getByRole("button", { name: "Add Draft" }));
@@ -294,6 +314,7 @@ describe("SettingsPanel", () => {
 				fieldMapping: {
 					title: "Headline",
 					status: "Publish",
+					category: "Category",
 					tags: "Tags",
 					publishedAt: "Published On",
 					publishedStatusValues: ["Published", "Draft"],

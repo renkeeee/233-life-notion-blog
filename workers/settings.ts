@@ -27,9 +27,11 @@ const requiredSettingKeys = [
 	"fieldMapping",
 ] as const satisfies readonly (keyof SiteSettings)[];
 const optionalFieldMappingKeys = [
+	"category",
 	"tags",
 	"publishedAt",
 ] as const satisfies readonly (keyof FieldMapping)[];
+const defaultCategoryField = "Category";
 const defaultTagsField = "Tags";
 const requiredSettingKeySet = new Set<string>(requiredSettingKeys);
 
@@ -136,6 +138,10 @@ function parseFieldMapping(value: string): FieldMapping {
 
 	if (!Object.prototype.hasOwnProperty.call(parsed, "tags")) {
 		fieldMapping.tags = defaultTagsField;
+	}
+
+	if (!Object.prototype.hasOwnProperty.call(parsed, "category")) {
+		fieldMapping.category = defaultCategoryField;
 	}
 
 	return fieldMapping;

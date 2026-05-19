@@ -261,31 +261,10 @@ describe("PasswordChangePanel", () => {
 });
 
 describe("SyncPanel", () => {
-	function fillDateTime(
-		label: string,
-		value: {
-			year: string;
-			month: string;
-			day: string;
-			hour: string;
-			minute: string;
-		},
-	) {
-		fireEvent.change(screen.getByLabelText(`${label} year`), {
-			target: { value: value.year },
-		});
-		fireEvent.change(screen.getByLabelText(`${label} month`), {
-			target: { value: value.month },
-		});
-		fireEvent.change(screen.getByLabelText(`${label} day`), {
-			target: { value: value.day },
-		});
-		fireEvent.change(screen.getByLabelText(`${label} hour`), {
-			target: { value: value.hour },
-		});
-		fireEvent.change(screen.getByLabelText(`${label} minute`), {
-			target: { value: value.minute },
-		});
+	function fillDateTime(label: string, value: string) {
+		const input = screen.getByLabelText(label);
+		fireEvent.change(input, { target: { value } });
+		fireEvent.blur(input);
 	}
 
 	it("uses the library date-time picker and submits ISO sync ranges", async () => {
@@ -309,24 +288,16 @@ describe("SyncPanel", () => {
 			expect(
 				container.querySelector('input[type="datetime-local"]:not([hidden])'),
 			).toBeNull();
-			expect(container.querySelectorAll(".react-datetime-picker")).toHaveLength(2);
-			expect(screen.getByLabelText("Range start year")).toBeTruthy();
-			expect(screen.getByLabelText("Range end year")).toBeTruthy();
+			expect(container.querySelector(".react-datetime-picker")).toBeNull();
+			expect(container.querySelector(".react-datetime-picker__inputGroup")).toBeNull();
+			expect(container.querySelectorAll(".react-datepicker-wrapper")).toHaveLength(2);
+			expect(screen.queryByLabelText("Range start year")).toBeNull();
+			expect(screen.queryByLabelText("Range end year")).toBeNull();
+			expect(screen.getByLabelText("Range start")).toHaveAttribute("type", "text");
+			expect(screen.getByLabelText("Range end")).toHaveAttribute("type", "text");
 
-			fillDateTime("Range start", {
-				year: "2026",
-				month: "5",
-				day: "18",
-				hour: "9",
-				minute: "30",
-			});
-			fillDateTime("Range end", {
-				year: "2026",
-				month: "5",
-				day: "18",
-				hour: "10",
-				minute: "45",
-			});
+			fillDateTime("Range start", "2026-05-18 09:30");
+			fillDateTime("Range end", "2026-05-18 10:45");
 			fireEvent.click(screen.getByRole("button", { name: "Start sync" }));
 
 			await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));

@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
-import DateTimePicker from "react-datetime-picker";
+import DatePicker from "react-datepicker";
 import { apiGet, apiPost } from "../../lib/api-client";
 
 type SyncRun = {
@@ -39,28 +39,32 @@ function AdminDateTimePicker({
 	onChange: (value: DateTimeValue) => void;
 	disabled?: boolean;
 }) {
+	const inputId = useId();
+
 	return (
-		<label className="admin-datetime-field">
-			<span>{label}</span>
-			<DateTimePicker
-				className="admin-date-time-picker"
-				calendarAriaLabel={`${label} calendar`}
-				clearAriaLabel={`Clear ${label}`}
-				dayAriaLabel={`${label} day`}
-				disableClock
+		<div className="admin-datetime-field">
+			<label htmlFor={inputId}>{label}</label>
+			<DatePicker
+				ariaLabel={label}
+				autoComplete="off"
+				calendarClassName="admin-date-time-calendar"
+				className="admin-date-time-input"
+				dateFormat="yyyy-MM-dd HH:mm"
 				disabled={disabled}
-				format="yyyy-MM-dd HH:mm"
-				hourAriaLabel={`${label} hour`}
-				locale="en-US"
-				maxDetail="minute"
-				minuteAriaLabel={`${label} minute`}
-				monthAriaLabel={`${label} month`}
-				nativeInputAriaLabel={`${label} ISO value`}
+				id={inputId}
+				isClearable
 				onChange={onChange}
-				value={value}
-				yearAriaLabel={`${label} year`}
+				placeholderText="yyyy-MM-dd HH:mm"
+				popperClassName="admin-date-time-popper"
+				selected={value}
+				shouldCloseOnSelect={false}
+				showTimeSelect
+				timeCaption="Time"
+				timeFormat="HH:mm"
+				timeIntervals={5}
+				wrapperClassName="admin-date-time-picker"
 			/>
-		</label>
+		</div>
 	);
 }
 

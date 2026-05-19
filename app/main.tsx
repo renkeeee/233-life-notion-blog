@@ -1,8 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import "react-datetime-picker/dist/DateTimePicker.css";
-import "react-calendar/dist/Calendar.css";
+import "react-datepicker/dist/react-datepicker.css";
 import "./app.css";
 
 createRoot(document.getElementById("root")!).render(

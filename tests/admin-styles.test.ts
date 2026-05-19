@@ -14,16 +14,13 @@ function cssRule(selector: string): string {
 }
 
 describe("admin styles", () => {
-	it("keeps date-time picker segment inputs from inheriting full-width form inputs", () => {
-		const inputRule = cssRule(
-			".admin-date-time-picker .react-datetime-picker__inputGroup__input",
-		);
-		const inputGroupRule = cssRule(
-			".admin-date-time-picker .react-datetime-picker__inputGroup",
-		);
+	it("uses a single stable date-time picker input instead of segmented inputs", () => {
+		const pickerRule = cssRule(".admin-date-time-picker");
+		const inputRule = cssRule(".admin-date-time-input");
 
-		expect(inputRule).toContain("width: auto");
-		expect(inputRule).toContain("box-sizing: content-box");
-		expect(inputGroupRule).toContain("min-width: 15ch");
+		expect(adminCss).not.toContain("react-datetime-picker__inputGroup");
+		expect(pickerRule).toContain("width: 100%");
+		expect(inputRule).toContain("width: 100%");
+		expect(inputRule).toContain("min-width: 0");
 	});
 });

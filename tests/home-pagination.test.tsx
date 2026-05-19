@@ -120,6 +120,24 @@ describe("home pagination", () => {
 		expect(screen.getByText("2 posts")).toBeTruthy();
 	});
 
+	it("does not render post tags in the homepage post list", async () => {
+		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [post({ tags: ["Hidden list tag"] })],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+
+		render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByRole("heading", { name: "First post" });
+		expect(screen.queryByText("Hidden list tag")).toBeNull();
+	});
+
 	it("opens the tag picker and filters posts by the selected tag", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
 			if (url === "/api/posts?page=1&limit=20") {

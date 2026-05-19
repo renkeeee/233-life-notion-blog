@@ -27,7 +27,6 @@ export function PostList({ posts }: { posts: PublicPostSummary[] }) {
 	return (
 		<div className="post-list">
 			{posts.map((post) => {
-				const tags = post.tags ?? [];
 				const excerpt = post.excerpt?.trim() ?? "";
 
 				return (
@@ -47,15 +46,6 @@ export function PostList({ posts }: { posts: PublicPostSummary[] }) {
 								<Link to={`/post/${post.slug}`}>{post.title}</Link>
 							</h2>
 							{excerpt ? <p className="post-excerpt">{excerpt}</p> : null}
-							{tags.length > 0 ? (
-								<div className="post-tags" aria-label={`Tags for ${post.title}`}>
-									{tags.map((tag) => (
-										<span className="post-tag" key={tag}>
-											{tag}
-										</span>
-									))}
-								</div>
-							) : null}
 						</div>
 					</article>
 				);

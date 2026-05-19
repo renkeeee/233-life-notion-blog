@@ -786,6 +786,54 @@ describe("admin settings API", () => {
 		expect(tokenRow?.value).not.toBe("ntn_secret");
 		expect(await decryptString(tokenRow!.value, rootKey)).toBe("ntn_secret");
 	});
+
+	it("reuses the stored Notion token when saving settings without re-entering it", async () => {
+		const { env, rows, rootKey } = testEnv();
+		const session = await usableAdminSession(env);
+		const initialResponse = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(testSettings("stored_ntn_secret")),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+		expect(initialResponse.status).toBe(200);
+
+		const updateBody = {
+			...testSettings(""),
+			siteTitle: "Updated Life",
+			notionToken: "",
+		};
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(updateBody),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+		const tokenRow = rows.get("notionToken");
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			siteTitle: "Updated Life",
+			notionToken: "",
+			hasNotionToken: true,
+		});
+		expect(tokenRow?.encrypted).toBe(1);
+		expect(await decryptString(tokenRow!.value, rootKey)).toBe(
+			"stored_ntn_secret",
+		);
+	});
 });
 
 describe("admin Notion schema API", () => {

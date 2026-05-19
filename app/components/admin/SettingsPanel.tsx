@@ -179,12 +179,27 @@ export function SettingsPanel({
 		};
 	}
 
+	function settingsSaveBody(): Record<string, unknown> {
+		const payload = settingsForRequest();
+		const token = payload.notionToken.trim();
+
+		if (!token && hasStoredToken) {
+			const { notionToken: _notionToken, ...body } = payload;
+			return body;
+		}
+
+		return {
+			...payload,
+			notionToken: token,
+		};
+	}
+
 	async function save(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setSaving(true);
 		setStatus("Saving settings...");
 		try {
-			const payload = settingsForRequest();
+			const payload = settingsSaveBody();
 			const saved = await apiPut<RedactedSettings>(
 				"/api/admin/settings",
 				payload,
@@ -192,9 +207,11 @@ export function SettingsPanel({
 			);
 			const normalizedSaved = normalizeSettings(saved);
 			const hasToken = saved.hasNotionToken === true;
+			const submittedToken =
+				typeof payload.notionToken === "string" ? payload.notionToken : "";
 			setSettings({
 				...normalizedSaved,
-				notionToken: hasToken ? payload.notionToken : normalizedSaved.notionToken,
+				notionToken: hasToken ? submittedToken : normalizedSaved.notionToken,
 			});
 			setPublishedStatusText(
 				publishedStatusValuesText(

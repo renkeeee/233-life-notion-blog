@@ -686,7 +686,12 @@ async function handlePutSettings(
 		return errorJson("BAD_REQUEST", "Invalid request body", 400);
 	}
 
-	const settings = body as unknown as SiteSettings;
+	const settingsBody = await resolveSettingsSaveToken(body, env);
+	if (settingsBody instanceof Response) {
+		return settingsBody;
+	}
+
+	const settings = settingsBody as unknown as SiteSettings;
 	let rows: SettingRow[];
 	let parsedSettings: SiteSettings;
 
@@ -723,6 +728,45 @@ async function handlePutSettings(
 	}
 
 	return json(redactSettings(parsedSettings));
+}
+
+async function resolveSettingsSaveToken(
+	body: Record<string, unknown>,
+	env: AppEnv,
+): Promise<Record<string, unknown> | Response> {
+	if (typeof body.notionToken === "string" && body.notionToken.length > 0) {
+		return body;
+	}
+
+	if (body.notionToken !== undefined && typeof body.notionToken !== "string") {
+		return body;
+	}
+
+	let rows: SettingRow[];
+
+	try {
+		rows = await new SettingsRepository(env.DB).list();
+	} catch {
+		return settingsLoadError();
+	}
+
+	try {
+		const currentSettings = await parseSettingsFromRows(
+			siteSettingRows(rows),
+			env.CONFIG_ENCRYPTION_KEY,
+		);
+
+		return {
+			...body,
+			notionToken: currentSettings.notionToken,
+		};
+	} catch (error) {
+		if (isMissingSettingsError(error)) {
+			return errorJson("BAD_REQUEST", "Invalid settings", 400);
+		}
+
+		return configDecryptError();
+	}
 }
 
 async function loadNotionSchema(

@@ -83,6 +83,57 @@ describe("SettingsPanel", () => {
 		}
 	});
 
+	it("saves settings without sending a blank redacted token", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			siteTitle: "233 Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "https://cdn.example.com",
+			fieldMapping: {
+				title: "Name",
+				status: "Status",
+				publishedStatusValues: ["Published", "已发布"],
+			},
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({
+			siteTitle: "Updated Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "https://cdn.example.com",
+			fieldMapping: {
+				title: "Name",
+				status: "Status",
+				publishedStatusValues: ["Published", "已发布"],
+			},
+		});
+		try {
+			render(<SettingsPanel csrfToken="csrf-token" />);
+
+			await screen.findByText(
+				"Settings loaded. Re-enter the Notion token when saving changes.",
+			);
+			fireEvent.change(screen.getByLabelText("Site title"), {
+				target: { value: "Updated Life" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+			await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
+			const [, body, csrfToken] = apiPut.mock.calls[0] ?? [];
+			expect(body).toMatchObject({ siteTitle: "Updated Life" });
+			expect(body).not.toHaveProperty("notionToken");
+			expect(csrfToken).toBe("csrf-token");
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
 	it("shows schema test errors without unavailable endpoint copy", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			siteTitle: "233 Life",

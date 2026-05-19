@@ -112,6 +112,7 @@ function normalizeSettings(settings: RedactedSettings): SiteSettingsForm {
 		cdnBaseUrl: settings.cdnBaseUrl,
 		fieldMapping: {
 			...settings.fieldMapping,
+			tags: settings.fieldMapping.tags ?? emptySettings.fieldMapping.tags,
 			publishedStatusValues:
 				settings.fieldMapping.publishedStatusValues &&
 				settings.fieldMapping.publishedStatusValues.length > 0

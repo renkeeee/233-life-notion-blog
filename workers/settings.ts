@@ -30,6 +30,7 @@ const optionalFieldMappingKeys = [
 	"tags",
 	"publishedAt",
 ] as const satisfies readonly (keyof FieldMapping)[];
+const defaultTagsField = "Tags";
 const requiredSettingKeySet = new Set<string>(requiredSettingKeys);
 
 function assertNoUnknownSettingKeys(settings: Record<string, unknown>): void {
@@ -131,6 +132,10 @@ function parseFieldMapping(value: string): FieldMapping {
 		}
 
 		fieldMapping[key] = optionalValue;
+	}
+
+	if (!Object.prototype.hasOwnProperty.call(parsed, "tags")) {
+		fieldMapping.tags = defaultTagsField;
 	}
 
 	return fieldMapping;

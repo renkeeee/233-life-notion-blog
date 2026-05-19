@@ -149,10 +149,31 @@ describe("settings storage helpers", () => {
 			rootKey,
 		);
 
+		expect(parsed.fieldMapping.tags).toBe("Tags");
 		expect(parsed.fieldMapping.publishedStatusValues).toEqual([
 			"Published",
 			"已发布",
 		]);
+	});
+
+	it("keeps an explicitly disabled tags mapping", async () => {
+		const rootKey = generateEncryptionKey();
+		const parsed = await parseSettingsFromRows(
+			[
+				settingRow("siteTitle", "233 Life"),
+				settingRow("notionDatabaseUrl", "url"),
+				settingRow("notionDatabaseId", "id"),
+				settingRow("notionToken", "ntn_secret"),
+				settingRow("cdnBaseUrl", "https://cdn.example.com"),
+				settingRow(
+					"fieldMapping",
+					JSON.stringify({ title: "Name", status: "Status", tags: "" }),
+				),
+			],
+			rootKey,
+		);
+
+		expect(parsed.fieldMapping.tags).toBe("");
 	});
 
 	it("throws when required settings are missing", async () => {

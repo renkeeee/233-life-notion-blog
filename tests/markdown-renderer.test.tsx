@@ -59,6 +59,15 @@ describe("Markdown", () => {
 		expect(container.querySelector("hr")).toBeTruthy();
 	});
 
+	it("renders GFM task list items as disabled checkboxes", () => {
+		render(<Markdown markdown="- [x] Verify sync" />);
+
+		const checkbox = screen.getByRole("checkbox", { name: "" });
+		expect(checkbox).toBeDisabled();
+		expect(checkbox).toBeChecked();
+		expect(screen.getByText("Verify sync")).toBeTruthy();
+	});
+
 	it("renders production rich text annotations without exposing raw markdown", () => {
 		const { container } = render(
 			<Markdown markdown="**Bold** *Italic* ~~Gone~~ <u>Under</u> `code` $E=mc^2$" />,
@@ -81,7 +90,7 @@ describe("Markdown", () => {
 		);
 
 		expect(container.querySelector("script")).toBeNull();
-		expect(container.textContent).toContain("<script>alert(1)</script>");
+		expect(container.textContent).not.toContain("alert(1)");
 		expect(container.querySelector("u")?.textContent).toBe("Allowed underline");
 	});
 

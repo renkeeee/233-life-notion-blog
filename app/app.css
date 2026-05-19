@@ -251,6 +251,51 @@ body {
 	width: min(58%, 360px);
 }
 
+.post-detail-skeleton {
+	margin-top: 2px;
+}
+
+.skeleton-back-line {
+	width: 82px;
+	height: 18px;
+	margin-bottom: 14px;
+}
+
+.skeleton-detail-title-line {
+	width: min(86%, 620px);
+	height: 48px;
+	margin-top: 10px;
+	border-radius: 12px;
+}
+
+.skeleton-detail-title-short-line {
+	width: min(56%, 420px);
+	height: 48px;
+	border-radius: 12px;
+}
+
+.markdown-skeleton {
+	display: grid;
+	gap: 14px;
+}
+
+.skeleton-copy-line {
+	width: 92%;
+	height: 17px;
+}
+
+.skeleton-copy-line.wide {
+	width: 100%;
+}
+
+.skeleton-copy-line.medium {
+	width: 78%;
+}
+
+.skeleton-copy-line.short {
+	width: 46%;
+}
+
 @keyframes skeleton-shimmer {
 	to {
 		transform: translateX(100%);

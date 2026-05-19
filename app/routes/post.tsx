@@ -8,6 +8,31 @@ type LoadState =
 	| { status: "error"; message: string }
 	| { status: "success"; post: PublicPostDetail };
 
+function PostDetailSkeleton() {
+	return (
+		<article
+			className="post-detail-skeleton"
+			aria-busy="true"
+			aria-label="Loading post"
+			role="status"
+		>
+			<header className="post-detail-header">
+				<div className="skeleton-line skeleton-back-line" />
+				<div className="skeleton-line skeleton-meta-line" />
+				<div className="skeleton-line skeleton-detail-title-line" />
+				<div className="skeleton-line skeleton-detail-title-short-line" />
+			</header>
+			<div className="markdown-skeleton">
+				<div className="skeleton-line skeleton-copy-line" />
+				<div className="skeleton-line skeleton-copy-line wide" />
+				<div className="skeleton-line skeleton-copy-line medium" />
+				<div className="skeleton-line skeleton-copy-line" />
+				<div className="skeleton-line skeleton-copy-line short" />
+			</div>
+		</article>
+	);
+}
+
 export default function Post() {
 	const { slug } = useParams();
 	const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -43,7 +68,7 @@ export default function Post() {
 
 	return (
 		<main className="public-shell narrow">
-			{state.status === "loading" ? <p className="state-note">Loading post...</p> : null}
+			{state.status === "loading" ? <PostDetailSkeleton /> : null}
 			{state.status === "error" ? (
 				<div className="state-panel">
 					<p className="state-note state-error">{state.message}</p>

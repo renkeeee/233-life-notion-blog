@@ -25,11 +25,13 @@ export function PasswordChangePanel({
 	onChanged,
 	required = false,
 	headingId,
+	layout = "compact",
 }: {
 	csrfToken: string;
 	onChanged: () => void;
 	required?: boolean;
 	headingId?: string;
+	layout?: "compact" | "fluid";
 }) {
 	const [currentPassword, setCurrentPassword] = useState("");
 	const [newPassword, setNewPassword] = useState("");
@@ -70,7 +72,7 @@ export function PasswordChangePanel({
 	}
 
 	return (
-		<form className="admin-form compact" onSubmit={submit}>
+		<form className={`admin-form ${layout}`} onSubmit={submit}>
 			<div className="admin-section-heading">
 				<h2 id={headingId}>Password</h2>
 				<span className={required ? "admin-badge warning" : "admin-badge"}>
@@ -254,6 +256,7 @@ export default function Admin() {
 							required={session.mustChangePassword}
 							onChanged={markPasswordChanged}
 							headingId="admin-password-heading"
+							layout="fluid"
 						/>
 					</section>
 					<section

@@ -305,6 +305,7 @@ describe("Admin", () => {
 			const dataSourceModule = screen.getByRole("region", {
 				name: "Data source settings",
 			});
+			expect(passwordModule.querySelector("form")).toHaveClass("fluid");
 			expect(passwordModule).toContainElement(
 				screen.getByRole("button", { name: "Change password" }),
 			);

@@ -42,7 +42,7 @@ type NotionSchemaResponse = {
 const defaultPublishedStatusValues = ["Published", "已发布"];
 
 const emptySettings: SiteSettingsForm = {
-	siteTitle: "233 Life",
+	siteTitle: "233.life",
 	notionDatabaseUrl:
 		"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
 	notionDatabaseId: "3646b3023c2380fc886af37685393dd4",

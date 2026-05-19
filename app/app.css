@@ -6,6 +6,11 @@
 		"Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
+html, body, #root {
+	min-height: 100%;
+	background: #f8f7f4;
+}
+
 html,
 body {
 	margin: 0;
@@ -15,6 +20,21 @@ body {
 	@media (prefers-color-scheme: dark) {
 		color-scheme: dark;
 	}
+}
+
+body {
+	min-height: 100vh;
+}
+
+#root {
+	min-height: 100vh;
+}
+
+.public-shell,
+.public-shell *,
+.public-shell *::before,
+.public-shell *::after {
+	box-sizing: border-box;
 }
 
 .public-shell a {

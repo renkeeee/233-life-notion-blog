@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	inferFieldMapping,
 	isPublishedStatus,
@@ -249,6 +249,35 @@ describe("NotionClient", () => {
 		expect(requests[0].headers.get("Content-Type")).toBeNull();
 		expect(requests[0].headers.get("Accept")).toBe("application/json");
 		expect(requests[1].headers.get("Content-Type")).toBe("application/json");
+	});
+
+	it("calls the default global fetch without rebinding this", async () => {
+		const requests: Request[] = [];
+		const fetcher = vi.fn(function (
+			this: unknown,
+			input: RequestInfo | URL,
+			init?: RequestInit,
+		) {
+			if (this !== undefined) {
+				throw new TypeError("Illegal invocation");
+			}
+
+			requests.push(new Request(input, init));
+			return Promise.resolve(Response.json({ ok: true }));
+		});
+		vi.stubGlobal("fetch", fetcher);
+
+		try {
+			const client = new NotionClient("secret-token");
+			await client.request("/default-fetch");
+
+			expect(fetcher).toHaveBeenCalledTimes(1);
+			expect(requests[0]?.url).toBe(
+				"https://api.notion.com/v1/default-fetch",
+			);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	it("throws NotionApiError with parsed error metadata", async () => {

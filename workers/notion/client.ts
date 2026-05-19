@@ -3,6 +3,7 @@ import type { NotionBlock } from "./blocks";
 
 const NOTION_API_BASE_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2026-03-11";
+const defaultFetcher: NotionFetcher = (input, init) => fetch(input, init);
 
 export type NotionFetcher = (
 	input: RequestInfo | URL,
@@ -61,7 +62,7 @@ export class NotionClient {
 
 	constructor(token: string, options: NotionClientOptions = {}) {
 		this.token = token;
-		this.fetcher = options.fetcher ?? fetch;
+		this.fetcher = options.fetcher ?? defaultFetcher;
 		this.baseUrl = (options.baseUrl ?? NOTION_API_BASE_URL).replace(/\/+$/, "");
 	}
 

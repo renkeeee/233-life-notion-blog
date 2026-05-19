@@ -255,8 +255,7 @@ body {
 	animation: category-expand 180ms ease both;
 }
 
-.category-option,
-.category-state {
+.category-option {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -266,15 +265,12 @@ body {
 	border-radius: 999px;
 	background: transparent;
 	color: #706d66;
+	cursor: pointer;
 	font-size: var(--home-control-font-size);
 	font-weight: 650;
 	line-height: 1;
 	white-space: nowrap;
 	padding: 0 10px;
-}
-
-.category-option {
-	cursor: pointer;
 }
 
 .category-option span:last-child {

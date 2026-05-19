@@ -94,6 +94,9 @@ describe("home pagination", () => {
 					limit: 20,
 				});
 			}
+			if (url === "/api/categories") {
+				return Promise.resolve({ items: [] });
+			}
 
 			return Promise.reject(new Error(`Unexpected URL: ${url}`));
 		});
@@ -117,7 +120,11 @@ describe("home pagination", () => {
 
 		await screen.findByRole("heading", { name: "Second post" });
 		expect(apiGet).toHaveBeenCalledWith("/api/posts?page=2&limit=20");
-		await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2));
+		await waitFor(() =>
+			expect(
+				apiGet.mock.calls.filter(([url]) => String(url).startsWith("/api/posts")),
+			).toHaveLength(2),
+		);
 		expect(screen.getByText("2 posts")).toBeTruthy();
 	});
 
@@ -198,6 +205,43 @@ describe("home pagination", () => {
 		expect(actions).toContainElement(searchForm);
 	});
 
+	it("preloads categories on home load before the category switcher is opened", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
+			if (url === "/api/posts?page=1&limit=20") {
+				return Promise.resolve({
+					items: [post({ title: "First post" })],
+					total: 1,
+					page: 1,
+					limit: 20,
+				});
+			}
+			if (url === "/api/categories") {
+				return Promise.resolve({
+					items: [{ name: "Essay", count: 1 }],
+				});
+			}
+
+			return Promise.reject(new Error(`Unexpected URL: ${url}`));
+		});
+
+		render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByRole("heading", { name: "First post" });
+		await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/categories"));
+
+		fireEvent.click(screen.getByRole("button", { name: "Categories" }));
+
+		expect(screen.queryByText("Loading")).toBeNull();
+		expect(screen.getByRole("button", { name: "Essay 1" })).toBeTruthy();
+		expect(
+			apiGet.mock.calls.filter(([url]) => url === "/api/categories"),
+		).toHaveLength(1);
+	});
+
 	it("expands categories and filters posts by the selected category", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
 			if (url === "/api/posts?page=1&limit=20") {
@@ -266,6 +310,9 @@ describe("home pagination", () => {
 						{ name: "Notes", count: 1 },
 					],
 				});
+			}
+			if (url === "/api/categories") {
+				return Promise.resolve({ items: [] });
 			}
 			if (url === "/api/posts?page=1&limit=20&tag=Life") {
 				return Promise.resolve({

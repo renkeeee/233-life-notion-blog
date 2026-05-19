@@ -141,6 +141,7 @@ export default function Home() {
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const activeRequestRef = useRef(0);
 	const fetchingRef = useRef(false);
+	const categoriesRequestRef = useRef(false);
 
 	const loadPosts = useCallback(
 		async (page: number, mode: LoadMode) => {
@@ -246,7 +247,12 @@ export default function Home() {
 		}
 	}
 
-	async function loadCategories() {
+	const loadCategories = useCallback(async () => {
+		if (categoriesRequestRef.current) {
+			return;
+		}
+
+		categoriesRequestRef.current = true;
 		setCategoriesState({ status: "loading" });
 		try {
 			const response = await apiGet<CategoriesResponse>("/api/categories");
@@ -259,14 +265,17 @@ export default function Home() {
 				status: "error",
 				message: errorMessage(error),
 			});
+		} finally {
+			categoriesRequestRef.current = false;
 		}
-	}
+	}, []);
+
+	useEffect(() => {
+		void loadCategories();
+	}, [loadCategories]);
 
 	function toggleCategories() {
 		setCategoriesOpen((current) => !current);
-		if (categoriesState.status === "idle") {
-			void loadCategories();
-		}
 	}
 
 	function selectCategory(category: string | null) {
@@ -402,9 +411,6 @@ export default function Home() {
 								>
 									All
 								</button>
-								{categoriesState.status === "loading" ? (
-									<span className="category-state">Loading</span>
-								) : null}
 								{categoriesState.status === "error" ? (
 									<button
 										type="button"

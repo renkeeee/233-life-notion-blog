@@ -28,6 +28,12 @@ describe("SettingsPanel", () => {
 		expect(screen.getByLabelText("title")).toBeTruthy();
 		expect(screen.getByLabelText("status")).toBeTruthy();
 		expect(screen.getByLabelText("publishedAt")).toBeTruthy();
+		expect(screen.getByText("Notion type: title")).toBeTruthy();
+		expect(screen.getByText("Notion type: status, select, or checkbox")).toBeTruthy();
+		expect(screen.getByText("Notion type: date or created_time")).toBeTruthy();
+		expect(screen.getByLabelText("Published status values")).toHaveValue(
+			"Published\n已发布",
+		);
 		expect(screen.queryByLabelText("summary")).toBeNull();
 		expect(screen.queryByLabelText("tags")).toBeNull();
 		expect(screen.queryByLabelText("cover")).toBeNull();

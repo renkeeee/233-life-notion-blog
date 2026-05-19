@@ -1,5 +1,9 @@
 import { decryptString, encryptString } from "./crypto";
-import type { FieldMapping, SiteSettings } from "./types";
+import {
+	DEFAULT_PUBLISHED_STATUS_VALUES,
+	type FieldMapping,
+	type SiteSettings,
+} from "./types";
 
 export interface SettingRow {
 	key: string;
@@ -109,6 +113,9 @@ function parseFieldMapping(value: string): FieldMapping {
 	const fieldMapping: FieldMapping = {
 		title: parsed.title,
 		status: parsed.status,
+		publishedStatusValues: parsePublishedStatusValues(
+			parsed.publishedStatusValues,
+		),
 	};
 
 	for (const key of optionalFieldMappingKeys) {
@@ -126,6 +133,31 @@ function parseFieldMapping(value: string): FieldMapping {
 	}
 
 	return fieldMapping;
+}
+
+function parsePublishedStatusValues(value: unknown): string[] {
+	if (value === undefined) {
+		return [...DEFAULT_PUBLISHED_STATUS_VALUES];
+	}
+
+	if (!Array.isArray(value)) {
+		throw new Error("Invalid setting: fieldMapping");
+	}
+
+	const values = value.map((item) => {
+		if (typeof item !== "string") {
+			throw new Error("Invalid setting: fieldMapping");
+		}
+
+		return item.trim();
+	});
+	const uniqueValues = Array.from(new Set(values.filter(Boolean)));
+
+	if (uniqueValues.length === 0) {
+		throw new Error("Invalid setting: fieldMapping");
+	}
+
+	return uniqueValues;
 }
 
 async function rowValue(row: SettingRow, rootKey: string): Promise<string> {

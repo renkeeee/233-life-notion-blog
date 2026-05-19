@@ -169,6 +169,7 @@ function settings(): SiteSettings {
 			title: "Name",
 			status: "Status",
 			publishedAt: "Published At",
+			publishedStatusValues: ["Published", "已发布"],
 		},
 	};
 }
@@ -355,6 +356,13 @@ describe("syncVisibilityForStatus", () => {
 		expect(syncVisibilityForStatus("已发布")).toBe("published");
 		expect(syncVisibilityForStatus("Draft")).toBe("hidden");
 	});
+
+	it("uses configured published status values", () => {
+		expect(syncVisibilityForStatus("Live", ["Live", "Ready"])).toBe("published");
+		expect(syncVisibilityForStatus("Published", ["Live", "Ready"])).toBe(
+			"hidden",
+		);
+	});
 });
 
 describe("Notion page mapping", () => {
@@ -379,9 +387,34 @@ describe("Notion page mapping", () => {
 			mapNotionPageToPostMetadata(syncPage(), {
 				title: "Name",
 				status: "Status",
+				publishedStatusValues: ["Published", "已发布"],
 			}),
 		).toMatchObject({
 			publishedAt: "2026-05-17T00:00:00.000Z",
+		});
+	});
+
+	it("uses configured published status values when mapping visibility", () => {
+		expect(
+			mapNotionPageToPostMetadata(
+				syncPage({
+					properties: {
+						...syncPage().properties,
+						Status: {
+							type: "status",
+							status: { name: "Live" },
+						},
+					},
+				}),
+				{
+					title: "Name",
+					status: "Status",
+					publishedStatusValues: ["Live"],
+				},
+			),
+		).toMatchObject({
+			status: "Live",
+			visibility: "published",
 		});
 	});
 });

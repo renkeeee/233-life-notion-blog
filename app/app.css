@@ -313,7 +313,8 @@ body {
 
 .admin-shell button:disabled,
 .admin-login button:disabled,
-.admin-form input:disabled {
+.admin-form input:disabled,
+.admin-form textarea:disabled {
 	cursor: not-allowed;
 	opacity: 0.55;
 }
@@ -383,6 +384,7 @@ body {
 }
 
 .admin-form input,
+.admin-form textarea,
 .admin-login input {
 	width: 100%;
 	box-sizing: border-box;
@@ -394,10 +396,25 @@ body {
 	padding: 9px 11px;
 }
 
+.admin-form textarea {
+	resize: vertical;
+}
+
 .admin-field-grid {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 12px;
+}
+
+.admin-field-card.wide {
+	grid-column: 1 / -1;
+}
+
+.admin-help {
+	color: #706d66;
+	font-size: 0.78rem;
+	font-weight: 600;
+	line-height: 1.45;
 }
 
 .admin-checkbox {

@@ -6,6 +6,7 @@ type FieldMapping = {
 	title: string;
 	status: string;
 	publishedAt?: string;
+	publishedStatusValues?: string[];
 };
 
 export type SiteSettingsForm = {
@@ -21,6 +22,8 @@ type RedactedSettings = SiteSettingsForm & {
 	hasNotionToken?: boolean;
 };
 
+const defaultPublishedStatusValues = ["Published", "已发布"];
+
 const emptySettings: SiteSettingsForm = {
 	siteTitle: "233 Life",
 	notionDatabaseUrl:
@@ -32,14 +35,51 @@ const emptySettings: SiteSettingsForm = {
 		title: "Name",
 		status: "Status",
 		publishedAt: "Published At",
+		publishedStatusValues: defaultPublishedStatusValues,
 	},
 };
 
-const fieldKeys: Array<keyof FieldMapping> = [
-	"title",
-	"status",
-	"publishedAt",
+type FieldNameKey = "title" | "status" | "publishedAt";
+
+const fieldKeys: Array<{
+	key: FieldNameKey;
+	typeDescription: string;
+}> = [
+	{ key: "title", typeDescription: "Notion type: title" },
+	{ key: "status", typeDescription: "Notion type: status, select, or checkbox" },
+	{ key: "publishedAt", typeDescription: "Notion type: date or created_time" },
 ];
+
+function publishedStatusValuesText(values: string[] | undefined): string {
+	return (values && values.length > 0 ? values : defaultPublishedStatusValues).join(
+		"\n",
+	);
+}
+
+function parsePublishedStatusValues(text: string): string[] {
+	return Array.from(
+		new Set(
+			text
+				.split(/[\n,]/g)
+				.map((value) => value.trim())
+				.filter(Boolean),
+		),
+	);
+}
+
+function normalizeSettings(settings: RedactedSettings): RedactedSettings {
+	return {
+		...settings,
+		fieldMapping: {
+			...settings.fieldMapping,
+			publishedStatusValues:
+				settings.fieldMapping.publishedStatusValues &&
+				settings.fieldMapping.publishedStatusValues.length > 0
+					? settings.fieldMapping.publishedStatusValues
+					: defaultPublishedStatusValues,
+		},
+	};
+}
 
 export function SettingsPanel({
 	csrfToken,
@@ -53,6 +93,9 @@ export function SettingsPanel({
 	const [saving, setSaving] = useState(false);
 	const [schemaStatus, setSchemaStatus] = useState<string | null>(null);
 	const [hasStoredToken, setHasStoredToken] = useState(false);
+	const [publishedStatusText, setPublishedStatusText] = useState(
+		publishedStatusValuesText(emptySettings.fieldMapping.publishedStatusValues),
+	);
 
 	useEffect(() => {
 		if (disabled) {
@@ -64,11 +107,17 @@ export function SettingsPanel({
 		apiGet<RedactedSettings>("/api/admin/settings")
 			.then((response) => {
 				if (!cancelled) {
+					const normalizedResponse = normalizeSettings(response);
 					const hasToken = response.hasNotionToken === true;
 					setSettings({
-						...response,
-						notionToken: hasToken ? "" : response.notionToken,
+						...normalizedResponse,
+						notionToken: hasToken ? "" : normalizedResponse.notionToken,
 					});
+					setPublishedStatusText(
+						publishedStatusValuesText(
+							normalizedResponse.fieldMapping.publishedStatusValues,
+						),
+					);
 					setHasStoredToken(hasToken);
 					setStatus(
 						hasToken
@@ -99,7 +148,7 @@ export function SettingsPanel({
 		setSettings((current) => ({ ...current, [key]: value }));
 	}
 
-	function updateMapping(key: keyof FieldMapping, value: string) {
+	function updateMapping(key: FieldNameKey, value: string) {
 		setSettings((current) => ({
 			...current,
 			fieldMapping: {
@@ -109,21 +158,38 @@ export function SettingsPanel({
 		}));
 	}
 
+	function settingsForRequest(): SiteSettingsForm {
+		return {
+			...settings,
+			fieldMapping: {
+				...settings.fieldMapping,
+				publishedStatusValues: parsePublishedStatusValues(publishedStatusText),
+			},
+		};
+	}
+
 	async function save(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setSaving(true);
 		setStatus("Saving settings...");
 		try {
+			const payload = settingsForRequest();
 			const saved = await apiPut<RedactedSettings>(
 				"/api/admin/settings",
-				settings,
+				payload,
 				csrfToken,
 			);
+			const normalizedSaved = normalizeSettings(saved);
 			const hasToken = saved.hasNotionToken === true;
 			setSettings({
-				...saved,
-				notionToken: hasToken ? settings.notionToken : saved.notionToken,
+				...normalizedSaved,
+				notionToken: hasToken ? payload.notionToken : normalizedSaved.notionToken,
 			});
+			setPublishedStatusText(
+				publishedStatusValuesText(
+					normalizedSaved.fieldMapping.publishedStatusValues,
+				),
+			);
 			setHasStoredToken(hasToken);
 			setStatus("Settings saved.");
 		} catch (error) {
@@ -142,7 +208,7 @@ export function SettingsPanel({
 					notionDatabaseUrl: settings.notionDatabaseUrl,
 					notionDatabaseId: settings.notionDatabaseId,
 					notionToken: settings.notionToken,
-					fieldMapping: settings.fieldMapping,
+					fieldMapping: settingsForRequest().fieldMapping,
 				},
 				csrfToken,
 			);
@@ -217,16 +283,34 @@ export function SettingsPanel({
 					/>
 				</label>
 				<div className="admin-field-grid">
-					{fieldKeys.map((key) => (
-						<label key={key}>
-							{key}
+					{fieldKeys.map(({ key, typeDescription }) => (
+						<label className="admin-field-card" key={key}>
+							<span>{key}</span>
+							<span className="admin-help">{typeDescription}</span>
 							<input
+								aria-label={key}
 								value={settings.fieldMapping[key] ?? ""}
 								onChange={(event) => updateMapping(key, event.currentTarget.value)}
 								disabled={disabled}
 							/>
 						</label>
 					))}
+					<label className="admin-field-card wide">
+						<span>Published status values</span>
+						<span className="admin-help">
+							One value per line. Matching status/select values are public;
+							checkbox true is public.
+						</span>
+						<textarea
+							aria-label="Published status values"
+							value={publishedStatusText}
+							onChange={(event) =>
+								setPublishedStatusText(event.currentTarget.value)
+							}
+							disabled={disabled}
+							rows={3}
+						/>
+					</label>
 				</div>
 				<p className="admin-note">{status}</p>
 				{schemaStatus ? <pre className="admin-code">{schemaStatus}</pre> : null}

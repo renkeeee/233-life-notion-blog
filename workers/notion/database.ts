@@ -1,4 +1,4 @@
-import type { FieldMapping } from "../types";
+import { DEFAULT_PUBLISHED_STATUS_VALUES, type FieldMapping } from "../types";
 
 export interface NotionPropertySchema {
 	type?: string;
@@ -68,6 +68,7 @@ export function inferFieldMapping(properties: NotionProperties): FieldMapping {
 	const mapping: FieldMapping = {
 		title,
 		status,
+		publishedStatusValues: [...DEFAULT_PUBLISHED_STATUS_VALUES],
 	};
 
 	const publishedAt = findProperty(entries, {
@@ -82,8 +83,14 @@ export function inferFieldMapping(properties: NotionProperties): FieldMapping {
 	return mapping;
 }
 
-export function isPublishedStatus(value: unknown): boolean {
-	return value === true || value === "Published" || value === "已发布";
+export function isPublishedStatus(
+	value: unknown,
+	publishedStatusValues: readonly string[] = DEFAULT_PUBLISHED_STATUS_VALUES,
+): boolean {
+	return (
+		value === true ||
+		(typeof value === "string" && publishedStatusValues.includes(value))
+	);
 }
 
 function normalizeDatabaseId(input: string): string | null {

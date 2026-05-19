@@ -44,6 +44,7 @@ export interface FieldMapping {
 	title: string;
 	status: string;
 	publishedAt?: string;
+	publishedStatusValues?: string[];
 }
 
 export interface SiteSettings {
@@ -54,3 +55,5 @@ export interface SiteSettings {
 	cdnBaseUrl: string;
 	fieldMapping: FieldMapping;
 }
+
+export const DEFAULT_PUBLISHED_STATUS_VALUES = ["Published", "已发布"] as const;

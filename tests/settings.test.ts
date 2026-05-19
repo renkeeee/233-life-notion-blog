@@ -26,7 +26,11 @@ function testSettings(notionToken = "ntn_secret"): SiteSettings {
 		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 		notionToken,
 		cdnBaseUrl: "https://cdn.example.com",
-		fieldMapping: { title: "Name", status: "Status" },
+		fieldMapping: {
+			title: "Name",
+			status: "Status",
+			publishedStatusValues: ["Published", "已发布"],
+		},
 	};
 }
 
@@ -108,6 +112,7 @@ describe("settings storage helpers", () => {
 						title: "Name",
 						status: "Status",
 						publishedAt: "Published At",
+						publishedStatusValues: ["Live", "Ready"],
 						summary: "Summary",
 						tags: "Tags",
 						cover: "Cover",
@@ -121,7 +126,31 @@ describe("settings storage helpers", () => {
 			title: "Name",
 			status: "Status",
 			publishedAt: "Published At",
+			publishedStatusValues: ["Live", "Ready"],
 		});
+	});
+
+	it("defaults published status values for older stored field mappings", async () => {
+		const rootKey = generateEncryptionKey();
+		const parsed = await parseSettingsFromRows(
+			[
+				settingRow("siteTitle", "233 Life"),
+				settingRow("notionDatabaseUrl", "url"),
+				settingRow("notionDatabaseId", "id"),
+				settingRow("notionToken", "ntn_secret"),
+				settingRow("cdnBaseUrl", "https://cdn.example.com"),
+				settingRow(
+					"fieldMapping",
+					JSON.stringify({ title: "Name", status: "Status" }),
+				),
+			],
+			rootKey,
+		);
+
+		expect(parsed.fieldMapping.publishedStatusValues).toEqual([
+			"Published",
+			"已发布",
+		]);
 	});
 
 	it("throws when required settings are missing", async () => {

@@ -24,6 +24,7 @@ describe("inferFieldMapping", () => {
 			title: "Title",
 			status: "Status",
 			publishedAt: "Published At",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 	});
 
@@ -40,6 +41,7 @@ describe("inferFieldMapping", () => {
 			title: "Name",
 			status: "published-status",
 			publishedAt: "Published_Date",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 	});
 
@@ -57,6 +59,7 @@ describe("inferFieldMapping", () => {
 			title: "标题",
 			status: "状态",
 			publishedAt: "发布日期",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 	});
 
@@ -70,6 +73,7 @@ describe("inferFieldMapping", () => {
 		expect(mapping).toEqual({
 			title: "Name",
 			status: "Published",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 	});
 
@@ -92,6 +96,7 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 	});
 
@@ -105,6 +110,7 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 
 		expect(
@@ -115,6 +121,7 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status Tags",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 
 		expect(
@@ -126,6 +133,7 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status",
+			publishedStatusValues: ["Published", "已发布"],
 		});
 	});
 

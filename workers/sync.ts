@@ -16,12 +16,13 @@ import {
 } from "./notion/blocks";
 import { isPublishedStatus } from "./notion/database";
 import { parseSettingsFromRows } from "./settings";
-import type {
-	ApiErrorCode,
-	AppEnv,
-	FieldMapping,
-	PostVisibility,
-	SiteSettings,
+import {
+	DEFAULT_PUBLISHED_STATUS_VALUES,
+	type ApiErrorCode,
+	type AppEnv,
+	type FieldMapping,
+	type PostVisibility,
+	type SiteSettings,
 } from "./types";
 
 export interface RunSyncInput {
@@ -148,8 +149,11 @@ export function planSyncWindow(input: SyncWindowInput): SyncWindow {
 	};
 }
 
-export function syncVisibilityForStatus(status: unknown): "published" | "hidden" {
-	return isPublishedStatus(status) ? "published" : "hidden";
+export function syncVisibilityForStatus(
+	status: unknown,
+	publishedStatusValues: readonly string[] = DEFAULT_PUBLISHED_STATUS_VALUES,
+): "published" | "hidden" {
+	return isPublishedStatus(status, publishedStatusValues) ? "published" : "hidden";
 }
 
 export function mapNotionPageToPostMetadata(
@@ -171,7 +175,12 @@ export function mapNotionPageToPostMetadata(
 		title,
 		coverUrl: pageCoverUrl(page),
 		status: String(status),
-		visibility: archived ? "archived" : syncVisibilityForStatus(status),
+		visibility: archived
+			? "archived"
+			: syncVisibilityForStatus(
+					status,
+					mapping.publishedStatusValues ?? DEFAULT_PUBLISHED_STATUS_VALUES,
+				),
 		publishedAt: mapping.publishedAt
 			? (dateProperty(properties[mapping.publishedAt]) ?? createdTime)
 			: createdTime,

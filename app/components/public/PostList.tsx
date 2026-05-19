@@ -12,6 +12,11 @@ export type PublicPostSummary = {
 	updatedAt: string;
 };
 
+type PostListProps = {
+	posts: PublicPostSummary[];
+	postHref?: (post: PublicPostSummary) => string;
+};
+
 function formatDate(value: string | null): string {
 	if (!value) {
 		return "Undated";
@@ -24,16 +29,20 @@ function formatDate(value: string | null): string {
 	}).format(new Date(value));
 }
 
-export function PostList({ posts }: { posts: PublicPostSummary[] }) {
+export function PostList({
+	posts,
+	postHref = (post) => `/post/${post.slug}`,
+}: PostListProps) {
 	return (
 		<div className="post-list">
 			{posts.map((post) => {
 				const excerpt = post.excerpt?.trim() ?? "";
+				const href = postHref(post);
 
 				return (
 					<article className="post-list-item" key={post.id}>
 						{post.coverUrl ? (
-							<Link className="post-list-cover" to={`/post/${post.slug}`}>
+							<Link className="post-list-cover" to={href}>
 								<img src={post.coverUrl} alt="" loading="lazy" />
 							</Link>
 						) : null}
@@ -44,7 +53,7 @@ export function PostList({ posts }: { posts: PublicPostSummary[] }) {
 								</time>
 							</div>
 							<h2>
-								<Link to={`/post/${post.slug}`}>{post.title}</Link>
+								<Link to={href}>{post.title}</Link>
 							</h2>
 							{excerpt ? <p className="post-excerpt">{excerpt}</p> : null}
 						</div>

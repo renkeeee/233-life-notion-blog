@@ -67,9 +67,13 @@ function parsePublishedStatusValues(text: string): string[] {
 	);
 }
 
-function normalizeSettings(settings: RedactedSettings): RedactedSettings {
+function normalizeSettings(settings: RedactedSettings): SiteSettingsForm {
 	return {
-		...settings,
+		siteTitle: settings.siteTitle,
+		notionDatabaseUrl: settings.notionDatabaseUrl,
+		notionDatabaseId: settings.notionDatabaseId,
+		notionToken: settings.notionToken,
+		cdnBaseUrl: settings.cdnBaseUrl,
 		fieldMapping: {
 			...settings.fieldMapping,
 			publishedStatusValues:
@@ -160,7 +164,11 @@ export function SettingsPanel({
 
 	function settingsForRequest(): SiteSettingsForm {
 		return {
-			...settings,
+			siteTitle: settings.siteTitle,
+			notionDatabaseUrl: settings.notionDatabaseUrl,
+			notionDatabaseId: settings.notionDatabaseId,
+			notionToken: settings.notionToken,
+			cdnBaseUrl: settings.cdnBaseUrl,
 			fieldMapping: {
 				...settings.fieldMapping,
 				publishedStatusValues: parsePublishedStatusValues(publishedStatusText),

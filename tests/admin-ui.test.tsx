@@ -126,6 +126,7 @@ describe("SettingsPanel", () => {
 			await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
 			const [, body, csrfToken] = apiPut.mock.calls[0] ?? [];
 			expect(body).toMatchObject({ siteTitle: "Updated Life" });
+			expect(body).not.toHaveProperty("hasNotionToken");
 			expect(body).not.toHaveProperty("notionToken");
 			expect(csrfToken).toBe("csrf-token");
 		} finally {

@@ -168,6 +168,17 @@ export function SettingsPanel({
 		};
 	}
 
+	function schemaRequestBody(): Record<string, unknown> {
+		const token = settings.notionToken.trim();
+
+		return {
+			notionDatabaseUrl: settings.notionDatabaseUrl,
+			notionDatabaseId: settings.notionDatabaseId,
+			...(token ? { notionToken: token } : {}),
+			fieldMapping: settingsForRequest().fieldMapping,
+		};
+	}
+
 	async function save(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setSaving(true);
@@ -204,20 +215,15 @@ export function SettingsPanel({
 		try {
 			const response = await apiPost<Record<string, unknown>>(
 				"/api/admin/notion/schema",
-				{
-					notionDatabaseUrl: settings.notionDatabaseUrl,
-					notionDatabaseId: settings.notionDatabaseId,
-					notionToken: settings.notionToken,
-					fieldMapping: settingsForRequest().fieldMapping,
-				},
+				schemaRequestBody(),
 				csrfToken,
 			);
 			setSchemaStatus(JSON.stringify(response, null, 2));
 		} catch (error) {
 			setSchemaStatus(
 				error instanceof Error
-					? `${error.message}. Schema testing endpoint is not available yet.`
-					: "Schema testing endpoint is not available yet.",
+					? error.message
+					: "Notion schema could not be loaded.",
 			);
 		}
 	}

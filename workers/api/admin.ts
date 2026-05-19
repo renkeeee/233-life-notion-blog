@@ -41,8 +41,12 @@ type ManualSyncBody = {
 
 type NotionSchemaBody = {
 	notionDatabaseId: string;
-	notionToken: string;
+	notionToken?: string;
 	dataSourceId?: string;
+};
+
+type ResolvedNotionSchemaBody = NotionSchemaBody & {
+	notionToken: string;
 };
 
 type AdminApiOptions = {
@@ -146,13 +150,20 @@ function validateNotionSchemaBody(
 	body: Record<string, unknown>,
 ): NotionSchemaBody {
 	const notionToken = body.notionToken;
+	let validNotionToken: string | undefined;
 
-	if (typeof notionToken !== "string" || notionToken.length === 0) {
-		throw new Error("Notion token is required");
-	}
+	if (notionToken !== undefined) {
+		if (typeof notionToken !== "string") {
+			throw new Error("Notion token must be a string");
+		}
 
-	if (notionToken.length > maxPasswordLength) {
-		throw new Error(`Notion token must be at most ${maxPasswordLength} characters`);
+		if (notionToken.length > maxPasswordLength) {
+			throw new Error(`Notion token must be at most ${maxPasswordLength} characters`);
+		}
+
+		if (notionToken.length > 0) {
+			validNotionToken = notionToken;
+		}
 	}
 
 	const notionDatabaseId =
@@ -174,10 +185,10 @@ function validateNotionSchemaBody(
 			throw new Error("dataSourceId must be a non-empty string");
 		}
 
-		return { notionDatabaseId, notionToken, dataSourceId };
+		return { notionDatabaseId, notionToken: validNotionToken, dataSourceId };
 	}
 
-	return { notionDatabaseId, notionToken };
+	return { notionDatabaseId, notionToken: validNotionToken };
 }
 
 function requiredOptionalDateString(
@@ -569,7 +580,19 @@ function notionSchemaError(error: unknown): Response {
 			return errorJson("NOTION_RATE_LIMITED", "Notion API rate limited", 429);
 		}
 
-		return notionSchemaLoadError();
+		if (error.status === 400) {
+			return errorJson(
+				"BAD_REQUEST",
+				`Notion schema could not be loaded: ${error.message}`,
+				400,
+			);
+		}
+
+		return errorJson(
+			"INTERNAL_ERROR",
+			`Notion schema could not be loaded: ${error.message}`,
+			500,
+		);
 	}
 
 	if (
@@ -690,12 +713,47 @@ async function handlePutSettings(
 }
 
 async function loadNotionSchema(
-	body: NotionSchemaBody,
+	body: ResolvedNotionSchemaBody,
 ): Promise<NotionProperties> {
 	return new NotionClient(body.notionToken).schemaForDatabase(
 		body.notionDatabaseId,
 		body.dataSourceId ? { dataSourceId: body.dataSourceId } : {},
 	);
+}
+
+async function resolveNotionSchemaToken(
+	body: NotionSchemaBody,
+	env: AppEnv,
+): Promise<ResolvedNotionSchemaBody | Response> {
+	if (body.notionToken) {
+		return body as ResolvedNotionSchemaBody;
+	}
+
+	let rows: SettingRow[];
+
+	try {
+		rows = await new SettingsRepository(env.DB).list();
+	} catch {
+		return settingsLoadError();
+	}
+
+	try {
+		const settings = await parseSettingsFromRows(
+			siteSettingRows(rows),
+			env.CONFIG_ENCRYPTION_KEY,
+		);
+
+		return {
+			...body,
+			notionToken: settings.notionToken,
+		};
+	} catch (error) {
+		if (isMissingSettingsError(error)) {
+			return errorJson("BAD_REQUEST", "Notion token is required", 400);
+		}
+
+		return configDecryptError();
+	}
 }
 
 async function handleNotionSchema(
@@ -726,10 +784,16 @@ async function handleNotionSchema(
 	}
 
 	try {
-		const properties = await loadNotionSchema(body);
+		const resolvedBody = await resolveNotionSchemaToken(body, env);
+
+		if (resolvedBody instanceof Response) {
+			return resolvedBody;
+		}
+
+		const properties = await loadNotionSchema(resolvedBody);
 
 		return json({
-			databaseId: body.notionDatabaseId,
+			databaseId: resolvedBody.notionDatabaseId,
 			properties,
 			recommendedFieldMapping: inferFieldMapping(properties),
 		});

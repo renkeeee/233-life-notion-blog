@@ -38,6 +38,84 @@ describe("SettingsPanel", () => {
 		expect(screen.queryByLabelText("tags")).toBeNull();
 		expect(screen.queryByLabelText("cover")).toBeNull();
 	});
+
+	it("tests schema with the stored token when the token field is redacted", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			siteTitle: "233 Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "https://cdn.example.com",
+			fieldMapping: {
+				title: "Name",
+				status: "Status",
+				publishedAt: "Published At",
+				publishedStatusValues: ["Published", "已发布"],
+			},
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
+			databaseId: "3646b3023c2380fc886af37685393dd4",
+			properties: {},
+			recommendedFieldMapping: {},
+		});
+		try {
+			render(<SettingsPanel csrfToken="csrf-token" />);
+
+			await screen.findByText(
+				"Settings loaded. Re-enter the Notion token when saving changes.",
+			);
+			fireEvent.click(screen.getByRole("button", { name: "Test schema" }));
+
+			await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+			const [, body, csrfToken] = apiPost.mock.calls[0] ?? [];
+			expect(body).toMatchObject({
+				notionDatabaseUrl:
+					"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+				notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			});
+			expect(body).not.toHaveProperty("notionToken");
+			expect(csrfToken).toBe("csrf-token");
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
+	it("shows schema test errors without unavailable endpoint copy", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			siteTitle: "233 Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "https://cdn.example.com",
+			fieldMapping: {
+				title: "Name",
+				status: "Status",
+				publishedStatusValues: ["Published", "已发布"],
+			},
+		});
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockRejectedValue(new Error("Notion authentication failed"));
+		try {
+			render(<SettingsPanel csrfToken="csrf-token" />);
+
+			await screen.findByText(
+				"Settings loaded. Re-enter the Notion token when saving changes.",
+			);
+			fireEvent.click(screen.getByRole("button", { name: "Test schema" }));
+
+			await screen.findByText("Notion authentication failed");
+			expect(screen.queryByText(/Schema testing endpoint is not available yet/)).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
 });
 
 describe("PasswordChangePanel", () => {

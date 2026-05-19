@@ -847,4 +847,108 @@ describe("admin Notion schema API", () => {
 			vi.unstubAllGlobals();
 		}
 	});
+
+	it("uses the stored Notion token when schema testing omits a token", async () => {
+		const { env } = testEnv();
+		const session = await usableAdminSession(env);
+		const saveResponse = await handleAdminApi(
+			adminRequest("/api/admin/settings", {
+				body: JSON.stringify(testSettings("stored_ntn_secret")),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+		expect(saveResponse.status).toBe(200);
+
+		const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const request = new Request(input, init);
+			expect(request.headers.get("Authorization")).toBe(
+				"Bearer stored_ntn_secret",
+			);
+
+			return Response.json({
+				object: "database",
+				id: "3646b3023c2380fc886af37685393dd4",
+				properties: {
+					Name: { type: "title" },
+					Status: { type: "status" },
+				},
+			});
+		});
+		vi.stubGlobal("fetch", fetcher);
+
+		try {
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/notion/schema", {
+					body: JSON.stringify({
+						notionDatabaseUrl:
+							"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("returns Notion validation messages when schema loading fails", async () => {
+		const { env } = testEnv();
+		const session = await usableAdminSession(env);
+		const fetcher = vi.fn(async () =>
+			Response.json(
+				{
+					object: "error",
+					status: 400,
+					code: "validation_error",
+					message: "path failed validation: database_id is invalid",
+				},
+				{ status: 400 },
+			),
+		);
+		vi.stubGlobal("fetch", fetcher);
+
+		try {
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/notion/schema", {
+					body: JSON.stringify({
+						notionDatabaseUrl:
+							"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+						notionToken: "ntn_secret",
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				error: {
+					code: "BAD_REQUEST",
+					message:
+						"Notion schema could not be loaded: path failed validation: database_id is invalid",
+				},
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
 });

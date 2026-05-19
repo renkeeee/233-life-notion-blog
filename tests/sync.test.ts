@@ -551,6 +551,98 @@ describe("runSync", () => {
 		}
 	});
 
+	it("refreshes metadata for unchanged existing pages before skipping content sync", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'existing-post', 'notion-page-1', 'untitled', 'Untitled',
+					'https://cdn.example.com/old-cover.png', '', 'hidden',
+					'2026-05-17T00:00:00.000Z', '2026-05-18T02:30:00.000Z',
+					'old-content-hash', 'previous error',
+					'2026-05-17T00:00:00.000Z', '2026-05-17T00:00:00.000Z'
+				)`,
+			);
+
+			await runSync(
+				envWithDb(db),
+				{ triggerType: "manual", force: false },
+				{
+					id: (() => {
+						let index = 0;
+						return () => {
+							index += 1;
+							return index === 1 ? "run-1" : `item-${index - 1}`;
+						};
+					})(),
+					now: () => fixedNow,
+					notionSource: {
+						async listPages() {
+							return [syncPage()];
+						},
+						async listBlocks() {
+							throw new Error("content blocks should not be fetched");
+						},
+					},
+				},
+			);
+
+			expect(
+				db.row<{
+					slug: string;
+					title: string;
+					status: string;
+					visibility: string;
+					published_at: string | null;
+					content_hash: string | null;
+					last_sync_error: string | null;
+				}>("SELECT * FROM posts WHERE id = ?", "existing-post"),
+			).toMatchObject({
+				slug: "hello-notion",
+				title: "Hello Notion",
+				status: "Published",
+				visibility: "published",
+				published_at: "2026-05-18",
+				content_hash: "old-content-hash",
+				last_sync_error: null,
+			});
+			expect(
+				db.row<{ action: string; status: string; post_id: string | null }>(
+					"SELECT action, status, post_id FROM sync_items WHERE sync_run_id = ?",
+					"run-1",
+				),
+			).toEqual({
+				action: "metadata_only",
+				status: "success",
+				post_id: "existing-post",
+			});
+			expect(
+				db.row<{
+					metadata_only_count: number;
+					skipped_count: number;
+					unpublished_count: number;
+					failed_count: number;
+				}>(
+					"SELECT metadata_only_count, skipped_count, unpublished_count, failed_count FROM sync_runs WHERE id = ?",
+					"run-1",
+				),
+			).toEqual({
+				metadata_only_count: 1,
+				skipped_count: 0,
+				unpublished_count: 0,
+				failed_count: 0,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("deduplicates different Notion asset URLs that download to the same content hash", async () => {
 		const db = new SqliteD1Database();
 		const bucket = new FakeAssetBucket();
@@ -921,6 +1013,63 @@ describe("admin manual sync API", () => {
 
 			expect(response.status).toBe(200);
 			await expect(response.json()).resolves.toEqual({ runId: "offset-run" });
+		} finally {
+			db.close();
+		}
+	});
+});
+
+describe("admin posts API", () => {
+	it("lists synced posts including hidden entries for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'untitled', 'Untitled',
+					NULL, '', 'hidden', NULL, '2026-05-19T03:43:00.000Z',
+					'content-hash', NULL,
+					'2026-05-19T03:40:00.000Z', '2026-05-19T03:50:24.214Z'
+				)`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+
+			const unauthenticated = await handleAdminApi(
+				adminRequest("/api/admin/posts", { method: "GET" }),
+				env,
+			);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/posts", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+
+			expect(unauthenticated.status).toBe(401);
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				items: [
+					{
+						id: "post-1",
+						title: "Untitled",
+						slug: "untitled",
+						status: "",
+						visibility: "hidden",
+						publishedAt: null,
+						notionLastEditedTime: "2026-05-19T03:43:00.000Z",
+						updatedAt: "2026-05-19T03:50:24.214Z",
+						lastSyncError: null,
+					},
+				],
+				total: 1,
+			});
 		} finally {
 			db.close();
 		}

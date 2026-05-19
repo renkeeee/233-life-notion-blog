@@ -59,6 +59,18 @@ type SyncRunRow = {
 	error_message: string | null;
 };
 
+type AdminPostRow = {
+	id: string;
+	title: string;
+	slug: string;
+	status: string;
+	visibility: "published" | "hidden" | "archived";
+	published_at: string | null;
+	notion_last_edited_time: string;
+	updated_at: string;
+	last_sync_error: string | null;
+};
+
 type NotionSchemaBody = {
 	notionDatabaseId: string;
 	notionToken?: string;
@@ -974,6 +986,54 @@ async function handleListSyncRuns(
 	}
 }
 
+async function handleListPosts(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	try {
+		const result = await env.DB.prepare(
+			`SELECT
+				id,
+				title,
+				slug,
+				status,
+				visibility,
+				published_at,
+				notion_last_edited_time,
+				updated_at,
+				last_sync_error
+			 FROM posts
+			 ORDER BY updated_at DESC
+			 LIMIT ?`,
+		)
+			.bind(100)
+			.all<AdminPostRow>();
+
+		return json({
+			items: result.results.map((post) => ({
+				id: post.id,
+				title: post.title,
+				slug: post.slug,
+				status: post.status,
+				visibility: post.visibility,
+				publishedAt: post.published_at,
+				notionLastEditedTime: post.notion_last_edited_time,
+				updatedAt: post.updated_at,
+				lastSyncError: post.last_sync_error,
+			})),
+			total: result.results.length,
+		});
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Posts could not be loaded", 500);
+	}
+}
+
 export async function handleAdminApi(
 	request: Request,
 	env: AppEnv,
@@ -1015,6 +1075,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/sync-runs" && request.method === "GET") {
 		return handleListSyncRuns(request, env);
+	}
+
+	if (url.pathname === "/api/admin/posts" && request.method === "GET") {
+		return handleListPosts(request, env);
 	}
 
 	return adminNotFound();

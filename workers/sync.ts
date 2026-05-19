@@ -106,6 +106,12 @@ interface ExistingPostState {
 	id: string;
 	notion_last_edited_time: string;
 	content_hash: string | null;
+	slug: string;
+	title: string;
+	cover_url: string | null;
+	status: string;
+	visibility: PostVisibility;
+	published_at: string | null;
 }
 
 interface ExistingContentState {
@@ -326,12 +332,49 @@ async function syncPage(
 	try {
 		const existing = await existingPostState(env.DB, page.id);
 		existingBeforeSync = existing !== null;
+		const metadata = mapNotionPageToPostMetadata(
+			page,
+			settings.fieldMapping,
+			deps.now(),
+		);
+		postId = existing?.id ?? metadata.id;
 
 		if (
 			existing &&
 			!input.force &&
 			isNotNewerThanExisting(page.last_edited_time, existing.notion_last_edited_time)
 		) {
+			const metadataForExistingPost = {
+				...metadata,
+				id: existing.id,
+				coverUrl: existing.cover_url,
+				notionLastEditedTime: existing.notion_last_edited_time,
+			};
+
+			if (postMetadataChanged(existing, metadataForExistingPost)) {
+				const action = syncItemActionForVisibility(metadata.visibility);
+				await executeBatch(env.DB, [
+					prepareUpsertPost(
+						env.DB,
+						metadataForExistingPost,
+						existing.content_hash,
+						deps,
+					),
+					prepareInsertSyncItem(env.DB, {
+						id: itemId,
+						runId,
+						notionPageId: page.id,
+						postId: existing.id,
+						action,
+						status: "success",
+						startedAt,
+						finishedAt: deps.now(),
+					}),
+				]);
+				postPersisted = true;
+				return action;
+			}
+
 			await insertSyncItem(env.DB, {
 				id: itemId,
 				runId,
@@ -344,13 +387,6 @@ async function syncPage(
 			});
 			return "skipped";
 		}
-
-		const metadata = mapNotionPageToPostMetadata(
-			page,
-			settings.fieldMapping,
-			deps.now(),
-		);
-		postId = existing?.id ?? metadata.id;
 
 		if (metadata.visibility === "archived") {
 			await executeBatch(env.DB, [
@@ -471,7 +507,9 @@ async function existingPostState(
 ): Promise<ExistingPostState | null> {
 	return db
 		.prepare(
-			`SELECT id, notion_last_edited_time, content_hash
+			`SELECT
+				id, notion_last_edited_time, content_hash, slug, title, cover_url,
+				status, visibility, published_at
 			 FROM posts
 			 WHERE notion_page_id = ?
 			 LIMIT 1`,
@@ -511,6 +549,29 @@ function isNotNewerThanExisting(
 	}
 
 	return remoteLastEdited <= localLastEdited;
+}
+
+function postMetadataChanged(
+	existing: ExistingPostState,
+	metadata: PostMetadata,
+): boolean {
+	return (
+		existing.slug !== metadata.slug ||
+		existing.title !== metadata.title ||
+		existing.cover_url !== metadata.coverUrl ||
+		existing.status !== metadata.status ||
+		existing.visibility !== metadata.visibility ||
+		existing.published_at !== metadata.publishedAt ||
+		existing.notion_last_edited_time !== metadata.notionLastEditedTime
+	);
+}
+
+function syncItemActionForVisibility(visibility: PostVisibility): SyncItemAction {
+	if (visibility === "archived") {
+		return "archived";
+	}
+
+	return visibility === "hidden" ? "unpublished" : "metadata_only";
 }
 
 async function uploadPageAssets(

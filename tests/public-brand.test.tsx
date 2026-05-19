@@ -72,4 +72,13 @@ describe("public brand", () => {
 		expect(cssRule(".tag-entry-button")).toContain("border: 0");
 		expect(cssRule(".tag-entry-button")).toContain("color: #706d66");
 	});
+
+	it("keeps the category switcher on one line while it expands", () => {
+		const categoryListRule = cssRule(".category-list");
+
+		expect(categoryListRule).toContain("flex-wrap: nowrap");
+		expect(categoryListRule).toContain("overflow-x: auto");
+		expect(categoryListRule).toContain("overflow-y: hidden");
+		expect(categoryListRule).not.toContain("flex-wrap: wrap");
+	});
 });

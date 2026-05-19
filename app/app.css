@@ -248,11 +248,17 @@ body {
 	display: inline-flex;
 	align-items: center;
 	justify-content: flex-end;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: 4px;
 	max-width: min(560px, 56vw);
-	overflow: hidden;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
 	animation: category-expand 180ms ease both;
+}
+
+.category-list::-webkit-scrollbar {
+	display: none;
 }
 
 .category-option {

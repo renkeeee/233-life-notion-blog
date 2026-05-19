@@ -88,9 +88,11 @@ function normalizeSettings(settings: RedactedSettings): SiteSettingsForm {
 export function SettingsPanel({
 	csrfToken,
 	disabled,
+	headingId,
 }: {
 	csrfToken: string;
 	disabled?: boolean;
+	headingId?: string;
 }) {
 	const [settings, setSettings] = useState<SiteSettingsForm>(emptySettings);
 	const [status, setStatus] = useState("Loading settings...");
@@ -275,7 +277,7 @@ export function SettingsPanel({
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
-				<h2>Data source settings</h2>
+				<h2 id={headingId}>Data source settings</h2>
 				<button type="button" onClick={testSchema} disabled={disabled}>
 					Test schema
 				</button>

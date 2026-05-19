@@ -344,6 +344,18 @@ body {
 	gap: 18px;
 }
 
+.admin-settings-layout {
+	display: grid;
+	gap: 22px;
+}
+
+.admin-module {
+	border: 1px solid #d9d6cd;
+	border-radius: 8px;
+	background: #fff;
+	padding: 20px;
+}
+
 .admin-section-heading {
 	display: flex;
 	align-items: center;

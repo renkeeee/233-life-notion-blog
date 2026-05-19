@@ -24,10 +24,12 @@ export function PasswordChangePanel({
 	csrfToken,
 	onChanged,
 	required = false,
+	headingId,
 }: {
 	csrfToken: string;
 	onChanged: () => void;
 	required?: boolean;
+	headingId?: string;
 }) {
 	const [currentPassword, setCurrentPassword] = useState("");
 	const [newPassword, setNewPassword] = useState("");
@@ -70,7 +72,7 @@ export function PasswordChangePanel({
 	return (
 		<form className="admin-form compact" onSubmit={submit}>
 			<div className="admin-section-heading">
-				<h2>Password</h2>
+				<h2 id={headingId}>Password</h2>
 				<span className={required ? "admin-badge warning" : "admin-badge"}>
 					{required ? "Required" : "Optional"}
 				</span>
@@ -242,17 +244,29 @@ export default function Admin() {
 	const adminContent = (() => {
 		if (activeTab === "settings") {
 			return (
-				<>
-					<PasswordChangePanel
-						csrfToken={session.csrfToken}
-						required={session.mustChangePassword}
-						onChanged={markPasswordChanged}
-					/>
-					<SettingsPanel
-						csrfToken={session.csrfToken}
-						disabled={session.mustChangePassword}
-					/>
-				</>
+				<div className="admin-settings-layout">
+					<section
+						className="admin-module"
+						aria-labelledby="admin-password-heading"
+					>
+						<PasswordChangePanel
+							csrfToken={session.csrfToken}
+							required={session.mustChangePassword}
+							onChanged={markPasswordChanged}
+							headingId="admin-password-heading"
+						/>
+					</section>
+					<section
+						className="admin-module"
+						aria-labelledby="admin-data-source-heading"
+					>
+						<SettingsPanel
+							csrfToken={session.csrfToken}
+							disabled={session.mustChangePassword}
+							headingId="admin-data-source-heading"
+						/>
+					</section>
+				</div>
 			);
 		}
 

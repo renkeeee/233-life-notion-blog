@@ -300,6 +300,17 @@ describe("Admin", () => {
 			).toBeTruthy();
 			expect(screen.getByText("Use this form to update your admin password.")).toBeTruthy();
 			expect(screen.getByText("Optional")).toBeTruthy();
+
+			const passwordModule = screen.getByRole("region", { name: "Password" });
+			const dataSourceModule = screen.getByRole("region", {
+				name: "Data source settings",
+			});
+			expect(passwordModule).toContainElement(
+				screen.getByRole("button", { name: "Change password" }),
+			);
+			expect(dataSourceModule).toContainElement(
+				screen.getByRole("button", { name: "Test schema" }),
+			);
 		} finally {
 			apiGet.mockRestore();
 		}

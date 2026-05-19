@@ -170,6 +170,30 @@ describe("home pagination", () => {
 		expect(searchForm).not.toHaveClass("expanded");
 	});
 
+	it("keeps the tag and search controls in one header action row", async () => {
+		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [],
+			total: 0,
+			page: 1,
+			limit: 20,
+		});
+
+		const { container } = render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByText("No posts have been published yet.");
+
+		const actions = container.querySelector(".public-header-actions");
+		const tagButton = screen.getByRole("button", { name: "Tags" });
+		const searchForm = screen.getByRole("search");
+
+		expect(actions).toContainElement(tagButton);
+		expect(actions).toContainElement(searchForm);
+	});
+
 	it("opens the tag picker and filters posts by the selected tag", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
 			if (url === "/api/posts?page=1&limit=20") {

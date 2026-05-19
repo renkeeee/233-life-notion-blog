@@ -48,6 +48,8 @@ body {
 }
 
 .public-shell {
+	--home-control-font-size: 0.92rem;
+	--home-control-height: 36px;
 	width: min(100% - 32px, 980px);
 	margin: 0 auto;
 	padding: 40px 0 72px;
@@ -60,7 +62,7 @@ body {
 
 .public-header {
 	display: flex;
-	align-items: end;
+	align-items: flex-end;
 	justify-content: space-between;
 	gap: 24px;
 	border-bottom: 1px solid #dfddd6;
@@ -71,7 +73,10 @@ body {
 .public-header-actions {
 	display: flex;
 	align-items: center;
+	gap: 8px;
+	justify-content: flex-end;
 	margin-left: auto;
+	min-height: var(--home-control-height);
 }
 
 .public-header h1,
@@ -139,29 +144,40 @@ body {
 
 .search-form.expandable {
 	display: flex;
+	align-items: center;
 	justify-content: flex-end;
-	min-width: 36px;
-	width: 36px;
+	flex: 0 0 var(--home-control-height);
+	height: var(--home-control-height);
+	min-width: var(--home-control-height);
+	width: var(--home-control-height);
 	overflow: hidden;
-	transition: width 180ms ease;
+	transition:
+		flex-basis 180ms ease,
+		width 180ms ease;
 }
 
 .search-form.expandable.expanded {
+	flex-basis: min(300px, 40vw);
 	width: min(300px, 40vw);
 }
 
 .search-form.expandable div {
+	align-items: center;
 	width: 100%;
+	height: 100%;
 	justify-content: flex-end;
 	gap: 6px;
 }
 
 .search-form.expandable input {
 	width: 0;
+	height: var(--home-control-height);
 	min-width: 0;
 	border-color: transparent;
+	font-size: var(--home-control-font-size);
+	line-height: 1;
 	opacity: 0;
-	padding-inline: 0;
+	padding: 0;
 	transform: translateX(8px);
 	transition:
 		width 180ms ease,
@@ -175,7 +191,7 @@ body {
 	width: 100%;
 	border-color: #c9c5ba;
 	opacity: 1;
-	padding-inline: 12px;
+	padding: 0 12px;
 	transform: translateX(0);
 }
 
@@ -183,13 +199,14 @@ body {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	flex: 0 0 36px;
-	width: 36px;
-	height: 36px;
+	flex: 0 0 var(--home-control-height);
+	width: var(--home-control-height);
+	height: var(--home-control-height);
 	border: 0;
 	background: transparent;
 	color: #706d66;
-	font-size: 0.92rem;
+	font-size: var(--home-control-font-size);
+	line-height: 1;
 	padding: 0;
 }
 
@@ -198,19 +215,29 @@ body {
 	color: #3f3c37;
 }
 
-.tag-entry-button {
+.search-form.expandable button svg {
+	width: 18px;
+	height: 18px;
+}
+
+.public-shell .tag-entry-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--home-control-height);
+	min-height: var(--home-control-height);
 	border: 0;
 	border-radius: 6px;
 	background: transparent;
 	color: #706d66;
 	cursor: pointer;
-	font-size: 0.92rem;
+	font-size: var(--home-control-font-size);
 	font-weight: 650;
-	min-height: 36px;
-	padding: 8px 10px;
+	line-height: 1;
+	padding: 0 10px;
 }
 
-.tag-entry-button:hover {
+.public-shell .tag-entry-button:hover {
 	background: #efede7;
 	color: #3f3c37;
 }
@@ -1100,18 +1127,31 @@ body {
 }
 
 @media (max-width: 720px) {
-	.public-header,
 	.post-list-item,
 	.post-skeleton-item,
 	.post-list-skeleton.compact .post-skeleton-item {
 		display: block;
 	}
 
-	.search-form {
+	.public-header {
+		align-items: flex-start;
+		flex-wrap: wrap;
+		gap: 0 16px;
+	}
+
+	.public-header > div:first-child {
+		flex: 1 1 100%;
+		min-width: 0;
+	}
+
+	.public-header > .search-form {
 		margin-top: 18px;
 	}
 
 	.public-header-actions {
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		width: 100%;
 		margin: 18px 0 0;
 	}
 
@@ -1129,7 +1169,10 @@ body {
 	}
 
 	.search-form.expandable.expanded {
-		width: min(100%, 300px);
+		flex: 1 1 180px;
+		width: auto;
+		max-width: 300px;
+		min-width: min(180px, 100%);
 	}
 
 	.search-form.expandable div {

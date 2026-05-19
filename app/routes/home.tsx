@@ -330,33 +330,33 @@ export default function Home() {
 					<button className="tag-entry-button" type="button" onClick={openTagPicker}>
 						Tags
 					</button>
+					<form
+						className={`search-form expandable${searchOpen ? " expanded" : ""}`}
+						onBlur={collapseSearchIfEmpty}
+						onSubmit={submitSearch}
+						role="search"
+					>
+						<div>
+							<input
+								id="home-search"
+								ref={searchInputRef}
+								aria-label="Search posts"
+								value={query}
+								onChange={(event) => setQuery(event.currentTarget.value)}
+								placeholder="Keyword"
+								tabIndex={searchOpen ? 0 : -1}
+							/>
+							<button
+								type="submit"
+								aria-expanded={searchOpen}
+								aria-label="Search"
+								onClick={() => setSearchOpen(true)}
+							>
+								<FiSearch aria-hidden="true" focusable="false" />
+							</button>
+						</div>
+					</form>
 				</div>
-				<form
-					className={`search-form expandable${searchOpen ? " expanded" : ""}`}
-					onBlur={collapseSearchIfEmpty}
-					onSubmit={submitSearch}
-					role="search"
-				>
-					<div>
-						<input
-							id="home-search"
-							ref={searchInputRef}
-							aria-label="Search posts"
-							value={query}
-							onChange={(event) => setQuery(event.currentTarget.value)}
-							placeholder="Keyword"
-							tabIndex={searchOpen ? 0 : -1}
-						/>
-						<button
-							type="submit"
-							aria-expanded={searchOpen}
-							aria-label="Search"
-							onClick={() => setSearchOpen(true)}
-						>
-							<FiSearch aria-hidden="true" focusable="false" />
-						</button>
-					</div>
-				</form>
 			</header>
 
 			{state.status === "loading" ? <PostListSkeleton /> : null}

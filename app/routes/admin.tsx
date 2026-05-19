@@ -215,6 +215,18 @@ export default function Admin() {
 		}
 	}
 
+	function markPasswordChanged() {
+		if (session.status !== "admin") {
+			return;
+		}
+
+		setSession({
+			status: "admin",
+			csrfToken: session.csrfToken,
+			mustChangePassword: false,
+		});
+	}
+
 	if (session.status === "checking") {
 		return (
 			<main className="admin-shell">
@@ -230,10 +242,17 @@ export default function Admin() {
 	const adminContent = (() => {
 		if (activeTab === "settings") {
 			return (
-				<SettingsPanel
-					csrfToken={session.csrfToken}
-					disabled={session.mustChangePassword}
-				/>
+				<>
+					<PasswordChangePanel
+						csrfToken={session.csrfToken}
+						required={session.mustChangePassword}
+						onChanged={markPasswordChanged}
+					/>
+					<SettingsPanel
+						csrfToken={session.csrfToken}
+						disabled={session.mustChangePassword}
+					/>
+				</>
 			);
 		}
 
@@ -250,22 +269,7 @@ export default function Admin() {
 			return <PostStatusTable />;
 		}
 
-		return (
-			<>
-				<Overview mustChangePassword={session.mustChangePassword} />
-				<PasswordChangePanel
-					csrfToken={session.csrfToken}
-					required={session.mustChangePassword}
-					onChanged={() =>
-						setSession({
-							status: "admin",
-							csrfToken: session.csrfToken,
-							mustChangePassword: false,
-						})
-					}
-				/>
-			</>
-		);
+		return <Overview mustChangePassword={session.mustChangePassword} />;
 	})();
 
 	return (

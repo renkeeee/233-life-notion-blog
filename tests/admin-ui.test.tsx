@@ -260,21 +260,45 @@ describe("PasswordChangePanel", () => {
 });
 
 describe("Admin", () => {
-	it("keeps password change available after the initial password is changed", async () => {
-		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
-			authenticated: true,
-			csrfToken: "csrf-token",
-			mustChangePassword: false,
-		});
+	it("shows password change in settings instead of overview", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+
+				return {
+					siteTitle: "233 Life",
+					notionDatabaseUrl:
+						"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+					notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+					notionToken: "",
+					hasNotionToken: true,
+					cdnBaseUrl: "https://cdn.example.com",
+					fieldMapping: {
+						title: "Name",
+						status: "Status",
+						publishedStatusValues: ["Published", "已发布"],
+					},
+				};
+			});
 		try {
 			render(<Admin />);
+
+			await screen.findByText("Operations");
+			expect(screen.queryByRole("button", { name: "Change password" })).toBeNull();
+
+			fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
 			expect(
 				await screen.findByRole("button", { name: "Change password" }),
 			).toBeTruthy();
-			expect(
-				screen.getByText("Use this form to update your admin password."),
-			).toBeTruthy();
+			expect(screen.getByText("Use this form to update your admin password.")).toBeTruthy();
 			expect(screen.getByText("Optional")).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();

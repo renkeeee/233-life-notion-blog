@@ -13,6 +13,19 @@ type SyncRun = {
 	finishedAt?: string | null;
 };
 
+function toIsoDateTime(value: string): string | null {
+	if (!value) {
+		return null;
+	}
+
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		throw new Error("Invalid date/time range.");
+	}
+
+	return date.toISOString();
+}
+
 export function SyncPanel({
 	csrfToken,
 	disabled,
@@ -46,8 +59,8 @@ export function SyncPanel({
 				if (!cancelled) {
 					setHistoryStatus(
 						error instanceof Error
-							? `${error.message}. Sync history endpoint is not available yet.`
-							: "Sync history endpoint is not available yet.",
+							? error.message
+							: "Sync history could not be loaded.",
 					);
 				}
 			});
@@ -64,8 +77,8 @@ export function SyncPanel({
 			const response = await apiPost<{ runId: string }>(
 				"/api/admin/sync",
 				{
-					rangeStart: rangeStart || null,
-					rangeEnd: rangeEnd || null,
+					rangeStart: toIsoDateTime(rangeStart),
+					rangeEnd: toIsoDateTime(rangeEnd),
 					force,
 				},
 				csrfToken,
@@ -91,18 +104,20 @@ export function SyncPanel({
 				<label>
 					Range start
 					<input
+						type="datetime-local"
 						value={rangeStart}
 						onChange={(event) => setRangeStart(event.currentTarget.value)}
-						placeholder="2026-05-01T00:00:00.000Z"
+						step={60}
 						disabled={disabled}
 					/>
 				</label>
 				<label>
 					Range end
 					<input
+						type="datetime-local"
 						value={rangeEnd}
 						onChange={(event) => setRangeEnd(event.currentTarget.value)}
-						placeholder="2026-05-18T00:00:00.000Z"
+						step={60}
 						disabled={disabled}
 					/>
 				</label>

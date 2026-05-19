@@ -39,6 +39,26 @@ type ManualSyncBody = {
 	force: boolean;
 };
 
+type SyncRunRow = {
+	id: string;
+	trigger_type: "cron" | "manual";
+	started_at: string;
+	finished_at: string | null;
+	status: "running" | "success" | "partial" | "failed";
+	range_start: string | null;
+	range_end: string | null;
+	force: number;
+	created_count: number;
+	updated_count: number;
+	metadata_only_count: number;
+	skipped_count: number;
+	unpublished_count: number;
+	archived_count: number;
+	failed_count: number;
+	error_code: string | null;
+	error_message: string | null;
+};
+
 type NotionSchemaBody = {
 	notionDatabaseId: string;
 	notionToken?: string;
@@ -906,6 +926,54 @@ async function handleManualSync(
 	}
 }
 
+async function handleListSyncRuns(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	try {
+		const result = await env.DB.prepare(
+			`SELECT
+				id,
+				trigger_type,
+				started_at,
+				finished_at,
+				status,
+				range_start,
+				range_end,
+				force,
+				created_count,
+				updated_count,
+				metadata_only_count,
+				skipped_count,
+				unpublished_count,
+				archived_count,
+				failed_count,
+				error_code,
+				error_message
+			 FROM sync_runs
+			 ORDER BY started_at DESC
+			 LIMIT ?`,
+		)
+			.bind(20)
+			.all<SyncRunRow>();
+
+		return json({
+			items: result.results.map((run) => ({
+				...run,
+				force: run.force === 1,
+			})),
+		});
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Sync history could not be loaded", 500);
+	}
+}
+
 export async function handleAdminApi(
 	request: Request,
 	env: AppEnv,
@@ -943,6 +1011,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/sync" && request.method === "POST") {
 		return handleManualSync(request, env, options);
+	}
+
+	if (url.pathname === "/api/admin/sync-runs" && request.method === "GET") {
+		return handleListSyncRuns(request, env);
 	}
 
 	return adminNotFound();

@@ -18,11 +18,49 @@ function settingRow(
 	};
 }
 
+type SyncRunRow = {
+	id: string;
+	trigger_type: "cron" | "manual";
+	started_at: string;
+	finished_at: string | null;
+	status: "running" | "success" | "partial" | "failed";
+	range_start: string | null;
+	range_end: string | null;
+	force: 0 | 1;
+	created_count: number;
+	updated_count: number;
+	metadata_only_count: number;
+	skipped_count: number;
+	unpublished_count: number;
+	archived_count: number;
+	failed_count: number;
+	error_code: string | null;
+	error_message: string | null;
+};
+
 function createFakeD1(initialRows: SettingRow[] = []): {
 	db: D1Database;
 	rows: Map<string, SettingRow>;
+	syncRuns: SyncRunRow[];
 } {
 	const rows = new Map(initialRows.map((row) => [row.key, row]));
+	const syncRuns: SyncRunRow[] = [];
+	function allRows<T>(sql: string): D1Result<T> {
+		if (sql.includes("FROM sync_runs")) {
+			return {
+				results: syncRuns as T[],
+				success: true,
+			} as D1Result<T>;
+		}
+
+		return {
+			results: Array.from(rows.values()).sort((left, right) =>
+				left.key.localeCompare(right.key),
+			) as T[],
+			success: true,
+		} as D1Result<T>;
+	}
+
 	const db = {
 		prepare(sql: string) {
 			return {
@@ -41,15 +79,13 @@ function createFakeD1(initialRows: SettingRow[] = []): {
 								updated_at: String(updatedAt),
 							});
 						},
+						async all<T>() {
+							return allRows<T>(sql);
+						},
 					};
 				},
 				async all<T>() {
-					return {
-						results: Array.from(rows.values()).sort((left, right) =>
-							left.key.localeCompare(right.key),
-						) as T[],
-						success: true,
-					};
+					return allRows<T>(sql);
 				},
 			};
 		},
@@ -59,7 +95,7 @@ function createFakeD1(initialRows: SettingRow[] = []): {
 		},
 	} as unknown as D1Database;
 
-	return { db, rows };
+	return { db, rows, syncRuns };
 }
 
 function createStorageFailingD1(initialRows: SettingRow[] = []): {
@@ -109,6 +145,7 @@ function testEnv(rootKey = generateEncryptionKey(), rows: SettingRow[] = []): {
 	env: AppEnv;
 	rows: Map<string, SettingRow>;
 	rootKey: string;
+	syncRuns: SyncRunRow[];
 } {
 	const fake = createFakeD1(rows);
 
@@ -120,6 +157,7 @@ function testEnv(rootKey = generateEncryptionKey(), rows: SettingRow[] = []): {
 		},
 		rows: fake.rows,
 		rootKey,
+		syncRuns: fake.syncRuns,
 	};
 }
 
@@ -873,6 +911,70 @@ describe("admin settings API", () => {
 		expect(await decryptString(tokenRow!.value, rootKey)).toBe(
 			"stored_ntn_secret",
 		);
+	});
+});
+
+describe("admin sync API", () => {
+	it("returns recent sync runs for authenticated admins", async () => {
+		const { env, syncRuns } = testEnv();
+		const session = await usableAdminSession(env);
+		syncRuns.push({
+			id: "sync-run-1",
+			trigger_type: "manual",
+			started_at: "2026-05-18T12:00:00.000Z",
+			finished_at: "2026-05-18T12:01:00.000Z",
+			status: "success",
+			range_start: "2026-05-17T00:00:00.000Z",
+			range_end: "2026-05-18T00:00:00.000Z",
+			force: 1,
+			created_count: 1,
+			updated_count: 2,
+			metadata_only_count: 3,
+			skipped_count: 4,
+			unpublished_count: 5,
+			archived_count: 6,
+			failed_count: 0,
+			error_code: null,
+			error_message: null,
+		});
+
+		const unauthorizedResponse = await handleAdminApi(
+			adminRequest("/api/admin/sync-runs", { method: "GET" }),
+			env,
+		);
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/sync-runs", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(unauthorizedResponse.status).toBe(401);
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			items: [
+				{
+					id: "sync-run-1",
+					trigger_type: "manual",
+					started_at: "2026-05-18T12:00:00.000Z",
+					finished_at: "2026-05-18T12:01:00.000Z",
+					status: "success",
+					range_start: "2026-05-17T00:00:00.000Z",
+					range_end: "2026-05-18T00:00:00.000Z",
+					force: true,
+					created_count: 1,
+					updated_count: 2,
+					metadata_only_count: 3,
+					skipped_count: 4,
+					unpublished_count: 5,
+					archived_count: 6,
+					failed_count: 0,
+					error_code: null,
+					error_message: null,
+				},
+			],
+		});
 	});
 });
 

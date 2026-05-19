@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
+import { SyncPanel } from "../app/components/admin/SyncPanel";
 import Admin, { PasswordChangePanel } from "../app/routes/admin";
 import * as apiClient from "../app/lib/api-client";
 
@@ -255,6 +256,65 @@ describe("PasswordChangePanel", () => {
 			);
 		} finally {
 			apiPost.mockRestore();
+		}
+	});
+});
+
+describe("SyncPanel", () => {
+	it("uses date-time inputs and submits ISO sync ranges", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "sync-run-1",
+					trigger_type: "manual",
+					status: "success",
+					started_at: "2026-05-18T12:00:00.000Z",
+				},
+			],
+		});
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue({ runId: "sync-run-2" });
+		try {
+			render(<SyncPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("Recent sync runs");
+			const rangeStart = screen.getByLabelText("Range start");
+			const rangeEnd = screen.getByLabelText("Range end");
+			expect(rangeStart).toHaveAttribute("type", "datetime-local");
+			expect(rangeEnd).toHaveAttribute("type", "datetime-local");
+
+			fireEvent.change(rangeStart, { target: { value: "2026-05-18T09:30" } });
+			fireEvent.change(rangeEnd, { target: { value: "2026-05-18T10:45" } });
+			fireEvent.click(screen.getByRole("button", { name: "Start sync" }));
+
+			await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
+			expect(apiPost).toHaveBeenCalledWith(
+				"/api/admin/sync",
+				{
+					rangeStart: new Date("2026-05-18T09:30").toISOString(),
+					rangeEnd: new Date("2026-05-18T10:45").toISOString(),
+					force: false,
+				},
+				"csrf-token",
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
+	it("shows sync history errors without unavailable endpoint copy", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockRejectedValue(new Error("Admin API route not found"));
+		try {
+			render(<SyncPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("Admin API route not found");
+			expect(screen.queryByText(/Sync history endpoint is not available yet/)).toBeNull();
+		} finally {
+			apiGet.mockRestore();
 		}
 	});
 });

@@ -14,6 +14,10 @@ function workerRequest(pathname: string): WorkerRequest {
 	return new Request(`https://example.test${pathname}`) as WorkerRequest;
 }
 
+function insecureWorkerRequest(pathname: string): WorkerRequest {
+	return new Request(`http://example.test${pathname}`) as WorkerRequest;
+}
+
 describe("worker route kind", () => {
 	it.each(["/api", "/api/posts", "/api/admin/login"])(
 		"routes %s as api",
@@ -28,6 +32,30 @@ describe("worker route kind", () => {
 });
 
 describe("worker API dispatch", () => {
+	it("redirects production HTTP requests to HTTPS before routing", async () => {
+		const response = await worker.fetch(
+			insecureWorkerRequest("/api/health?probe=1"),
+			env,
+			{} as ExecutionContext,
+		);
+
+		expect(response.status).toBe(308);
+		expect(response.headers.get("location")).toBe(
+			"https://example.test/api/health?probe=1",
+		);
+	});
+
+	it("does not redirect local HTTP requests during development", async () => {
+		const response = await worker.fetch(
+			new Request("http://127.0.0.1/api/health") as WorkerRequest,
+			env,
+			{} as ExecutionContext,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({ ok: true });
+	});
+
 	it("dispatches admin me requests to the admin handler", async () => {
 		const response = await worker.fetch(
 			workerRequest("/api/admin/me"),

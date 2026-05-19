@@ -11,6 +11,7 @@ const testDirectory = dirname(fileURLToPath(import.meta.url));
 const appCss = readFileSync(resolve(testDirectory, "../app/app.css"), "utf8");
 const indexHtml = readFileSync(resolve(testDirectory, "../index.html"), "utf8");
 const faviconSvgPath = resolve(testDirectory, "../public/favicon.svg");
+const faviconIcoPath = resolve(testDirectory, "../public/favicon.ico");
 
 function cssRule(selector: string): string {
 	const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -51,9 +52,11 @@ describe("public brand", () => {
 	it("sets the public favicon and document title to 233.life", () => {
 		expect(indexHtml).toContain("<title>233.life</title>");
 		expect(indexHtml).toContain(
-			'<link rel="icon" type="image/svg+xml" href="/favicon.svg" />',
+			'<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260519" />',
 		);
+		expect(indexHtml).not.toContain("favicon.ico");
 		expect(existsSync(faviconSvgPath)).toBe(true);
+		expect(existsSync(faviconIcoPath)).toBe(true);
 	});
 
 	it("applies the public page background to the full viewport", () => {

@@ -83,6 +83,13 @@ body {
 	letter-spacing: 0;
 }
 
+.site-title {
+	font-family: "Cormorant Garamond", Georgia, serif;
+	font-size: clamp(2.7rem, 5.6vw, 4.8rem);
+	font-weight: 700;
+	line-height: 0.96;
+}
+
 .eyebrow,
 .post-meta,
 .result-count {
@@ -130,7 +137,21 @@ body {
 	padding: 10px 14px;
 }
 
-.tag-entry-button,
+.tag-entry-button {
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: #706d66;
+	cursor: pointer;
+	font-weight: 650;
+	padding: 8px 10px;
+}
+
+.tag-entry-button:hover {
+	background: #efede7;
+	color: #3f3c37;
+}
+
 .tag-filter-note button,
 .tag-dialog button {
 	border: 1px solid #c9c5ba;
@@ -142,7 +163,6 @@ body {
 	padding: 10px 14px;
 }
 
-.tag-entry-button:hover,
 .tag-filter-note button:hover,
 .tag-dialog button:hover {
 	border-color: #0b6d67;

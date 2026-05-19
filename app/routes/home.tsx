@@ -304,7 +304,7 @@ export default function Home() {
 			<header className="public-header">
 				<div>
 					<p className="eyebrow">Life, written in quiet moments.</p>
-					<h1>233.life</h1>
+					<h1 className="site-title">233.life</h1>
 				</div>
 				<div className="public-header-actions">
 					<button className="tag-entry-button" type="button" onClick={openTagPicker}>

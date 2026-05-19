@@ -53,6 +53,7 @@ describe("public brand", () => {
 
 	it("sets the public favicon and document title to 233.life", () => {
 		expect(indexHtml).toContain("<title>233.life</title>");
+		expect(indexHtml).toContain("family=Cormorant+Garamond");
 		expect(indexHtml).toContain(
 			'<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260519" />',
 		);
@@ -64,5 +65,11 @@ describe("public brand", () => {
 	it("applies the public page background to the full viewport", () => {
 		expect(cssRule("html, body, #root")).toContain("background: #f8f7f4");
 		expect(appCss).toContain("body {\n\tmin-height: 100vh;");
+	});
+
+	it("uses a literary display font for the homepage title and quiet tag button styling", () => {
+		expect(cssRule(".site-title")).toContain('"Cormorant Garamond"');
+		expect(cssRule(".tag-entry-button")).toContain("border: 0");
+		expect(cssRule(".tag-entry-button")).toContain("color: #706d66");
 	});
 });

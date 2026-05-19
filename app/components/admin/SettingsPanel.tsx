@@ -22,6 +22,23 @@ type RedactedSettings = SiteSettingsForm & {
 	hasNotionToken?: boolean;
 };
 
+type NotionSchemaOption = {
+	name?: unknown;
+};
+
+type NotionSchemaProperty = {
+	type?: string;
+	status?: { options?: NotionSchemaOption[] };
+	select?: { options?: NotionSchemaOption[] };
+	[key: string]: unknown;
+};
+
+type NotionSchemaResponse = {
+	databaseId?: string;
+	properties?: Record<string, NotionSchemaProperty>;
+	recommendedFieldMapping?: Partial<FieldMapping>;
+};
+
 const defaultPublishedStatusValues = ["Published", "已发布"];
 
 const emptySettings: SiteSettingsForm = {
@@ -44,10 +61,21 @@ type FieldNameKey = "title" | "status" | "publishedAt";
 const fieldKeys: Array<{
 	key: FieldNameKey;
 	typeDescription: string;
+	allowedTypes: string[];
+	optional?: boolean;
 }> = [
-	{ key: "title", typeDescription: "Notion type: title" },
-	{ key: "status", typeDescription: "Notion type: status, select, or checkbox" },
-	{ key: "publishedAt", typeDescription: "Notion type: date or created_time" },
+	{ key: "title", typeDescription: "Notion type: title", allowedTypes: ["title"] },
+	{
+		key: "status",
+		typeDescription: "Notion type: status, select, or checkbox",
+		allowedTypes: ["status", "select", "checkbox"],
+	},
+	{
+		key: "publishedAt",
+		typeDescription: "Notion type: date or created_time",
+		allowedTypes: ["date", "created_time"],
+		optional: true,
+	},
 ];
 
 function publishedStatusValuesText(values: string[] | undefined): string {
@@ -85,6 +113,97 @@ function normalizeSettings(settings: RedactedSettings): SiteSettingsForm {
 	};
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validSchemaProperties(
+	properties: unknown,
+): Record<string, NotionSchemaProperty> | null {
+	if (!isRecord(properties)) {
+		return null;
+	}
+
+	const validProperties: Record<string, NotionSchemaProperty> = {};
+	for (const [name, property] of Object.entries(properties)) {
+		if (isRecord(property)) {
+			validProperties[name] = property as NotionSchemaProperty;
+		}
+	}
+
+	return validProperties;
+}
+
+function schemaFieldOptions(
+	properties: Record<string, NotionSchemaProperty>,
+	field: (typeof fieldKeys)[number],
+	currentValue: string,
+): Array<{ name: string; label: string }> {
+	const options = Object.entries(properties)
+		.filter(([, property]) => field.allowedTypes.includes(property.type ?? ""))
+		.map(([name, property]) => ({
+			name,
+			label: `${name} (${property.type ?? "unknown"})`,
+		}));
+
+	if (field.optional) {
+		options.unshift({
+			name: "",
+			label: "Use Notion page created time",
+		});
+	}
+
+	if (
+		currentValue &&
+		!options.some((option) => option.name === currentValue)
+	) {
+		options.push({
+			name: currentValue,
+			label: `${currentValue} (not in loaded schema)`,
+		});
+	}
+
+	if (options.length === 0) {
+		return [{ name: "", label: "No compatible fields found" }];
+	}
+
+	return options;
+}
+
+function optionNames(options: unknown): string[] {
+	if (!Array.isArray(options)) {
+		return [];
+	}
+
+	return Array.from(
+		new Set(
+			options
+				.map((option) =>
+					isRecord(option) && typeof option.name === "string"
+						? option.name.trim()
+						: "",
+				)
+				.filter(Boolean),
+		),
+	);
+}
+
+function propertyEnumValues(property: NotionSchemaProperty | undefined): string[] {
+	if (!property) {
+		return [];
+	}
+
+	if (property.type === "status") {
+		return optionNames(property.status?.options);
+	}
+
+	if (property.type === "select") {
+		return optionNames(property.select?.options);
+	}
+
+	return [];
+}
+
 export function SettingsPanel({
 	csrfToken,
 	disabled,
@@ -98,6 +217,8 @@ export function SettingsPanel({
 	const [status, setStatus] = useState("Loading settings...");
 	const [saving, setSaving] = useState(false);
 	const [schemaStatus, setSchemaStatus] = useState<string | null>(null);
+	const [schemaProperties, setSchemaProperties] =
+		useState<Record<string, NotionSchemaProperty> | null>(null);
 	const [hasStoredToken, setHasStoredToken] = useState(false);
 	const [publishedStatusText, setPublishedStatusText] = useState(
 		publishedStatusValuesText(emptySettings.fieldMapping.publishedStatusValues),
@@ -162,6 +283,12 @@ export function SettingsPanel({
 				[key]: value,
 			},
 		}));
+	}
+
+	function addPublishedStatusValue(value: string) {
+		setPublishedStatusText((current) =>
+			publishedStatusValuesText([...parsePublishedStatusValues(current), value]),
+		);
 	}
 
 	function settingsForRequest(): SiteSettingsForm {
@@ -259,13 +386,56 @@ export function SettingsPanel({
 	async function testSchema() {
 		setSchemaStatus("Testing Notion schema...");
 		try {
-			const response = await apiPost<Record<string, unknown>>(
+			const response = await apiPost<NotionSchemaResponse>(
 				"/api/admin/notion/schema",
 				schemaRequestBody(),
 				csrfToken,
 			);
-			setSchemaStatus(JSON.stringify(response, null, 2));
+			const properties = validSchemaProperties(response.properties);
+			setSchemaProperties(properties);
+			if (response.recommendedFieldMapping) {
+				const recommended = response.recommendedFieldMapping;
+				setSettings((current) => ({
+					...current,
+					fieldMapping: {
+						...current.fieldMapping,
+						...(typeof recommended.title === "string" && recommended.title
+							? { title: recommended.title }
+							: {}),
+						...(typeof recommended.status === "string" && recommended.status
+							? { status: recommended.status }
+							: {}),
+						...(typeof recommended.publishedAt === "string"
+							? { publishedAt: recommended.publishedAt }
+							: {}),
+						...(Array.isArray(recommended.publishedStatusValues)
+							? {
+									publishedStatusValues:
+										recommended.publishedStatusValues.filter(
+											(value): value is string =>
+												typeof value === "string" && value.trim().length > 0,
+										),
+								}
+							: {}),
+					},
+				}));
+				if (
+					Array.isArray(recommended.publishedStatusValues) &&
+					recommended.publishedStatusValues.length > 0
+				) {
+					setPublishedStatusText(
+						publishedStatusValuesText(
+							recommended.publishedStatusValues.filter(
+								(value): value is string =>
+									typeof value === "string" && value.trim().length > 0,
+							),
+						),
+					);
+				}
+			}
+			setSchemaStatus("Schema loaded. Field choices were updated from Notion.");
 		} catch (error) {
+			setSchemaProperties(null);
 			setSchemaStatus(
 				error instanceof Error
 					? error.message
@@ -273,6 +443,11 @@ export function SettingsPanel({
 			);
 		}
 	}
+
+	const selectedStatusProperty = schemaProperties
+		? schemaProperties[settings.fieldMapping.status]
+		: undefined;
+	const selectedStatusEnumValues = propertyEnumValues(selectedStatusProperty);
 
 	return (
 		<div className="admin-stack">
@@ -335,16 +510,39 @@ export function SettingsPanel({
 					/>
 				</label>
 				<div className="admin-field-grid">
-					{fieldKeys.map(({ key, typeDescription }) => (
-						<label className="admin-field-card" key={key}>
-							<span>{key}</span>
-							<span className="admin-help">{typeDescription}</span>
-							<input
-								aria-label={key}
-								value={settings.fieldMapping[key] ?? ""}
-								onChange={(event) => updateMapping(key, event.currentTarget.value)}
-								disabled={disabled}
-							/>
+					{fieldKeys.map((field) => (
+						<label className="admin-field-card" key={field.key}>
+							<span>{field.key}</span>
+							<span className="admin-help">{field.typeDescription}</span>
+							{schemaProperties ? (
+								<select
+									aria-label={field.key}
+									value={settings.fieldMapping[field.key] ?? ""}
+									onChange={(event) =>
+										updateMapping(field.key, event.currentTarget.value)
+									}
+									disabled={disabled}
+								>
+									{schemaFieldOptions(
+										schemaProperties,
+										field,
+										settings.fieldMapping[field.key] ?? "",
+									).map((option) => (
+										<option key={`${field.key}:${option.name}`} value={option.name}>
+											{option.label}
+										</option>
+									))}
+								</select>
+							) : (
+								<input
+									aria-label={field.key}
+									value={settings.fieldMapping[field.key] ?? ""}
+									onChange={(event) =>
+										updateMapping(field.key, event.currentTarget.value)
+									}
+									disabled={disabled}
+								/>
+							)}
 						</label>
 					))}
 					<label className="admin-field-card wide">
@@ -363,6 +561,38 @@ export function SettingsPanel({
 							rows={3}
 						/>
 					</label>
+					{schemaProperties ? (
+						<div className="admin-schema-options" aria-label="Status enum values">
+							{selectedStatusProperty?.type === "checkbox" ? (
+								<span className="admin-help">
+									Selected checkbox fields publish when checked.
+								</span>
+							) : selectedStatusEnumValues.length > 0 ? (
+								<>
+									<span className="admin-help">
+										Options from {settings.fieldMapping.status}
+									</span>
+									<div className="admin-schema-option-buttons">
+										{selectedStatusEnumValues.map((value) => (
+											<button
+												type="button"
+												className="admin-secondary-button"
+												key={value}
+												onClick={() => addPublishedStatusValue(value)}
+												disabled={disabled}
+											>
+												Add {value}
+											</button>
+										))}
+									</div>
+								</>
+							) : (
+								<span className="admin-help">
+									The selected status field did not return enum values.
+								</span>
+							)}
+						</div>
+					) : null}
 				</div>
 				<p className="admin-note">{status}</p>
 				{schemaStatus ? <pre className="admin-code">{schemaStatus}</pre> : null}

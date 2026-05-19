@@ -314,6 +314,7 @@ body {
 .admin-shell button:disabled,
 .admin-login button:disabled,
 .admin-form input:disabled,
+.admin-form select:disabled,
 .admin-form textarea:disabled {
 	cursor: not-allowed;
 	opacity: 0.55;
@@ -413,6 +414,7 @@ body {
 }
 
 .admin-form input,
+.admin-form select,
 .admin-form textarea,
 .admin-login input {
 	width: 100%;
@@ -423,6 +425,21 @@ body {
 	color: #20201d;
 	min-height: 40px;
 	padding: 9px 11px;
+}
+
+.admin-form select {
+	appearance: none;
+	background-image:
+		linear-gradient(45deg, transparent 50%, #555149 50%),
+		linear-gradient(135deg, #555149 50%, transparent 50%);
+	background-position:
+		calc(100% - 18px) 17px,
+		calc(100% - 13px) 17px;
+	background-repeat: no-repeat;
+	background-size:
+		5px 5px,
+		5px 5px;
+	padding-right: 34px;
 }
 
 .admin-date-time-picker {
@@ -523,6 +540,23 @@ body {
 
 .admin-field-card.wide {
 	grid-column: 1 / -1;
+}
+
+.admin-schema-options {
+	align-items: center;
+	border: 1px solid #d9d6cd;
+	border-radius: 8px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	grid-column: 1 / -1;
+	padding: 10px 12px;
+}
+
+.admin-schema-option-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
 }
 
 .admin-help {

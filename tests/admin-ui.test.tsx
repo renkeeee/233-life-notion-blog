@@ -201,6 +201,103 @@ describe("SettingsPanel", () => {
 			apiPost.mockRestore();
 		}
 	});
+
+	it("uses loaded Notion schema as mapping choices and exposes status options", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			siteTitle: "233 Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "https://cdn.example.com",
+			fieldMapping: {
+				title: "Name",
+				status: "Status",
+				publishedAt: "Published At",
+				publishedStatusValues: ["Published"],
+			},
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
+			databaseId: "3646b3023c2380fc886af37685393dd4",
+			properties: {
+				Headline: { type: "title" },
+				Name: { type: "rich_text" },
+				Publish: {
+					type: "status",
+					status: {
+						options: [{ name: "Published" }, { name: "Draft" }],
+					},
+				},
+				Category: {
+					type: "select",
+					select: {
+						options: [{ name: "Life" }],
+					},
+				},
+				"Published On": { type: "date" },
+				Created: { type: "created_time" },
+			},
+			recommendedFieldMapping: {
+				title: "Headline",
+				status: "Publish",
+				publishedAt: "Published On",
+				publishedStatusValues: ["Published"],
+			},
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({
+			siteTitle: "233 Life",
+			notionDatabaseUrl:
+				"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+			notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+			notionToken: "",
+			hasNotionToken: true,
+			cdnBaseUrl: "https://cdn.example.com",
+			fieldMapping: {
+				title: "Headline",
+				status: "Publish",
+				publishedAt: "Published On",
+				publishedStatusValues: ["Published", "Draft"],
+			},
+		});
+		try {
+			render(<SettingsPanel csrfToken="csrf-token" />);
+
+			await screen.findByText(
+				"Settings loaded. Re-enter the Notion token when saving changes.",
+			);
+			fireEvent.click(screen.getByRole("button", { name: "Test schema" }));
+
+			await screen.findByText("Schema loaded. Field choices were updated from Notion.");
+			expect(screen.getByLabelText("title")).toHaveValue("Headline");
+			expect(screen.getByLabelText("status")).toHaveValue("Publish");
+			expect(screen.getByLabelText("publishedAt")).toHaveValue("Published On");
+			expect(screen.getByRole("option", { name: "Headline (title)" })).toBeTruthy();
+			expect(screen.queryByRole("option", { name: "Name (rich_text)" })).toBeNull();
+			expect(screen.getByText("Options from Publish")).toBeTruthy();
+
+			fireEvent.click(screen.getByRole("button", { name: "Add Draft" }));
+			expect(screen.getByLabelText("Published status values")).toHaveValue(
+				"Published\nDraft",
+			);
+			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+			await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
+			const [, body] = apiPut.mock.calls[0] ?? [];
+			expect(body).toMatchObject({
+				fieldMapping: {
+					title: "Headline",
+					status: "Publish",
+					publishedAt: "Published On",
+					publishedStatusValues: ["Published", "Draft"],
+				},
+			});
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
 });
 
 describe("PasswordChangePanel", () => {

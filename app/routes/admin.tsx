@@ -23,15 +23,19 @@ function errorMessage(error: unknown, fallback: string): string {
 export function PasswordChangePanel({
 	csrfToken,
 	onChanged,
+	required = false,
 }: {
 	csrfToken: string;
 	onChanged: () => void;
+	required?: boolean;
 }) {
 	const [currentPassword, setCurrentPassword] = useState("");
 	const [newPassword, setNewPassword] = useState("");
 	const [confirmNewPassword, setConfirmNewPassword] = useState("");
 	const [status, setStatus] = useState(
-		"Change the initial password before using protected admin actions.",
+		required
+			? "Change the initial password before using protected admin actions."
+			: "Use this form to update your admin password.",
 	);
 	const [submitting, setSubmitting] = useState(false);
 
@@ -67,7 +71,9 @@ export function PasswordChangePanel({
 		<form className="admin-form compact" onSubmit={submit}>
 			<div className="admin-section-heading">
 				<h2>Password</h2>
-				<span className="admin-badge warning">Required</span>
+				<span className={required ? "admin-badge warning" : "admin-badge"}>
+					{required ? "Required" : "Optional"}
+				</span>
 			</div>
 			<label>
 				Current password
@@ -247,18 +253,17 @@ export default function Admin() {
 		return (
 			<>
 				<Overview mustChangePassword={session.mustChangePassword} />
-				{session.mustChangePassword ? (
-					<PasswordChangePanel
-						csrfToken={session.csrfToken}
-						onChanged={() =>
-							setSession({
-								status: "admin",
-								csrfToken: session.csrfToken,
-								mustChangePassword: false,
-							})
-						}
-					/>
-				) : null}
+				<PasswordChangePanel
+					csrfToken={session.csrfToken}
+					required={session.mustChangePassword}
+					onChanged={() =>
+						setSession({
+							status: "admin",
+							csrfToken: session.csrfToken,
+							mustChangePassword: false,
+						})
+					}
+				/>
 			</>
 		);
 	})();

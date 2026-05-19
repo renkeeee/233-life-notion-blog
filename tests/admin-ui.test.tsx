@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
-import { PasswordChangePanel } from "../app/routes/admin";
+import Admin, { PasswordChangePanel } from "../app/routes/admin";
 import * as apiClient from "../app/lib/api-client";
 
 describe("AdminLogin", () => {
@@ -87,6 +87,29 @@ describe("PasswordChangePanel", () => {
 			);
 		} finally {
 			apiPost.mockRestore();
+		}
+	});
+});
+
+describe("Admin", () => {
+	it("keeps password change available after the initial password is changed", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			authenticated: true,
+			csrfToken: "csrf-token",
+			mustChangePassword: false,
+		});
+		try {
+			render(<Admin />);
+
+			expect(
+				await screen.findByRole("button", { name: "Change password" }),
+			).toBeTruthy();
+			expect(
+				screen.getByText("Use this form to update your admin password."),
+			).toBeTruthy();
+			expect(screen.getByText("Optional")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
 		}
 	});
 });

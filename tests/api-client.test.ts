@@ -39,6 +39,27 @@ describe("apiPost", () => {
 			body: JSON.stringify({ force: true }),
 		});
 	});
+
+	it("throws structured API error messages for failed JSON responses", async () => {
+		const fetcher = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					error: {
+						code: "BAD_REQUEST",
+						message: "New password must be at least 8 characters",
+					},
+				}),
+				{
+					status: 400,
+					headers: { "content-type": "application/json" },
+				},
+			),
+		);
+
+		await expect(
+			apiPost("/api/admin/password", { newPassword: "short" }, "csrf-token", fetcher),
+		).rejects.toThrow("New password must be at least 8 characters");
+	});
 });
 
 describe("apiPut", () => {

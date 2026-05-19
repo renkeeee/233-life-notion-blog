@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
+import { PasswordChangePanel } from "../app/routes/admin";
+import * as apiClient from "../app/lib/api-client";
 
 describe("AdminLogin", () => {
 	it("renders password login form", () => {
@@ -29,5 +31,62 @@ describe("SettingsPanel", () => {
 		expect(screen.queryByLabelText("summary")).toBeNull();
 		expect(screen.queryByLabelText("tags")).toBeNull();
 		expect(screen.queryByLabelText("cover")).toBeNull();
+	});
+});
+
+describe("PasswordChangePanel", () => {
+	it("requires matching new password confirmation before submitting", async () => {
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+		try {
+			render(<PasswordChangePanel csrfToken="csrf-token" onChanged={vi.fn()} />);
+
+			expect(screen.getByLabelText("Confirm new password")).toBeTruthy();
+			fireEvent.change(screen.getByLabelText("Current password"), {
+				target: { value: "123456" },
+			});
+			fireEvent.change(screen.getByLabelText("New password"), {
+				target: { value: "changed-password" },
+			});
+			fireEvent.change(screen.getByLabelText("Confirm new password"), {
+				target: { value: "different-password" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+
+			await screen.findByText("New passwords do not match.");
+			expect(apiPost).not.toHaveBeenCalled();
+		} finally {
+			apiPost.mockRestore();
+		}
+	});
+
+	it("submits the password change when confirmation matches", async () => {
+		const onChanged = vi.fn();
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+		try {
+			render(<PasswordChangePanel csrfToken="csrf-token" onChanged={onChanged} />);
+
+			fireEvent.change(screen.getByLabelText("Current password"), {
+				target: { value: "123456" },
+			});
+			fireEvent.change(screen.getByLabelText("New password"), {
+				target: { value: "changed-password" },
+			});
+			fireEvent.change(screen.getByLabelText("Confirm new password"), {
+				target: { value: "changed-password" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+
+			await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+			expect(apiPost).toHaveBeenCalledWith(
+				"/api/admin/password",
+				{
+					currentPassword: "123456",
+					newPassword: "changed-password",
+				},
+				"csrf-token",
+			);
+		} finally {
+			apiPost.mockRestore();
+		}
 	});
 });

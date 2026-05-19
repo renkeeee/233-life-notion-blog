@@ -5,9 +5,31 @@ type Fetcher = (
 
 const defaultFetcher: Fetcher = (input, init) => fetch(input, init);
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function apiErrorMessage(response: Response): Promise<string> {
+	try {
+		const body = (await response.json()) as unknown;
+		if (
+			isRecord(body) &&
+			isRecord(body.error) &&
+			typeof body.error.message === "string" &&
+			body.error.message.length > 0
+		) {
+			return body.error.message;
+		}
+	} catch {
+		// Fall back to the status code below when the response is not JSON.
+	}
+
+	return `API request failed: ${response.status}`;
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
 	if (!response.ok) {
-		throw new Error(`API request failed: ${response.status}`);
+		throw new Error(await apiErrorMessage(response));
 	}
 
 	return (await response.json()) as T;

@@ -20,7 +20,7 @@ function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
 }
 
-function PasswordChangePanel({
+export function PasswordChangePanel({
 	csrfToken,
 	onChanged,
 }: {
@@ -29,6 +29,7 @@ function PasswordChangePanel({
 }) {
 	const [currentPassword, setCurrentPassword] = useState("");
 	const [newPassword, setNewPassword] = useState("");
+	const [confirmNewPassword, setConfirmNewPassword] = useState("");
 	const [status, setStatus] = useState(
 		"Change the initial password before using protected admin actions.",
 	);
@@ -36,6 +37,12 @@ function PasswordChangePanel({
 
 	async function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
+
+		if (newPassword !== confirmNewPassword) {
+			setStatus("New passwords do not match.");
+			return;
+		}
+
 		setSubmitting(true);
 		setStatus("Updating password...");
 		try {
@@ -46,6 +53,7 @@ function PasswordChangePanel({
 			);
 			setCurrentPassword("");
 			setNewPassword("");
+			setConfirmNewPassword("");
 			setStatus("Password changed.");
 			onChanged();
 		} catch (error) {
@@ -76,6 +84,15 @@ function PasswordChangePanel({
 					type="password"
 					value={newPassword}
 					onChange={(event) => setNewPassword(event.currentTarget.value)}
+					autoComplete="new-password"
+				/>
+			</label>
+			<label>
+				Confirm new password
+				<input
+					type="password"
+					value={confirmNewPassword}
+					onChange={(event) => setConfirmNewPassword(event.currentTarget.value)}
 					autoComplete="new-password"
 				/>
 			</label>

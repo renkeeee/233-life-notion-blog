@@ -32,9 +32,6 @@ export function PostDetail({ post }: { post: PublicPostDetail }) {
 				</p>
 				<h1>{post.title}</h1>
 			</header>
-			{post.coverUrl ? (
-				<img className="post-hero-image" src={post.coverUrl} alt="" />
-			) : null}
 			<Markdown markdown={post.markdown} />
 		</article>
 	);

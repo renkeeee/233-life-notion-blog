@@ -223,6 +223,20 @@ export class PostsRepository {
 		return row ? mapPostRow(row) : null;
 	}
 
+	async listPublishedForSitemap(limit = 50000): Promise<PublicPostRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT ${publicPostColumns}
+				 FROM posts
+				 WHERE visibility = 'published'
+				 ORDER BY published_at DESC, updated_at DESC
+				 LIMIT ?`,
+			)
+			.bind(limit)
+			.all<PostRow>();
+
+		return result.results.map(mapPostRow);
+	}
 }
 
 export class PostContentRepository {

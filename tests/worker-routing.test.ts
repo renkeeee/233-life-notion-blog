@@ -26,6 +26,10 @@ describe("worker route kind", () => {
 		},
 	);
 
+	it("routes sitemap requests as sitemap", () => {
+		expect(routeKind(workerRequest("/sitemap.xml"))).toBe("sitemap");
+	});
+
 	it("routes non-api paths as app", () => {
 		expect(routeKind(workerRequest("/posts/example"))).toBe("app");
 	});

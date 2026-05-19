@@ -4,9 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import worker from "../workers/app";
 import {
+	handleSitemap,
 	handlePublicApi,
 	listPostsResponse,
 	postDetailResponse,
+	sitemapXmlResponse,
 } from "../workers/api/public";
 import { PostContentRepository, PostsRepository } from "../workers/db/d1";
 import schemaSql from "../workers/db/schema.sql?raw";
@@ -254,6 +256,32 @@ describe("public response helpers", () => {
 			markdown: "# Hello",
 		});
 	});
+
+	it("renders XML sitemap entries for the homepage and published posts", () => {
+		const xml = sitemapXmlResponse(
+			[
+				{
+					...publishedPost,
+					slug: "hello world",
+					updatedAt: "2026-05-02T00:00:00.000Z",
+				},
+				{
+					...publishedPost,
+					id: "post-2",
+					slug: "c&c notes",
+					updatedAt: "2026-05-03T00:00:00.000Z",
+				},
+			],
+			"https://example.test",
+		);
+
+		expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
+		expect(xml).toContain("<loc>https://example.test/</loc>");
+		expect(xml).toContain("<loc>https://example.test/post/hello%20world</loc>");
+		expect(xml).toContain("<loc>https://example.test/post/c%26c%20notes</loc>");
+		expect(xml).toContain("<lastmod>2026-05-02T00:00:00.000Z</lastmod>");
+		expect(xml).toContain("<lastmod>2026-05-03T00:00:00.000Z</lastmod>");
+	});
 });
 
 describe("PostsRepository", () => {
@@ -411,6 +439,46 @@ describe("PostsRepository", () => {
 			);
 			expect(searchCall?.sql).toContain("ESCAPE '\\'");
 			expect(searchCall?.values).toEqual(["%\\%%", "%\\%%", 20]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists published posts for sitemap without hidden posts", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "first-life",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-life",
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "hidden-life",
+					visibility: "hidden",
+					published_at: "2026-05-04T00:00:00.000Z",
+				}),
+			);
+
+			await expect(
+				new PostsRepository(db.asD1()).listPublishedForSitemap(),
+			).resolves.toEqual([
+				expect.objectContaining({ slug: "first-life" }),
+				expect.objectContaining({ slug: "second-life" }),
+			]);
 		} finally {
 			db.close();
 		}
@@ -642,6 +710,67 @@ describe("handlePublicApi", () => {
 				items: [expect.objectContaining({ slug: "from-worker" })],
 			}),
 		);
+	});
+
+	it("returns a sitemap XML document through the worker app", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "life post",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "hidden post",
+					visibility: "hidden",
+				}),
+			);
+
+			const response = await worker.fetch(
+				publicRequest("/sitemap.xml") as WorkerRequest,
+				envWithDb(db.asD1()),
+				{} as ExecutionContext,
+			);
+			const xml = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toBe(
+				"application/xml; charset=utf-8",
+			);
+			expect(xml).toContain("<loc>https://example.test/</loc>");
+			expect(xml).toContain("<loc>https://example.test/post/life%20post</loc>");
+			expect(xml).not.toContain("hidden post");
+		} finally {
+			db.close();
+		}
+	});
+
+	it("returns a sitemap XML document from the public sitemap handler", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ slug: "direct sitemap" }));
+
+			const response = await handleSitemap(
+				publicRequest("/sitemap.xml"),
+				envWithDb(db.asD1()),
+			);
+			const xml = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("cache-control")).toBe(
+				"public, max-age=300",
+			);
+			expect(xml).toContain(
+				"<loc>https://example.test/post/direct%20sitemap</loc>",
+			);
+		} finally {
+			db.close();
+		}
 	});
 
 	it("returns structured 404 for unknown API routes through the worker app", async () => {

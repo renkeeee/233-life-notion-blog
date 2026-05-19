@@ -117,6 +117,72 @@ function postSlugFromPath(pathname: string): string | null {
 	}
 }
 
+function xmlEscape(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&apos;");
+}
+
+function normalizedOrigin(origin: string): string {
+	return origin.replace(/\/$/, "");
+}
+
+function publicPostUrl(origin: string, slug: string): string {
+	return `${normalizedOrigin(origin)}/post/${encodeURIComponent(slug)}`;
+}
+
+export function sitemapXmlResponse(
+	posts: PublicPostRecord[],
+	origin: string,
+): string {
+	const siteOrigin = normalizedOrigin(origin);
+	const entries = [
+		[
+			"\t<url>",
+			`\t\t<loc>${xmlEscape(`${siteOrigin}/`)}</loc>`,
+			"\t</url>",
+		].join("\n"),
+		...posts.map((post) =>
+			[
+				"\t<url>",
+				`\t\t<loc>${xmlEscape(publicPostUrl(siteOrigin, post.slug))}</loc>`,
+				`\t\t<lastmod>${xmlEscape(post.updatedAt)}</lastmod>`,
+				"\t</url>",
+			].join("\n"),
+		),
+	];
+
+	return [
+		'<?xml version="1.0" encoding="UTF-8"?>',
+		'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+		...entries,
+		"</urlset>",
+		"",
+	].join("\n");
+}
+
+export async function handleSitemap(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	if (request.method !== "GET" && request.method !== "HEAD") {
+		return new Response("Not found", { status: 404 });
+	}
+
+	const posts = await new PostsRepository(env.DB).listPublishedForSitemap();
+	const xml = sitemapXmlResponse(posts, new URL(request.url).origin);
+
+	return new Response(request.method === "HEAD" ? null : xml, {
+		headers: {
+			"content-type": "application/xml; charset=utf-8",
+			"cache-control": "public, max-age=300",
+		},
+	});
+}
+
 export async function handlePublicApi(
 	request: Request,
 	env: AppEnv,

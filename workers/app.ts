@@ -1,10 +1,14 @@
 import { handleAdminApi } from "./api/admin";
-import { handlePublicApi } from "./api/public";
+import { handlePublicApi, handleSitemap } from "./api/public";
 import { runSync } from "./sync";
 import type { AppEnv } from "./types";
 
-export function routeKind(request: Request): "api" | "app" {
+export function routeKind(request: Request): "api" | "sitemap" | "app" {
 	const { pathname } = new URL(request.url);
+
+	if (pathname === "/sitemap.xml") {
+		return "sitemap";
+	}
 
 	return pathname === "/api" || pathname.startsWith("/api/") ? "api" : "app";
 }
@@ -40,8 +44,13 @@ export default {
 		}
 
 		const url = new URL(request.url);
+		const kind = routeKind(request);
 
-		if (routeKind(request) === "api") {
+		if (kind === "sitemap") {
+			return handleSitemap(request, env);
+		}
+
+		if (kind === "api") {
 			if (isAdminApiPath(url.pathname)) {
 				return handleAdminApi(request, env);
 			}

@@ -449,6 +449,31 @@ body {
 	padding: 0 1px;
 }
 
+.admin-date-time-picker .react-datetime-picker__inputGroup {
+	min-width: 15ch;
+	white-space: nowrap;
+}
+
+.admin-date-time-picker .react-datetime-picker__inputGroup__input {
+	box-sizing: content-box;
+	width: auto;
+}
+
+.admin-date-time-picker .react-datetime-picker__inputGroup__year {
+	min-width: 4ch;
+}
+
+.admin-date-time-picker .react-datetime-picker__inputGroup__month,
+.admin-date-time-picker .react-datetime-picker__inputGroup__day,
+.admin-date-time-picker .react-datetime-picker__inputGroup__hour,
+.admin-date-time-picker .react-datetime-picker__inputGroup__minute {
+	min-width: 2ch;
+}
+
+.admin-date-time-picker .react-datetime-picker__inputGroup__divider {
+	padding-inline: 2px;
+}
+
 .admin-date-time-picker button,
 .react-calendar button {
 	border: 0;

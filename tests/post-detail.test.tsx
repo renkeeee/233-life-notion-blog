@@ -14,6 +14,7 @@ describe("PostDetail", () => {
 						id: "post-1",
 						slug: "hello-world",
 						title: "Hello World",
+						excerpt: "Opening body text.",
 						coverUrl: "https://cdn.example.com/cover.jpg",
 						tags: ["Life", "Notes"],
 						publishedAt: "2026-05-19T00:00:00.000Z",

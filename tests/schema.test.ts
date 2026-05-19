@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import initialMigrationSql from "../migrations/0001_initial.sql?raw";
 import simplifyPostMetadataMigrationSql from "../migrations/0002_simplify_post_metadata.sql?raw";
 import addPostTagsMigrationSql from "../migrations/0003_add_post_tags.sql?raw";
+import addPostExcerptMigrationSql from "../migrations/0004_add_post_excerpt.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -57,6 +58,7 @@ function tableNames(db: DatabaseSync): string[] {
 describe("D1 schema", () => {
 	it("keeps only the post metadata columns used by the simplified blog", () => {
 		expect(normalizedSchemaSql).not.toContain("summary TEXT");
+		expect(normalizedSchemaSql).toContain("excerpt TEXT NOT NULL DEFAULT ''");
 		expect(normalizedSchemaSql).toContain("cover_url TEXT");
 		expect(normalizedSchemaSql).not.toContain("tags_json TEXT");
 	});
@@ -128,6 +130,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(initialMigrationSql);
 			migratedDb.exec(simplifyPostMetadataMigrationSql);
 			migratedDb.exec(addPostTagsMigrationSql);
+			migratedDb.exec(addPostExcerptMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -148,6 +151,7 @@ describe("D1 schema", () => {
 				"last_sync_error",
 				"created_at",
 				"updated_at",
+				"excerpt",
 			]);
 		} finally {
 			migratedDb.close();

@@ -66,6 +66,7 @@ type PostRow = {
 	id: string;
 	slug: string;
 	title: string;
+	excerpt: string;
 	cover_url: string | null;
 	status: string;
 	visibility: PostVisibility;
@@ -94,6 +95,7 @@ const publicPostColumnNames = [
 	"id",
 	"slug",
 	"title",
+	"excerpt",
 	"cover_url",
 	"status",
 	"visibility",
@@ -112,6 +114,7 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		id: row.id,
 		slug: row.slug,
 		title: row.title,
+		excerpt: row.excerpt,
 		coverUrl: row.cover_url,
 		tags: [],
 		status: row.status,

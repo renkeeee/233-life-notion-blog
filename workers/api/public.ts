@@ -6,6 +6,7 @@ type PublicPostSummary = {
 	id: string;
 	slug: string;
 	title: string;
+	excerpt: string;
 	coverUrl: string | null;
 	tags: string[];
 	publishedAt: string | null;
@@ -36,6 +37,7 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 		id: post.id,
 		slug: post.slug,
 		title: post.title,
+		excerpt: post.excerpt,
 		coverUrl: post.coverUrl,
 		tags: post.tags,
 		publishedAt: post.publishedAt,

@@ -75,6 +75,7 @@ export interface PostMetadata {
 	notionPageId: string;
 	slug: string;
 	title: string;
+	excerpt: string;
 	coverUrl: string | null;
 	tags: string[];
 	status: string;
@@ -109,6 +110,7 @@ interface ExistingPostState {
 	content_hash: string | null;
 	slug: string;
 	title: string;
+	excerpt: string;
 	cover_url: string | null;
 	status: string;
 	visibility: PostVisibility;
@@ -118,6 +120,7 @@ interface ExistingPostState {
 interface ExistingContentState {
 	block_snapshot_hash: string;
 	content_hash: string;
+	markdown: string;
 }
 
 interface CachedAsset {
@@ -163,6 +166,32 @@ export function syncVisibilityForStatus(
 	return isPublishedStatus(status, publishedStatusValues) ? "published" : "hidden";
 }
 
+export function excerptFromMarkdown(markdown: string, maxLength = 180): string {
+	const plainText = markdown
+		.replace(/```[\s\S]*?```/g, " ")
+		.replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+		.replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+		.replace(/^#{1,6}\s+/gm, "")
+		.replace(/^>\s?/gm, "")
+		.replace(/[`*_~]/g, "")
+		.replace(/<[^>]+>/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+
+	if (plainText.length <= maxLength) {
+		return plainText;
+	}
+
+	const clipped = plainText.slice(0, maxLength).trimEnd();
+	const lastSpace = clipped.lastIndexOf(" ");
+	const wordSafe =
+		lastSpace >= Math.floor(maxLength * 0.6)
+			? clipped.slice(0, lastSpace).trimEnd()
+			: clipped;
+
+	return `${wordSafe}...`;
+}
+
 export function mapNotionPageToPostMetadata(
 	page: NotionSyncPage,
 	mapping: FieldMapping,
@@ -180,6 +209,7 @@ export function mapNotionPageToPostMetadata(
 		notionPageId: page.id,
 		slug,
 		title,
+		excerpt: "",
 		coverUrl: pageCoverUrl(page),
 		tags: mapping.tags ? tagProperty(properties[mapping.tags]) : [],
 		status: String(status),
@@ -349,6 +379,7 @@ async function syncPage(
 			const metadataForExistingPost = {
 				...metadata,
 				id: existing.id,
+				excerpt: existing.excerpt,
 				coverUrl: existing.cover_url,
 				notionLastEditedTime: existing.notion_last_edited_time,
 			};
@@ -400,7 +431,7 @@ async function syncPage(
 			await executeBatch(env.DB, [
 				prepareUpsertPost(
 					env.DB,
-					{ ...metadata, id: postId },
+					{ ...metadata, id: postId, excerpt: existing?.excerpt ?? "" },
 					existing?.content_hash ?? null,
 					deps,
 				),
@@ -430,10 +461,11 @@ async function syncPage(
 			!input.force &&
 			existingContent.block_snapshot_hash === blockSnapshotHash
 		) {
+			const excerpt = excerptFromMarkdown(existingContent.markdown);
 			await executeBatch(env.DB, [
 				prepareUpsertPost(
 					env.DB,
-					{ ...metadata, id: postId },
+					{ ...metadata, id: postId, excerpt },
 					existingContent.content_hash,
 					deps,
 				),
@@ -455,6 +487,7 @@ async function syncPage(
 
 		const assetResult = await uploadPageAssets(env, settings, blocks, deps);
 		const markdown = blocksToMarkdown(blocks, { assetUrlMap: assetResult.urlMap });
+		const excerpt = excerptFromMarkdown(markdown);
 		const contentHash = await sha256Hex(markdown);
 		const coverUrl = metadata.coverUrl
 			? (await cacheAsset(env, settings, metadata.coverUrl, deps)).cdnUrl
@@ -463,7 +496,7 @@ async function syncPage(
 		await executeBatch(env.DB, [
 			prepareUpsertPost(
 				env.DB,
-				{ ...metadata, id: postId, coverUrl },
+				{ ...metadata, id: postId, excerpt, coverUrl },
 				contentHash,
 				deps,
 			),
@@ -519,7 +552,7 @@ async function existingPostState(
 	return db
 		.prepare(
 			`SELECT
-				id, notion_last_edited_time, content_hash, slug, title, cover_url,
+				id, notion_last_edited_time, content_hash, slug, title, excerpt, cover_url,
 				status, visibility, published_at
 			 FROM posts
 			 WHERE notion_page_id = ?
@@ -535,7 +568,7 @@ async function contentState(
 ): Promise<ExistingContentState | null> {
 	return db
 		.prepare(
-			`SELECT block_snapshot_hash, content_hash
+			`SELECT block_snapshot_hash, content_hash, markdown
 			 FROM post_content
 			 WHERE post_id = ?
 			 LIMIT 1`,
@@ -776,14 +809,15 @@ function prepareUpsertPost(
 	return db
 		.prepare(
 			`INSERT INTO posts (
-				id, notion_page_id, slug, title, cover_url,
+				id, notion_page_id, slug, title, excerpt, cover_url,
 				status, visibility, published_at, notion_last_edited_time,
 				content_hash, last_sync_error, created_at, updated_at
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
 			ON CONFLICT(notion_page_id) DO UPDATE SET
 				slug = excluded.slug,
 				title = excluded.title,
+				excerpt = excluded.excerpt,
 				cover_url = excluded.cover_url,
 				status = excluded.status,
 				visibility = excluded.visibility,
@@ -798,6 +832,7 @@ function prepareUpsertPost(
 			post.notionPageId,
 			post.slug,
 			post.title,
+			post.excerpt,
 			post.coverUrl,
 			post.status,
 			post.visibility,

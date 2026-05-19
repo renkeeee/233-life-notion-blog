@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS posts (
 	content_hash TEXT,
 	last_sync_error TEXT,
 	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
+	updated_at TEXT NOT NULL,
+	excerpt TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at

@@ -131,11 +131,11 @@ class SqliteD1Database {
 		this.db
 			.prepare(
 				`INSERT INTO posts (
-					id, notion_page_id, slug, title, cover_url,
+					id, notion_page_id, slug, title, excerpt, cover_url,
 					status, visibility, published_at, notion_last_edited_time,
 					content_hash, last_sync_error, created_at, updated_at
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -143,6 +143,7 @@ class SqliteD1Database {
 					row.notion_page_id,
 					row.slug,
 					row.title,
+					row.excerpt,
 					row.cover_url,
 					row.status,
 					row.visibility,
@@ -194,6 +195,7 @@ const publishedPost: PublicPostRecord = {
 	id: "post-1",
 	slug: "published-post",
 	title: "Published post",
+	excerpt: "Opening text for the published post.",
 	coverUrl: "https://cdn.example.com/cover.jpg",
 	tags: ["Life", "Notes"],
 	status: "ready",
@@ -220,6 +222,7 @@ function postRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 		notion_page_id: "notion-1",
 		slug: "published-post",
 		title: "Published post",
+		excerpt: "Opening text for the published post.",
 		cover_url: "https://cdn.example.com/cover.jpg",
 		status: "ready",
 		visibility: "published",
@@ -246,6 +249,7 @@ describe("public response helpers", () => {
 					id: "post-1",
 					slug: "published-post",
 					title: "Published post",
+					excerpt: "Opening text for the published post.",
 					coverUrl: "https://cdn.example.com/cover.jpg",
 					tags: ["Life", "Notes"],
 					publishedAt: "2026-05-01T00:00:00.000Z",
@@ -263,6 +267,7 @@ describe("public response helpers", () => {
 			id: "post-1",
 			slug: "published-post",
 			title: "Published post",
+			excerpt: "Opening text for the published post.",
 			coverUrl: "https://cdn.example.com/cover.jpg",
 			tags: ["Life", "Notes"],
 			publishedAt: "2026-05-01T00:00:00.000Z",
@@ -702,12 +707,13 @@ describe("handlePublicApi", () => {
 		);
 
 		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual({
-			id: "post-1",
-			slug: "hello world",
-			title: "Published post",
-			coverUrl: "https://cdn.example.com/cover.jpg",
-			tags: [],
+			await expect(response.json()).resolves.toEqual({
+				id: "post-1",
+				slug: "hello world",
+				title: "Published post",
+				excerpt: "Opening text for the published post.",
+				coverUrl: "https://cdn.example.com/cover.jpg",
+				tags: [],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
 			markdown: "# Hello world",

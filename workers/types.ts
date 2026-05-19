@@ -11,6 +11,7 @@ export interface PublicPostRecord {
 	id: string;
 	slug: string;
 	title: string;
+	excerpt: string;
 	coverUrl: string | null;
 	tags: string[];
 	status: string;

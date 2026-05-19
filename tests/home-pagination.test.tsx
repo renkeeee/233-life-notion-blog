@@ -35,6 +35,7 @@ function post(overrides: Partial<PublicPostSummary> = {}): PublicPostSummary {
 		id: "post-1",
 		slug: "first-post",
 		title: "First post",
+		excerpt: "The first few words from the post body.",
 		coverUrl: null,
 		tags: [],
 		publishedAt: "2026-05-01T00:00:00.000Z",
@@ -103,6 +104,7 @@ describe("home pagination", () => {
 		);
 
 		await screen.findByRole("heading", { name: "First post" });
+		expect(screen.getByText("The first few words from the post body.")).toBeTruthy();
 		expect(apiGet).toHaveBeenCalledWith("/api/posts?page=1&limit=20");
 
 		await act(async () => {

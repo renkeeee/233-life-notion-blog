@@ -214,6 +214,17 @@ body {
 	margin-top: 12px;
 }
 
+.post-excerpt {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow: hidden;
+	color: #56524c;
+	font-size: 0.98rem;
+	line-height: 1.65;
+	margin: 10px 0 0;
+}
+
 .detail-tags {
 	margin-top: 16px;
 }

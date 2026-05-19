@@ -8,6 +8,7 @@ import { hashPassword, generateEncryptionKey } from "../workers/crypto";
 import schemaSql from "../workers/db/schema.sql?raw";
 import type { NotionBlock } from "../workers/notion/blocks";
 import {
+	excerptFromMarkdown,
 	mapNotionPageToPostMetadata,
 	planSyncWindow,
 	runSync,
@@ -492,6 +493,7 @@ describe("runSync", () => {
 				id: string;
 				slug: string;
 				title: string;
+				excerpt: string;
 				cover_url: string | null;
 				visibility: string;
 				content_hash: string | null;
@@ -529,6 +531,7 @@ describe("runSync", () => {
 				id: "notion-page-1",
 				slug: "hello-notion",
 				title: "Hello Notion",
+				excerpt: "Hello body",
 				cover_url: asset.cdn_url,
 				visibility: "published",
 				last_sync_error: null,
@@ -559,6 +562,18 @@ describe("runSync", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("extracts a compact plain text excerpt from Markdown", () => {
+		expect(
+			excerptFromMarkdown(
+				"# Heading\n\n![Cover image](https://cdn.example.com/image.png)\n\nFirst paragraph with [a link](https://example.com). Second line.",
+				80,
+			),
+		).toBe("Heading First paragraph with a link. Second line.");
+		expect(excerptFromMarkdown("Word ".repeat(50), 24)).toBe(
+			"Word Word Word Word...",
+		);
 	});
 
 	it("refreshes metadata for unchanged existing pages before skipping content sync", async () => {

@@ -352,6 +352,71 @@ describe("NotionClient", () => {
 		]);
 	});
 
+	it("resolves a page link that contains one child database for schema testing", async () => {
+		const paths: string[] = [];
+		const pageId = "3646b3023c2380fc886af37685393dd4";
+		const childDatabaseId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		const properties = {
+			Title: property("title"),
+			Status: property("status"),
+		};
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input) => {
+				const url = new URL(input.toString());
+				paths.push(url.pathname);
+
+				if (url.pathname === `/v1/databases/${pageId}`) {
+					return Response.json(
+						{
+							object: "error",
+							code: "validation_error",
+							message: `Provided database_id ${pageId} is a page, not a database.`,
+						},
+						{ status: 400 },
+					);
+				}
+
+				if (url.pathname === `/v1/blocks/${pageId}/children`) {
+					return Response.json({
+						object: "list",
+						has_more: false,
+						next_cursor: null,
+						results: [
+							{
+								object: "block",
+								id: childDatabaseId,
+								type: "child_database",
+								child_database: { title: "Posts" },
+							},
+						],
+					});
+				}
+
+				if (url.pathname === `/v1/databases/${childDatabaseId}`) {
+					return Response.json({
+						object: "database",
+						id: childDatabaseId,
+						data_sources: [{ id: dataSourceId, name: "Blog posts" }],
+					});
+				}
+
+				return Response.json({
+					object: "data_source",
+					id: dataSourceId,
+					properties,
+				});
+			},
+		});
+
+		await expect(client.schemaForDatabase(pageId)).resolves.toEqual(properties);
+		expect(paths).toEqual([
+			`/v1/databases/${pageId}`,
+			`/v1/blocks/${pageId}/children`,
+			`/v1/databases/${childDatabaseId}`,
+			`/v1/data_sources/${dataSourceId}`,
+		]);
+	});
+
 	it("throws a clear error when a database has multiple data sources without a selected source", async () => {
 		const paths: string[] = [];
 		const firstDataSourceId = "11111111111111111111111111111111";
@@ -487,6 +552,71 @@ describe("NotionClient", () => {
 				timestamp: "last_edited_time",
 			},
 		});
+	});
+
+	it("queries pages from the child database when the configured id is a page", async () => {
+		const requests: Request[] = [];
+		const pageId = "3646b3023c2380fc886af37685393dd4";
+		const childDatabaseId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		const client = new NotionClient("secret-token", {
+			fetcher: async (input, init) => {
+				const request = new Request(input, init);
+				requests.push(request);
+				const url = new URL(request.url);
+
+				if (url.pathname === `/v1/databases/${pageId}`) {
+					return Response.json(
+						{
+							object: "error",
+							code: "validation_error",
+							message: `Provided database_id ${pageId} is a page, not a database.`,
+						},
+						{ status: 400 },
+					);
+				}
+
+				if (url.pathname === `/v1/blocks/${pageId}/children`) {
+					return Response.json({
+						object: "list",
+						has_more: false,
+						next_cursor: null,
+						results: [
+							{
+								object: "block",
+								id: childDatabaseId,
+								type: "child_database",
+								child_database: { title: "Posts" },
+							},
+						],
+					});
+				}
+
+				if (url.pathname === `/v1/databases/${childDatabaseId}`) {
+					return Response.json({
+						object: "database",
+						id: childDatabaseId,
+						data_sources: [{ id: dataSourceId, name: "Blog posts" }],
+					});
+				}
+
+				return Response.json({
+					object: "list",
+					has_more: false,
+					next_cursor: null,
+					results: [{ object: "page", id: "page-1" }],
+				});
+			},
+		});
+
+		await expect(client.queryDatabaseOrDataSourcePages(pageId)).resolves.toEqual([
+			{ object: "page", id: "page-1" },
+		]);
+		expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+			`/v1/databases/${pageId}`,
+			`/v1/blocks/${pageId}/children`,
+			`/v1/databases/${childDatabaseId}`,
+			`/v1/data_sources/${dataSourceId}/query`,
+		]);
 	});
 
 	it("paginates block children and attaches nested child blocks", async () => {

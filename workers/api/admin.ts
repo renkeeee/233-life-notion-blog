@@ -594,6 +594,7 @@ function notionSchemaError(error: unknown): Response {
 	if (
 		error instanceof Error &&
 		(error.message.startsWith("FIELD_MAPPING_INVALID") ||
+			error.message.startsWith("NOTION_DATABASE_AMBIGUOUS") ||
 			error.message.startsWith("NOTION_DATA_SOURCE_AMBIGUOUS"))
 	) {
 		return errorJson(

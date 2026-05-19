@@ -91,7 +91,7 @@ export class NotionClient {
 		databaseId: string,
 		options: SchemaForDatabaseOptions = {},
 	): Promise<NotionProperties> {
-		const database = await this.retrieveDatabase(databaseId);
+		const database = await this.resolveDatabase(databaseId);
 
 		if (database.properties) {
 			return database.properties;
@@ -130,9 +130,7 @@ export class NotionClient {
 	}
 
 	async listBlockTree(blockId: string): Promise<NotionBlock[]> {
-		const blocks = await this.paginatedGet<NotionBlock>(
-			`/blocks/${blockId}/children`,
-		);
+		const blocks = await this.listBlockChildren(blockId);
 
 		for (const block of blocks) {
 			if (block.has_children === true && typeof block.id === "string") {
@@ -143,11 +141,15 @@ export class NotionClient {
 		return blocks;
 	}
 
+	async listBlockChildren(blockId: string): Promise<NotionBlock[]> {
+		return this.paginatedGet<NotionBlock>(`/blocks/${blockId}/children`);
+	}
+
 	private async queryPathForDatabase(databaseId: string): Promise<string> {
-		const database = await this.retrieveDatabase(databaseId);
+		const database = await this.resolveDatabase(databaseId);
 
 		if (database.properties) {
-			return `/databases/${databaseId}/query`;
+			return `/databases/${database.id}/query`;
 		}
 
 		const dataSources = database.data_sources ?? [];
@@ -162,6 +164,40 @@ export class NotionClient {
 		}
 
 		return `/data_sources/${dataSources[0].id}/query`;
+	}
+
+	private async resolveDatabase(databaseIdOrPageId: string): Promise<NotionDatabase> {
+		try {
+			return await this.retrieveDatabase(databaseIdOrPageId);
+		} catch (error) {
+			if (!isPageNotDatabaseError(error)) {
+				throw error;
+			}
+		}
+
+		const childDatabaseId =
+			await this.onlyChildDatabaseIdForPage(databaseIdOrPageId);
+		return this.retrieveDatabase(childDatabaseId);
+	}
+
+	private async onlyChildDatabaseIdForPage(pageId: string): Promise<string> {
+		const childDatabases = (await this.listBlockChildren(pageId)).filter(
+			(block) => block.type === "child_database" && typeof block.id === "string",
+		);
+
+		if (childDatabases.length === 0) {
+			throw new Error(
+				"FIELD_MAPPING_INVALID: Notion page has no child database; configure the database link itself",
+			);
+		}
+
+		if (childDatabases.length > 1) {
+			throw new Error(
+				"NOTION_DATABASE_AMBIGUOUS: Notion page has multiple child databases; configure the database link itself",
+			);
+		}
+
+		return childDatabases[0].id as string;
 	}
 
 	private async paginatedPost<T>(
@@ -251,4 +287,12 @@ async function readErrorPayload(response: Response): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+function isPageNotDatabaseError(error: unknown): boolean {
+	return (
+		error instanceof NotionApiError &&
+		error.status === 400 &&
+		error.message.includes("is a page, not a database")
+	);
 }

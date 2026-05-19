@@ -139,6 +139,45 @@ body {
 	color: #8a2d2d;
 }
 
+.load-more-panel {
+	display: flex;
+	justify-content: center;
+	margin-top: 18px;
+	min-height: 44px;
+}
+
+.load-more-button,
+.load-more-error button {
+	border: 1px solid #1d1d1b;
+	border-radius: 6px;
+	background: #1d1d1b;
+	color: #fff;
+	cursor: pointer;
+	font-weight: 650;
+	padding: 10px 16px;
+}
+
+.load-more-status {
+	margin: 0;
+	color: #706d66;
+	font-size: 0.92rem;
+	font-weight: 650;
+}
+
+.load-more-error {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 10px;
+	color: #8a2d2d;
+	font-size: 0.92rem;
+}
+
+.load-more-error p {
+	margin: 0;
+}
+
 .post-list {
 	display: grid;
 	gap: 0;

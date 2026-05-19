@@ -77,11 +77,17 @@ type ListPublishedOptions = {
 	page: number;
 	limit: number;
 	q?: string;
+	tag?: string;
 };
 
 type ListPublishedResult = {
 	items: PublicPostRecord[];
 	total: number;
+};
+
+export type PublicTagRecord = {
+	name: string;
+	count: number;
 };
 
 const publicPostColumnNames = [
@@ -107,6 +113,7 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		slug: row.slug,
 		title: row.title,
 		coverUrl: row.cover_url,
+		tags: [],
 		status: row.status,
 		visibility: row.visibility,
 		publishedAt: row.published_at,
@@ -127,23 +134,36 @@ function likePattern(value: string): string {
 
 function publishedFilters(options: {
 	q?: string;
+	tag?: string;
 }): { joins: string; where: string; values: unknown[] } {
 	const clauses = ["p.visibility = 'published'"];
 	const values: unknown[] = [];
 	const q = options.q?.trim();
+	const tag = options.tag?.trim();
 
 	let joins = "";
 
+	if (tag) {
+		joins += "JOIN post_tags filter_tags ON filter_tags.post_id = p.id AND filter_tags.tag = ?\n";
+		values.push(tag);
+	}
+
 	if (q) {
-		joins = "LEFT JOIN post_content pc ON pc.post_id = p.id";
+		joins += "LEFT JOIN post_content pc ON pc.post_id = p.id";
 		const pattern = likePattern(q);
 		clauses.push(
 			`(
 				p.title LIKE ? ESCAPE '\\'
 				OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+				OR EXISTS (
+					SELECT 1
+					FROM post_tags search_tags
+					WHERE search_tags.post_id = p.id
+					AND search_tags.tag LIKE ? ESCAPE '\\'
+				)
 			)`,
 		);
-		values.push(pattern, pattern);
+		values.push(pattern, pattern, pattern);
 	}
 
 	return {
@@ -183,7 +203,7 @@ export class PostsRepository {
 			.first<{ total: number }>();
 
 		return {
-			items: itemResult.results.map(mapPostRow),
+			items: await this.withTags(itemResult.results.map(mapPostRow)),
 			total: Number(countRow?.total ?? 0),
 		};
 	}
@@ -199,14 +219,20 @@ export class PostsRepository {
 				 AND (
 					p.title LIKE ? ESCAPE '\\'
 					OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+					OR EXISTS (
+						SELECT 1
+						FROM post_tags search_tags
+						WHERE search_tags.post_id = p.id
+						AND search_tags.tag LIKE ? ESCAPE '\\'
+					)
 				 )
 				 ORDER BY p.published_at DESC, p.updated_at DESC
 				 LIMIT ?`,
 			)
-			.bind(pattern, pattern, limit)
+			.bind(pattern, pattern, pattern, limit)
 			.all<PostRow>();
 
-		return result.results.map(mapPostRow);
+		return this.withTags(result.results.map(mapPostRow));
 	}
 
 	async findPublishedBySlug(slug: string): Promise<PublicPostRecord | null> {
@@ -220,7 +246,12 @@ export class PostsRepository {
 			.bind(slug)
 			.first<PostRow>();
 
-		return row ? mapPostRow(row) : null;
+		if (!row) {
+			return null;
+		}
+
+		const [post] = await this.withTags([mapPostRow(row)]);
+		return post ?? null;
 	}
 
 	async listPublishedForSitemap(limit = 50000): Promise<PublicPostRecord[]> {
@@ -236,6 +267,65 @@ export class PostsRepository {
 			.all<PostRow>();
 
 		return result.results.map(mapPostRow);
+	}
+
+	async listTags(): Promise<PublicTagRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT pt.tag AS name, COUNT(DISTINCT p.id) AS count
+				 FROM post_tags pt
+				 JOIN posts p ON p.id = pt.post_id
+				 WHERE p.visibility = 'published'
+				 GROUP BY pt.tag
+				 ORDER BY count DESC, pt.tag ASC`,
+			)
+			.all<{ name: string; count: number }>();
+
+		return result.results.map((row) => ({
+			name: row.name,
+			count: Number(row.count),
+		}));
+	}
+
+	private async withTags(
+		posts: PublicPostRecord[],
+	): Promise<PublicPostRecord[]> {
+		if (posts.length === 0) {
+			return posts;
+		}
+
+		const tagsByPostId = await this.tagsForPostIds(posts.map((post) => post.id));
+
+		return posts.map((post) => ({
+			...post,
+			tags: tagsByPostId.get(post.id) ?? [],
+		}));
+	}
+
+	private async tagsForPostIds(postIds: string[]): Promise<Map<string, string[]>> {
+		const placeholders = postIds.map(() => "?").join(", ");
+		const result = await this.db
+			.prepare(
+				`SELECT post_id, tag
+				 FROM post_tags
+				 WHERE post_id IN (${placeholders})
+				 ORDER BY post_id ASC, sort_order ASC, tag ASC`,
+			)
+			.bind(...postIds)
+			.all<{ post_id: string; tag: string }>();
+		const tagsByPostId = new Map<string, string[]>();
+
+		for (const row of result.results) {
+			if (typeof row.post_id !== "string" || typeof row.tag !== "string") {
+				continue;
+			}
+
+			const tags = tagsByPostId.get(row.post_id) ?? [];
+			tags.push(row.tag);
+			tagsByPostId.set(row.post_id, tags);
+		}
+
+		return tagsByPostId;
 	}
 }
 

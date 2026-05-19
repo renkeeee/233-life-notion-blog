@@ -23,6 +23,7 @@ describe("inferFieldMapping", () => {
 		expect(mapping).toEqual({
 			title: "Title",
 			status: "Status",
+			tags: "Tags",
 			publishedAt: "Published At",
 			publishedStatusValues: ["Published", "已发布"],
 		});
@@ -58,6 +59,7 @@ describe("inferFieldMapping", () => {
 		expect(mapping).toEqual({
 			title: "标题",
 			status: "状态",
+			tags: "标签",
 			publishedAt: "发布日期",
 			publishedStatusValues: ["Published", "已发布"],
 		});
@@ -133,6 +135,7 @@ describe("inferFieldMapping", () => {
 		).toEqual({
 			title: "Title",
 			status: "Status",
+			tags: "Status Tags",
 			publishedStatusValues: ["Published", "已发布"],
 		});
 	});

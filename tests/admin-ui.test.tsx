@@ -28,15 +28,16 @@ describe("SettingsPanel", () => {
 		).toBeTruthy();
 		expect(screen.getByLabelText("title")).toBeTruthy();
 		expect(screen.getByLabelText("status")).toBeTruthy();
+		expect(screen.getByLabelText("tags")).toBeTruthy();
 		expect(screen.getByLabelText("publishedAt")).toBeTruthy();
 		expect(screen.getByText("Notion type: title")).toBeTruthy();
 		expect(screen.getByText("Notion type: status, select, or checkbox")).toBeTruthy();
+		expect(screen.getByText("Notion type: multi_select or select")).toBeTruthy();
 		expect(screen.getByText("Notion type: date or created_time")).toBeTruthy();
 		expect(screen.getByLabelText("Published status values")).toHaveValue(
 			"Published\n已发布",
 		);
 		expect(screen.queryByLabelText("summary")).toBeNull();
-		expect(screen.queryByLabelText("tags")).toBeNull();
 		expect(screen.queryByLabelText("cover")).toBeNull();
 	});
 
@@ -214,6 +215,7 @@ describe("SettingsPanel", () => {
 			fieldMapping: {
 				title: "Name",
 				status: "Status",
+				tags: "Tags",
 				publishedAt: "Published At",
 				publishedStatusValues: ["Published"],
 			},
@@ -235,12 +237,14 @@ describe("SettingsPanel", () => {
 						options: [{ name: "Life" }],
 					},
 				},
+				Tags: { type: "multi_select" },
 				"Published On": { type: "date" },
 				Created: { type: "created_time" },
 			},
 			recommendedFieldMapping: {
 				title: "Headline",
 				status: "Publish",
+				tags: "Tags",
 				publishedAt: "Published On",
 				publishedStatusValues: ["Published"],
 			},
@@ -256,6 +260,7 @@ describe("SettingsPanel", () => {
 			fieldMapping: {
 				title: "Headline",
 				status: "Publish",
+				tags: "Tags",
 				publishedAt: "Published On",
 				publishedStatusValues: ["Published", "Draft"],
 			},
@@ -271,6 +276,7 @@ describe("SettingsPanel", () => {
 			await screen.findByText("Schema loaded. Field choices were updated from Notion.");
 			expect(screen.getByLabelText("title")).toHaveValue("Headline");
 			expect(screen.getByLabelText("status")).toHaveValue("Publish");
+			expect(screen.getByLabelText("tags")).toHaveValue("Tags");
 			expect(screen.getByLabelText("publishedAt")).toHaveValue("Published On");
 			expect(screen.getByRole("option", { name: "Headline (title)" })).toBeTruthy();
 			expect(screen.queryByRole("option", { name: "Name (rich_text)" })).toBeNull();
@@ -288,6 +294,7 @@ describe("SettingsPanel", () => {
 				fieldMapping: {
 					title: "Headline",
 					status: "Publish",
+					tags: "Tags",
 					publishedAt: "Published On",
 					publishedStatusValues: ["Published", "Draft"],
 				},

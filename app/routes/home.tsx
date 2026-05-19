@@ -11,6 +11,15 @@ type PostsResponse = {
 	limit: number;
 };
 
+type TagSummary = {
+	name: string;
+	count: number;
+};
+
+type TagsResponse = {
+	items: TagSummary[];
+};
+
 type LoadState =
 	| { status: "loading" }
 	| { status: "error"; message: string }
@@ -24,15 +33,25 @@ type LoadState =
 			loadMoreError: string | null;
 	  };
 
+type TagsState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "error"; message: string }
+	| { status: "success"; tags: TagSummary[] };
+
 type LoadMode = "replace" | "append";
 
 const homePageSize = 20;
 
-function postsPath(page: number): string {
+function postsPath(page: number, tag: string | null): string {
 	const params = new URLSearchParams({
 		page: String(page),
 		limit: String(homePageSize),
 	});
+
+	if (tag) {
+		params.set("tag", tag);
+	}
 
 	return `/api/posts?${params.toString()}`;
 }
@@ -84,13 +103,16 @@ function PostListSkeleton({
 export default function Home() {
 	const navigate = useNavigate();
 	const [query, setQuery] = useState("");
+	const [selectedTag, setSelectedTag] = useState<string | null>(null);
+	const [tagPickerOpen, setTagPickerOpen] = useState(false);
+	const [tagsState, setTagsState] = useState<TagsState>({ status: "idle" });
 	const [state, setState] = useState<LoadState>({ status: "loading" });
 	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const activeRequestRef = useRef(0);
 	const fetchingRef = useRef(false);
 
 	const loadPosts = useCallback(async (page: number, mode: LoadMode) => {
-		if (fetchingRef.current) {
+		if (fetchingRef.current && mode === "append") {
 			return;
 		}
 
@@ -109,7 +131,7 @@ export default function Home() {
 		}
 
 		try {
-			const response = await apiGet<PostsResponse>(postsPath(page));
+			const response = await apiGet<PostsResponse>(postsPath(page, selectedTag));
 
 			if (activeRequestRef.current !== requestId) {
 				return;
@@ -164,7 +186,7 @@ export default function Home() {
 				fetchingRef.current = false;
 			}
 		}
-	}, []);
+	}, [selectedTag]);
 
 	useEffect(() => {
 		void loadPosts(1, "replace");
@@ -174,6 +196,35 @@ export default function Home() {
 			fetchingRef.current = false;
 		};
 	}, [loadPosts]);
+
+	async function loadTags() {
+		setTagsState({ status: "loading" });
+		try {
+			const response = await apiGet<TagsResponse>("/api/tags");
+			setTagsState({ status: "success", tags: response.items });
+		} catch (error: unknown) {
+			setTagsState({
+				status: "error",
+				message: errorMessage(error),
+			});
+		}
+	}
+
+	function openTagPicker() {
+		setTagPickerOpen(true);
+		if (tagsState.status === "idle") {
+			void loadTags();
+		}
+	}
+
+	function selectTag(tag: string) {
+		setSelectedTag(tag);
+		setTagPickerOpen(false);
+	}
+
+	function clearTagFilter() {
+		setSelectedTag(null);
+	}
 
 	const canLoadMore =
 		state.status === "success" &&
@@ -255,6 +306,11 @@ export default function Home() {
 					<p className="eyebrow">Life, written in quiet moments.</p>
 					<h1>233.life</h1>
 				</div>
+				<div className="public-header-actions">
+					<button className="tag-entry-button" type="button" onClick={openTagPicker}>
+						Tags
+					</button>
+				</div>
 				<form className="search-form" onSubmit={submitSearch}>
 					<label htmlFor="home-search">Search posts</label>
 					<div>
@@ -273,8 +329,20 @@ export default function Home() {
 			{state.status === "error" ? (
 				<p className="state-note state-error">{state.message}</p>
 			) : null}
+			{state.status === "success" && selectedTag ? (
+				<p className="tag-filter-note">
+					Filtered by {selectedTag}
+					<button type="button" onClick={clearTagFilter}>
+						Clear
+					</button>
+				</p>
+			) : null}
 			{state.status === "success" && state.posts.length === 0 ? (
-				<p className="state-note">No posts have been published yet.</p>
+				<p className="state-note">
+					{selectedTag
+						? "No posts match this tag yet."
+						: "No posts have been published yet."}
+				</p>
 			) : null}
 			{state.status === "success" && state.posts.length > 0 ? (
 				<>
@@ -284,6 +352,48 @@ export default function Home() {
 						{loadMoreContent()}
 					</div>
 				</>
+			) : null}
+			{tagPickerOpen ? (
+				<div className="tag-dialog-backdrop">
+					<section className="tag-dialog" role="dialog" aria-label="Tags">
+						<div className="tag-dialog-heading">
+							<h2>Tags</h2>
+							<button type="button" onClick={() => setTagPickerOpen(false)}>
+								Close
+							</button>
+						</div>
+						{tagsState.status === "loading" ? (
+							<p className="state-note">Loading tags...</p>
+						) : null}
+						{tagsState.status === "error" ? (
+							<div className="state-panel">
+								<p className="state-note state-error">{tagsState.message}</p>
+								<button type="button" onClick={() => void loadTags()}>
+									Retry
+								</button>
+							</div>
+						) : null}
+						{tagsState.status === "success" && tagsState.tags.length === 0 ? (
+							<p className="state-note">No tags have been synced yet.</p>
+						) : null}
+						{tagsState.status === "success" && tagsState.tags.length > 0 ? (
+							<div className="tag-picker-list">
+								{tagsState.tags.map((tag) => (
+									<button
+										type="button"
+										aria-label={`${tag.name} ${tag.count}`}
+										className={selectedTag === tag.name ? "active" : ""}
+										key={tag.name}
+										onClick={() => selectTag(tag.name)}
+									>
+										<span>{tag.name}</span>
+										<span>{tag.count}</span>
+									</button>
+								))}
+							</div>
+						) : null}
+					</section>
+				</div>
 			) : null}
 		</main>
 	);

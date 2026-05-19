@@ -7,6 +7,7 @@ type PublicPostSummary = {
 	slug: string;
 	title: string;
 	coverUrl: string | null;
+	tags: string[];
 	publishedAt: string | null;
 	updatedAt: string;
 };
@@ -14,6 +15,7 @@ type PublicPostSummary = {
 type ListOptions = {
 	page?: number;
 	limit?: number;
+	tag?: string;
 };
 
 type PublicPostList = {
@@ -35,6 +37,7 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 		slug: post.slug,
 		title: post.title,
 		coverUrl: post.coverUrl,
+		tags: post.tags,
 		publishedAt: post.publishedAt,
 		updatedAt: post.updatedAt,
 	};
@@ -214,12 +217,18 @@ export async function handlePublicApi(
 			url.searchParams.get("search") ??
 			""
 		).trim();
+		const tag = (url.searchParams.get("tag") ?? "").trim();
 		const result = await posts.listPublished({
 			...pagination,
 			q: query || undefined,
+			tag: tag || undefined,
 		});
 
-		return json(listPostsResponse(result, pagination));
+		return json(listPostsResponse(result, { ...pagination, tag }));
+	}
+
+	if (url.pathname === "/api/tags") {
+		return json({ items: await posts.listTags() });
 	}
 
 	if (url.pathname.startsWith("/api/posts/")) {

@@ -1030,6 +1030,7 @@ describe("admin Notion schema API", () => {
 				recommendedFieldMapping: {
 					title: "Name",
 					status: "Status",
+					tags: "Tags",
 					publishedStatusValues: ["Published", "已发布"],
 				},
 			});

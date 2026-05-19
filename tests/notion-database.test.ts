@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseNotionDatabaseId } from "../workers/notion/database";
+import {
+	inferFieldMapping,
+	parseNotionDatabaseId,
+} from "../workers/notion/database";
 
 describe("parseNotionDatabaseId", () => {
 	it("extracts a 32-character Notion database id from a shared Notion URL", () => {
@@ -46,5 +49,24 @@ describe("parseNotionDatabaseId", () => {
 				"https://www.notion.so/renke-me/c5e926f6cd3c4671bb0b86737143570b/0123456789abcdef0123456789abcdef",
 			),
 		).toThrow("Invalid Notion database URL or id");
+	});
+});
+
+describe("inferFieldMapping", () => {
+	it("recommends a compatible tags field when the schema exposes one", () => {
+		expect(
+			inferFieldMapping({
+				Name: { type: "title" },
+				Status: { type: "status" },
+				Tags: { type: "multi_select" },
+				Category: { type: "select" },
+				"Published At": { type: "date" },
+			}),
+		).toMatchObject({
+			title: "Name",
+			status: "Status",
+			tags: "Tags",
+			publishedAt: "Published At",
+		});
 	});
 });

@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiPut } from "../../lib/api-client";
 type FieldMapping = {
 	title: string;
 	status: string;
+	tags?: string;
 	publishedAt?: string;
 	publishedStatusValues?: string[];
 };
@@ -51,12 +52,13 @@ const emptySettings: SiteSettingsForm = {
 	fieldMapping: {
 		title: "Name",
 		status: "Status",
+		tags: "Tags",
 		publishedAt: "Published At",
 		publishedStatusValues: defaultPublishedStatusValues,
 	},
 };
 
-type FieldNameKey = "title" | "status" | "publishedAt";
+type FieldNameKey = "title" | "status" | "tags" | "publishedAt";
 
 const fieldKeys: Array<{
 	key: FieldNameKey;
@@ -69,6 +71,12 @@ const fieldKeys: Array<{
 		key: "status",
 		typeDescription: "Notion type: status, select, or checkbox",
 		allowedTypes: ["status", "select", "checkbox"],
+	},
+	{
+		key: "tags",
+		typeDescription: "Notion type: multi_select or select",
+		allowedTypes: ["multi_select", "select"],
+		optional: true,
 	},
 	{
 		key: "publishedAt",
@@ -149,7 +157,10 @@ function schemaFieldOptions(
 	if (field.optional) {
 		options.unshift({
 			name: "",
-			label: "Use Notion page created time",
+			label:
+				field.key === "publishedAt"
+					? "Use Notion page created time"
+					: "Do not map this field",
 		});
 	}
 
@@ -404,6 +415,9 @@ export function SettingsPanel({
 							: {}),
 						...(typeof recommended.status === "string" && recommended.status
 							? { status: recommended.status }
+							: {}),
+						...(typeof recommended.tags === "string"
+							? { tags: recommended.tags }
 							: {}),
 						...(typeof recommended.publishedAt === "string"
 							? { publishedAt: recommended.publishedAt }

@@ -168,6 +168,17 @@ class SqliteD1Database {
 			.run(postId, markdown, `blocks-${postId}`, `content-${postId}`, now, now);
 	}
 
+	insertTag(postId: string, tag: string, sortOrder = 0): void {
+		this.db
+			.prepare(
+				`INSERT INTO post_tags (
+					post_id, tag, sort_order, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?)`,
+			)
+			.run(postId, tag, sortOrder, now, now);
+	}
+
 	asD1(): D1Database {
 		return this as unknown as D1Database;
 	}
@@ -184,6 +195,7 @@ const publishedPost: PublicPostRecord = {
 	slug: "published-post",
 	title: "Published post",
 	coverUrl: "https://cdn.example.com/cover.jpg",
+	tags: ["Life", "Notes"],
 	status: "ready",
 	visibility: "published",
 	publishedAt: "2026-05-01T00:00:00.000Z",
@@ -235,6 +247,7 @@ describe("public response helpers", () => {
 					slug: "published-post",
 					title: "Published post",
 					coverUrl: "https://cdn.example.com/cover.jpg",
+					tags: ["Life", "Notes"],
 					publishedAt: "2026-05-01T00:00:00.000Z",
 					updatedAt: "2026-05-02T00:00:00.000Z",
 				},
@@ -251,6 +264,7 @@ describe("public response helpers", () => {
 			slug: "published-post",
 			title: "Published post",
 			coverUrl: "https://cdn.example.com/cover.jpg",
+			tags: ["Life", "Notes"],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
 			markdown: "# Hello",
@@ -332,6 +346,7 @@ describe("PostsRepository", () => {
 		expect(fakeDb.calls[0]?.values).toEqual([
 			"%notion api%",
 			"%notion api%",
+			"%notion api%",
 			20,
 		]);
 	});
@@ -389,8 +404,96 @@ describe("PostsRepository", () => {
 
 			expect(itemQuery?.sql).toContain("ESCAPE '\\'");
 			expect(itemQuery?.sql).not.toContain("json_each");
-			expect(itemQuery?.values).toEqual(["%SQL%", "%SQL%", 1, 1]);
-			expect(countQuery?.values).toEqual(["%SQL%", "%SQL%"]);
+			expect(itemQuery?.values).toEqual(["%SQL%", "%SQL%", "%SQL%", 1, 1]);
+			expect(countQuery?.values).toEqual(["%SQL%", "%SQL%", "%SQL%"]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("filters published posts by tag and hydrates tag metadata", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "life-post",
+					title: "Life post",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "tech-post",
+					title: "Tech post",
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "hidden-life",
+					title: "Hidden life",
+					visibility: "hidden",
+				}),
+			);
+			db.insertTag("post-1", "Life", 0);
+			db.insertTag("post-1", "Notes", 1);
+			db.insertTag("post-2", "Tech", 0);
+			db.insertTag("post-3", "Life", 0);
+
+			await expect(
+				new PostsRepository(db.asD1()).listPublished({
+					page: 1,
+					limit: 20,
+					tag: "Life",
+				}),
+			).resolves.toEqual({
+				items: [
+					expect.objectContaining({
+						slug: "life-post",
+						tags: ["Life", "Notes"],
+					}),
+				],
+				total: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists tags with published post counts", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1" }));
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-post",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "hidden-post",
+					visibility: "hidden",
+				}),
+			);
+			db.insertTag("post-1", "Life", 0);
+			db.insertTag("post-2", "Life", 0);
+			db.insertTag("post-2", "Notes", 1);
+			db.insertTag("post-3", "Life", 0);
+
+			await expect(new PostsRepository(db.asD1()).listTags()).resolves.toEqual([
+				{ name: "Life", count: 2 },
+				{ name: "Notes", count: 1 },
+			]);
 		} finally {
 			db.close();
 		}
@@ -438,7 +541,7 @@ describe("PostsRepository", () => {
 				call.sql.includes("post_content"),
 			);
 			expect(searchCall?.sql).toContain("ESCAPE '\\'");
-			expect(searchCall?.values).toEqual(["%\\%%", "%\\%%", 20]);
+			expect(searchCall?.values).toEqual(["%\\%%", "%\\%%", "%\\%%", 20]);
 		} finally {
 			db.close();
 		}
@@ -604,6 +707,7 @@ describe("handlePublicApi", () => {
 			slug: "hello world",
 			title: "Published post",
 			coverUrl: "https://cdn.example.com/cover.jpg",
+			tags: [],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
 			markdown: "# Hello world",
@@ -636,8 +740,8 @@ describe("handlePublicApi", () => {
 			publicRequest("/api/posts/missing"),
 			envWithDb(fakeDb.asD1()),
 		);
-		const oldTagsRoute = await handlePublicApi(
-			publicRequest("/api/tags"),
+		const unknownRoute = await handlePublicApi(
+			publicRequest("/api/does-not-exist"),
 			envWithDb(fakeDb.asD1()),
 		);
 
@@ -645,10 +749,42 @@ describe("handlePublicApi", () => {
 		await expect(missingPost.json()).resolves.toEqual({
 			error: { code: "NOT_FOUND", message: "Post not found" },
 		});
-		expect(oldTagsRoute.status).toBe(404);
-		await expect(oldTagsRoute.json()).resolves.toEqual({
+		expect(unknownRoute.status).toBe(404);
+		await expect(unknownRoute.json()).resolves.toEqual({
 			error: { code: "NOT_FOUND", message: "Route not found" },
 		});
+	});
+
+	it("returns public tag counts", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1" }));
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-post",
+				}),
+			);
+			db.insertTag("post-1", "Life", 0);
+			db.insertTag("post-2", "Life", 0);
+			db.insertTag("post-2", "Notes", 1);
+
+			const response = await handlePublicApi(
+				publicRequest("/api/tags"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				items: [
+					{ name: "Life", count: 2 },
+					{ name: "Notes", count: 1 },
+				],
+			});
+		} finally {
+			db.close();
+		}
 	});
 
 	it("searches published posts and content with predictable empty query handling", async () => {

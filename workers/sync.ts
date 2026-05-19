@@ -76,6 +76,7 @@ export interface PostMetadata {
 	slug: string;
 	title: string;
 	coverUrl: string | null;
+	tags: string[];
 	status: string;
 	visibility: PostVisibility;
 	publishedAt: string | null;
@@ -180,6 +181,7 @@ export function mapNotionPageToPostMetadata(
 		slug,
 		title,
 		coverUrl: pageCoverUrl(page),
+		tags: mapping.tags ? tagProperty(properties[mapping.tags]) : [],
 		status: String(status),
 		visibility: archived
 			? "archived"
@@ -360,6 +362,12 @@ async function syncPage(
 						existing.content_hash,
 						deps,
 					),
+					...prepareReplacePostTags(
+						env.DB,
+						metadataForExistingPost.id,
+						metadataForExistingPost.tags,
+						deps,
+					),
 					prepareInsertSyncItem(env.DB, {
 						id: itemId,
 						runId,
@@ -396,6 +404,7 @@ async function syncPage(
 					existing?.content_hash ?? null,
 					deps,
 				),
+				...prepareReplacePostTags(env.DB, postId, metadata.tags, deps),
 				prepareInsertSyncItem(env.DB, {
 					id: itemId,
 					runId,
@@ -428,6 +437,7 @@ async function syncPage(
 					existingContent.content_hash,
 					deps,
 				),
+				...prepareReplacePostTags(env.DB, postId, metadata.tags, deps),
 				prepareInsertSyncItem(env.DB, {
 					id: itemId,
 					runId,
@@ -457,6 +467,7 @@ async function syncPage(
 				contentHash,
 				deps,
 			),
+			...prepareReplacePostTags(env.DB, postId, metadata.tags, deps),
 			prepareUpsertPostContent(
 				env.DB,
 				postId,
@@ -834,6 +845,33 @@ function prepareUpsertPostContent(
 		);
 }
 
+function prepareReplacePostTags(
+	db: D1Database,
+	postId: string,
+	tags: string[],
+	deps: ResolvedSyncDependencies,
+): D1PreparedStatement[] {
+	const now = deps.now();
+	const statements = [
+		db.prepare("DELETE FROM post_tags WHERE post_id = ?").bind(postId),
+	];
+
+	for (const [index, tag] of tags.entries()) {
+		statements.push(
+			db
+				.prepare(
+					`INSERT INTO post_tags (
+						post_id, tag, sort_order, created_at, updated_at
+					)
+					VALUES (?, ?, ?, ?, ?)`,
+				)
+				.bind(postId, tag, index, now, now),
+		);
+	}
+
+	return statements;
+}
+
 async function insertSyncItem(
 	db: D1Database,
 	item: {
@@ -981,6 +1019,41 @@ function dateProperty(property: unknown): string | null {
 	const value = propertyValue(property);
 
 	return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function tagProperty(property: unknown): string[] {
+	const value = propertyValue(property);
+
+	if (Array.isArray(value)) {
+		return normalizeTags(value);
+	}
+
+	if (typeof value === "string") {
+		return normalizeTags([value]);
+	}
+
+	return [];
+}
+
+function normalizeTags(values: unknown[]): string[] {
+	const tags: string[] = [];
+	const seen = new Set<string>();
+
+	for (const value of values) {
+		if (typeof value !== "string") {
+			continue;
+		}
+
+		const tag = value.trim();
+		if (!tag || seen.has(tag)) {
+			continue;
+		}
+
+		seen.add(tag);
+		tags.push(tag);
+	}
+
+	return tags;
 }
 
 function pageCoverUrl(page: NotionSyncPage): string | null {

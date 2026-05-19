@@ -68,6 +68,12 @@ body {
 	margin-bottom: 24px;
 }
 
+.public-header-actions {
+	display: flex;
+	align-items: center;
+	margin-left: auto;
+}
+
 .public-header h1,
 .post-detail h1 {
 	margin: 6px 0 0;
@@ -124,6 +130,25 @@ body {
 	padding: 10px 14px;
 }
 
+.tag-entry-button,
+.tag-filter-note button,
+.tag-dialog button {
+	border: 1px solid #c9c5ba;
+	border-radius: 6px;
+	background: #fffdfa;
+	color: #1d1d1b;
+	cursor: pointer;
+	font-weight: 650;
+	padding: 10px 14px;
+}
+
+.tag-entry-button:hover,
+.tag-filter-note button:hover,
+.tag-dialog button:hover {
+	border-color: #0b6d67;
+	color: #0b6d67;
+}
+
 .state-note,
 .state-panel {
 	border: 1px solid #dfddd6;
@@ -169,6 +194,98 @@ body {
 
 .load-more-error p {
 	margin: 0;
+}
+
+.tag-filter-note {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin: 14px 0 0;
+	color: #56524c;
+	font-size: 0.95rem;
+	font-weight: 650;
+}
+
+.post-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.detail-tags {
+	margin-top: 16px;
+}
+
+.post-tag {
+	border: 1px solid #d4d0c4;
+	border-radius: 999px;
+	background: #fffdfa;
+	color: #56524c;
+	font-size: 0.82rem;
+	font-weight: 700;
+	line-height: 1;
+	padding: 7px 10px;
+}
+
+.tag-dialog-backdrop {
+	position: fixed;
+	z-index: 40;
+	inset: 0;
+	display: grid;
+	align-items: start;
+	justify-items: center;
+	overflow-y: auto;
+	background: rgb(29 29 27 / 0.24);
+	padding: 72px 16px 24px;
+}
+
+.tag-dialog {
+	width: min(100%, 520px);
+	border: 1px solid #d9d6cd;
+	border-radius: 8px;
+	background: #fffdfa;
+	box-shadow: 0 24px 60px rgb(29 29 27 / 0.16);
+	padding: 20px;
+}
+
+.tag-dialog-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 14px;
+}
+
+.tag-dialog-heading h2 {
+	margin: 0;
+	color: #151515;
+	font-size: 1.25rem;
+	letter-spacing: 0;
+}
+
+.tag-picker-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.tag-picker-list button {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.tag-picker-list button span:last-child {
+	color: #706d66;
+	font-size: 0.82rem;
+}
+
+.tag-picker-list button.active {
+	border-color: #0b6d67;
+	background: #e8f3ef;
+	color: #0b6d67;
 }
 
 .post-list-skeleton {
@@ -893,6 +1010,10 @@ body {
 
 	.search-form {
 		margin-top: 18px;
+	}
+
+	.public-header-actions {
+		margin: 18px 0 0;
 	}
 
 	.post-list-cover {

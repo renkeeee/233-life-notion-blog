@@ -12,6 +12,7 @@ export interface PublicPostRecord {
 	slug: string;
 	title: string;
 	coverUrl: string | null;
+	tags: string[];
 	status: string;
 	visibility: PostVisibility;
 	publishedAt: string | null;
@@ -43,6 +44,7 @@ export interface ApiErrorBody {
 export interface FieldMapping {
 	title: string;
 	status: string;
+	tags?: string;
 	publishedAt?: string;
 	publishedStatusValues?: string[];
 }

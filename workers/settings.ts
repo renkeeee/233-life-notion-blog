@@ -27,6 +27,7 @@ const requiredSettingKeys = [
 	"fieldMapping",
 ] as const satisfies readonly (keyof SiteSettings)[];
 const optionalFieldMappingKeys = [
+	"tags",
 	"publishedAt",
 ] as const satisfies readonly (keyof FieldMapping)[];
 const requiredSettingKeySet = new Set<string>(requiredSettingKeys);

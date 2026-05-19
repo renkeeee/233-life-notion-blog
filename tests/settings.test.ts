@@ -29,6 +29,7 @@ function testSettings(notionToken = "ntn_secret"): SiteSettings {
 		fieldMapping: {
 			title: "Name",
 			status: "Status",
+			tags: "Tags",
 			publishedStatusValues: ["Published", "已发布"],
 		},
 	};
@@ -97,7 +98,7 @@ describe("settings storage helpers", () => {
 		await expect(parseSettingsFromRows(rows, rootKey)).resolves.toEqual(settings);
 	});
 
-	it("parses field mapping JSON and ignores removed mapping keys from stored rows", async () => {
+	it("parses field mapping JSON, keeps tags, and ignores removed mapping keys", async () => {
 		const rootKey = generateEncryptionKey();
 		const parsed = await parseSettingsFromRows(
 			[
@@ -125,6 +126,7 @@ describe("settings storage helpers", () => {
 		expect(parsed.fieldMapping).toEqual({
 			title: "Name",
 			status: "Status",
+			tags: "Tags",
 			publishedAt: "Published At",
 			publishedStatusValues: ["Live", "Ready"],
 		});

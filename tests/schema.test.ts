@@ -4,11 +4,13 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import initialMigrationSql from "../migrations/0001_initial.sql?raw";
 import simplifyPostMetadataMigrationSql from "../migrations/0002_simplify_post_metadata.sql?raw";
+import addPostTagsMigrationSql from "../migrations/0003_add_post_tags.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
 	"settings",
 	"posts",
+	"post_tags",
 	"post_content",
 	"assets",
 	"sync_runs",
@@ -18,6 +20,8 @@ const requiredTables = [
 const requiredIndexes = [
 	"idx_posts_visibility_published_at",
 	"idx_posts_notion_last_edited_time",
+	"idx_post_tags_tag",
+	"idx_post_tags_post_id",
 	"idx_assets_content_hash",
 	"idx_sync_runs_started_at",
 	"idx_sync_items_run_id",
@@ -39,6 +43,14 @@ const normalizedSchemaSql = schemaSql.replace(/\s+/g, " ").trim();
 function postColumns(db: DatabaseSync): string[] {
 	return (
 		db.prepare("PRAGMA table_info(posts)").all() as Array<{ name: string }>
+	).map((row) => row.name);
+}
+
+function tableNames(db: DatabaseSync): string[] {
+	return (
+		db
+			.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+			.all() as Array<{ name: string }>
 	).map((row) => row.name);
 }
 
@@ -96,6 +108,7 @@ describe("D1 schema", () => {
 			expect(tables.map(({ name }) => name)).toEqual([
 				"assets",
 				"post_content",
+				"post_tags",
 				"posts",
 				"settings",
 				"sync_items",
@@ -114,11 +127,13 @@ describe("D1 schema", () => {
 			migratedDb.exec("PRAGMA foreign_keys = ON;");
 			migratedDb.exec(initialMigrationSql);
 			migratedDb.exec(simplifyPostMetadataMigrationSql);
+			migratedDb.exec(addPostTagsMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
 
 			expect(postColumns(migratedDb)).toEqual(postColumns(currentDb));
+			expect(tableNames(migratedDb)).toEqual(tableNames(currentDb));
 			expect(postColumns(currentDb)).toEqual([
 				"id",
 				"notion_page_id",

@@ -19,6 +19,8 @@ function formatDate(value: string | null): string {
 }
 
 export function PostDetail({ post }: { post: PublicPostDetail }) {
+	const tags = post.tags ?? [];
+
 	return (
 		<article className="post-detail">
 			<header className="post-detail-header">
@@ -31,6 +33,15 @@ export function PostDetail({ post }: { post: PublicPostDetail }) {
 					</time>
 				</p>
 				<h1>{post.title}</h1>
+				{tags.length > 0 ? (
+					<div className="post-tags detail-tags" aria-label="Post tags">
+						{tags.map((tag) => (
+							<span className="post-tag" key={tag}>
+								{tag}
+							</span>
+						))}
+					</div>
+				) : null}
 			</header>
 			<Markdown markdown={post.markdown} />
 		</article>

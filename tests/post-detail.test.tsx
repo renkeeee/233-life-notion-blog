@@ -15,6 +15,7 @@ describe("PostDetail", () => {
 						slug: "hello-world",
 						title: "Hello World",
 						coverUrl: "https://cdn.example.com/cover.jpg",
+						tags: ["Life", "Notes"],
 						publishedAt: "2026-05-19T00:00:00.000Z",
 						updatedAt: "2026-05-19T00:00:00.000Z",
 						markdown: "Body copy",
@@ -24,6 +25,8 @@ describe("PostDetail", () => {
 		);
 
 		expect(screen.getByRole("heading", { name: "Hello World" })).toBeTruthy();
+		expect(screen.getByText("Life")).toHaveClass("post-tag");
+		expect(screen.getByText("Notes")).toHaveClass("post-tag");
 		expect(screen.getByText("Body copy")).toBeTruthy();
 		expect(container.querySelector(".post-hero-image")).toBeNull();
 		expect(container.querySelector('img[src="https://cdn.example.com/cover.jpg"]')).toBeNull();

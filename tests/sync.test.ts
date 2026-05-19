@@ -168,6 +168,7 @@ function settings(): SiteSettings {
 		fieldMapping: {
 			title: "Name",
 			status: "Status",
+			tags: "Tags",
 			publishedAt: "Published At",
 			publishedStatusValues: ["Published", "已发布"],
 		},
@@ -375,6 +376,7 @@ describe("Notion page mapping", () => {
 			slug: "hello-notion",
 			title: "Hello Notion",
 			coverUrl: "https://notion-assets.example.com/page-cover.png",
+			tags: ["Life", "Notes"],
 			status: "Published",
 			visibility: "published",
 			publishedAt: "2026-05-18",
@@ -509,6 +511,10 @@ describe("runSync", () => {
 				status: string;
 				post_id: string | null;
 			}>("SELECT * FROM sync_items WHERE sync_run_id = ?", "run-1");
+			const tags = db.rows<{ tag: string; sort_order: number }>(
+				"SELECT tag, sort_order FROM post_tags WHERE post_id = ? ORDER BY sort_order",
+				"notion-page-1",
+			);
 
 			expect(result).toEqual({ runId: "run-1" });
 			expect(run).toMatchObject({
@@ -531,6 +537,10 @@ describe("runSync", () => {
 			expect(content.markdown).toContain("Hello body");
 			expect(content.markdown).toContain("https://cdn.example.com/assets/");
 			expect(content.markdown).not.toContain("https://notion-assets.example.com");
+			expect(tags).toEqual([
+				{ tag: "Life", sort_order: 0 },
+				{ tag: "Notes", sort_order: 1 },
+			]);
 			expect(JSON.parse(content.resource_refs_json)).toEqual([
 				expect.objectContaining({
 					sourceUrl: "https://notion-assets.example.com/image.png",

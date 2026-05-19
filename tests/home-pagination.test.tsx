@@ -159,6 +159,7 @@ describe("home pagination", () => {
 		const input = screen.getByLabelText("Search posts");
 		const searchButton = screen.getByRole("button", { name: "Search" });
 
+		expect(searchForm).toHaveClass("capsule");
 		expect(searchForm).not.toHaveClass("expanded");
 		fireEvent.click(searchButton);
 
@@ -232,7 +233,8 @@ describe("home pagination", () => {
 
 		await screen.findByRole("heading", { name: "First post" });
 		fireEvent.click(screen.getByRole("button", { name: "Tags" }));
-		await screen.findByRole("dialog", { name: "Tags" });
+		const dialog = await screen.findByRole("dialog", { name: "Tags" });
+		expect(dialog).toHaveClass("compact");
 		fireEvent.click(screen.getByRole("button", { name: "Life 1" }));
 
 		await screen.findByRole("heading", { name: "Life post" });

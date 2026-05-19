@@ -331,7 +331,7 @@ export default function Home() {
 						Tags
 					</button>
 					<form
-						className={`search-form expandable${searchOpen ? " expanded" : ""}`}
+						className={`search-form expandable capsule${searchOpen ? " expanded" : ""}`}
 						onBlur={collapseSearchIfEmpty}
 						onSubmit={submitSearch}
 						role="search"
@@ -389,7 +389,7 @@ export default function Home() {
 			) : null}
 			{tagPickerOpen ? (
 				<div className="tag-dialog-backdrop">
-					<section className="tag-dialog" role="dialog" aria-label="Tags">
+					<section className="tag-dialog compact" role="dialog" aria-label="Tags">
 						<div className="tag-dialog-heading">
 							<h2>Tags</h2>
 							<button type="button" onClick={() => setTagPickerOpen(false)}>

@@ -1320,7 +1320,6 @@ body {
 	text-underline-offset: 3px;
 }
 
-.admin-post-slug,
 .admin-secret {
 	display: block;
 	color: #716d64;
@@ -1370,50 +1369,6 @@ body {
 	opacity: 0.48;
 }
 
-.admin-lock-action {
-	display: inline-flex;
-	position: relative;
-}
-
-.admin-lock-popover {
-	background: #fffdfa;
-	border: 1px solid #d9d6cd;
-	border-radius: 8px;
-	box-shadow: 0 14px 32px rgba(35, 35, 31, 0.16);
-	display: grid;
-	gap: 10px;
-	inset: calc(100% + 8px) auto auto 0;
-	min-width: 220px;
-	padding: 12px;
-	position: absolute;
-	z-index: 12;
-}
-
-.admin-lock-popover label {
-	color: #555149;
-	display: grid;
-	font-size: 0.76rem;
-	font-weight: 750;
-	gap: 6px;
-}
-
-.admin-lock-popover input {
-	border: 1px solid #c8c3b7;
-	border-radius: 999px;
-	box-sizing: border-box;
-	color: #20201d;
-	font: inherit;
-	min-height: 34px;
-	padding: 7px 11px;
-	width: 100%;
-}
-
-.admin-lock-popover-actions {
-	display: flex;
-	gap: 10px;
-	justify-content: flex-end;
-}
-
 .admin-pagination {
 	display: flex;
 	align-items: center;
@@ -1423,6 +1378,99 @@ body {
 	color: #5b574f;
 	font-size: 0.9rem;
 	font-weight: 700;
+}
+
+.admin-toast {
+	position: fixed;
+	right: 24px;
+	bottom: 24px;
+	z-index: 50;
+	border: 1px solid #b8c9bd;
+	border-radius: 999px;
+	background: #eef7f1;
+	box-shadow: 0 12px 28px rgba(35, 35, 31, 0.16);
+	color: #285b3a;
+	font-size: 0.86rem;
+	font-weight: 750;
+	padding: 10px 14px;
+}
+
+.admin-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 45;
+	display: grid;
+	place-items: center;
+	background: rgba(20, 20, 18, 0.28);
+	padding: 24px;
+}
+
+.admin-modal {
+	width: min(100%, 420px);
+	border: 1px solid #d9d6cd;
+	border-radius: 8px;
+	background: #fffdfa;
+	box-shadow: 0 22px 54px rgba(35, 35, 31, 0.2);
+	display: grid;
+	gap: 14px;
+	padding: 20px;
+}
+
+.admin-modal h3,
+.admin-modal p {
+	margin: 0;
+}
+
+.admin-modal h3 {
+	color: #171715;
+	font-size: 1.1rem;
+	line-height: 1.25;
+}
+
+.admin-modal p {
+	color: #5b574f;
+	font-size: 0.92rem;
+	line-height: 1.55;
+}
+
+.admin-modal label {
+	display: grid;
+	gap: 7px;
+	color: #555149;
+	font-size: 0.86rem;
+	font-weight: 750;
+}
+
+.admin-modal input {
+	border: 1px solid #c8c3b7;
+	border-radius: 999px;
+	box-sizing: border-box;
+	color: #20201d;
+	font: inherit;
+	min-height: 40px;
+	padding: 8px 12px;
+	width: 100%;
+}
+
+.admin-modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
+.admin-shell .admin-modal-actions button {
+	min-height: 36px;
+	padding: 8px 13px;
+}
+
+.admin-shell .admin-modal-actions .admin-modal-secondary {
+	background: #fffdfa;
+	color: #302e29;
+}
+
+.admin-shell .admin-modal-actions .danger {
+	background: #8a4a43;
+	border-color: #8a4a43;
 }
 
 @media (max-width: 720px) {

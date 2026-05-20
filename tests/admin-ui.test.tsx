@@ -358,6 +358,7 @@ describe("PostStatusTable", () => {
 			expect(
 				await screen.findByRole("link", { name: "Hello World" }),
 			).toHaveAttribute("href", "/post/hello-world");
+			expect(screen.queryByText("hello-world")).toBeNull();
 			expect(screen.getByText("1-20 of 25 posts")).toBeTruthy();
 
 			fireEvent.change(screen.getByLabelText("Title keyword"), {
@@ -381,7 +382,7 @@ describe("PostStatusTable", () => {
 		}
 	});
 
-	it("uses compact row actions and opens the lock password in a popover", async () => {
+	it("uses compact row actions with toast and global confirmation dialogs", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [
 				{
@@ -415,12 +416,23 @@ describe("PostStatusTable", () => {
 			expect(screen.queryByLabelText("Post password")).toBeNull();
 
 			fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+			await screen.findByText("Hello World hidden.");
 			fireEvent.click(screen.getByRole("button", { name: "Lock" }));
-			fireEvent.change(screen.getByLabelText("Post password"), {
+			const lockDialog = screen.getByRole("dialog", { name: "Lock post" });
+			fireEvent.change(within(lockDialog).getByLabelText("Post password"), {
 				target: { value: "post-secret" },
 			});
-			fireEvent.click(screen.getByRole("button", { name: "Save" }));
+			fireEvent.click(within(lockDialog).getByRole("button", { name: "Lock" }));
 			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			const deleteDialog = screen.getByRole("dialog", { name: "Delete post" });
+			expect(
+				within(deleteDialog).getByText(
+					"This will permanently delete Hello World.",
+				),
+			).toBeTruthy();
+			fireEvent.click(
+				within(deleteDialog).getByRole("button", { name: "Delete" }),
+			);
 
 			await waitFor(() =>
 				expect(apiPost).toHaveBeenCalledWith(
@@ -439,7 +451,7 @@ describe("PostStatusTable", () => {
 				{},
 				"csrf-token",
 			);
-			expect(confirm).toHaveBeenCalled();
+			expect(confirm).not.toHaveBeenCalled();
 		} finally {
 			apiGet.mockRestore();
 			apiPost.mockRestore();

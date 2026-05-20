@@ -33,6 +33,8 @@ type SortOption = {
 	sortDirection: "asc" | "desc";
 };
 
+type AdminPostAction = "hide" | "restore" | "lock" | "unlock" | "delete";
+
 const pageSize = 20;
 const sortOptions: SortOption[] = [
 	{
@@ -79,10 +81,7 @@ const sortOptions: SortOption[] = [
 	},
 ];
 
-const actionLabels: Record<
-	"hide" | "restore" | "lock" | "unlock" | "delete",
-	string
-> = {
+const actionLabels: Record<AdminPostAction, string> = {
 	hide: "hidden",
 	restore: "restored",
 	lock: "locked",
@@ -174,9 +173,13 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	const [appliedStatusFilter, setAppliedStatusFilter] = useState("");
 	const [sort, setSort] = useState(sortOptions[0].value);
 	const [appliedSort, setAppliedSort] = useState(sortOptions[0].value);
-	const [passwords, setPasswords] = useState<Record<string, string>>({});
 	const [actionPending, setActionPending] = useState<string | null>(null);
-	const [lockPopoverPostId, setLockPopoverPostId] = useState<string | null>(null);
+	const [toast, setToast] = useState<string | null>(null);
+	const [lockDialogPost, setLockDialogPost] =
+		useState<AdminPostRecord | null>(null);
+	const [deleteDialogPost, setDeleteDialogPost] =
+		useState<AdminPostRecord | null>(null);
+	const [lockPassword, setLockPassword] = useState("");
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -229,6 +232,15 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		};
 	}, [page, appliedTitleKeyword, appliedStatusFilter, appliedSort]);
 
+	useEffect(() => {
+		if (!toast) {
+			return;
+		}
+
+		const timeoutId = window.setTimeout(() => setToast(null), 3000);
+		return () => window.clearTimeout(timeoutId);
+	}, [toast]);
+
 	function applyFilters(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setAppliedTitleKeyword(titleKeyword);
@@ -239,22 +251,14 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 
 	async function runAction(
 		post: AdminPostRecord,
-		action: "hide" | "restore" | "lock" | "unlock" | "delete",
+		action: AdminPostAction,
+		options: { password?: string } = {},
 	) {
 		const title = postTitle(post);
-		if (action === "delete") {
-			const confirmed = window.confirm(
-				`Permanently delete "${title}"? It will only sync again during a forced sync.`,
-			);
-			if (!confirmed) {
-				return;
-			}
-		}
-
-		const password = passwords[post.id] ?? "";
+		const password = options.password ?? "";
 		if (action === "lock" && !password.trim()) {
 			setError("Password is required.");
-			setLockPopoverPostId(post.id);
+			setLockDialogPost(post);
 			return;
 		}
 
@@ -267,10 +271,15 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				action === "lock" ? { password } : {},
 				csrfToken,
 			);
-			setStatus(`${title} ${actionLabels[action]}.`);
+			if (action === "hide" || action === "restore") {
+				setToast(`${title} ${actionLabels[action]}.`);
+			}
 			if (action === "lock") {
-				setPasswords((current) => ({ ...current, [post.id]: "" }));
-				setLockPopoverPostId(null);
+				setLockPassword("");
+				setLockDialogPost(null);
+			}
+			if (action === "delete") {
+				setDeleteDialogPost(null);
 			}
 			const response = await apiGet<PostsResponse>(
 				buildPostsPath({
@@ -370,9 +379,6 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 											<a className="admin-post-title-link" href={postHref(post)}>
 												{title}
 											</a>
-											<span className="admin-post-slug">
-												{post.slug ?? "-"}
-											</span>
 										</td>
 										<td>{post.status ?? "-"}</td>
 										<td>
@@ -411,62 +417,21 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 														</button>
 													</>
 												) : (
-													<div className="admin-lock-action">
-														<button
-															type="button"
-															disabled={pendingAction("lock")}
-															onClick={() =>
-																setLockPopoverPostId((current) =>
-																	current === post.id ? null : post.id,
-																)
-															}
-														>
-															Lock
-														</button>
-														{lockPopoverPostId === post.id ? (
-															<div
-																className="admin-lock-popover"
-																role="dialog"
-																aria-label="Lock post"
-															>
-																<label>
-																	Post password
-																	<input
-																		autoFocus
-																		type="text"
-																		value={passwords[post.id] ?? ""}
-																		onChange={(event) => {
-																			const value = event.currentTarget.value;
-																			setPasswords((current) => ({
-																				...current,
-																				[post.id]: value,
-																			}));
-																		}}
-																	/>
-																</label>
-																<div className="admin-lock-popover-actions">
-																	<button
-																		type="button"
-																		disabled={pendingAction("lock")}
-																		onClick={() => runAction(post, "lock")}
-																	>
-																		Save
-																	</button>
-																	<button
-																		type="button"
-																		onClick={() => setLockPopoverPostId(null)}
-																	>
-																		Cancel
-																	</button>
-																</div>
-															</div>
-														) : null}
-													</div>
+													<button
+														type="button"
+														disabled={pendingAction("lock")}
+														onClick={() => {
+															setLockPassword("");
+															setLockDialogPost(post);
+														}}
+													>
+														Lock
+													</button>
 												)}
 												<button
 													type="button"
 													disabled={pendingAction("delete")}
-													onClick={() => runAction(post, "delete")}
+													onClick={() => setDeleteDialogPost(post)}
 												>
 													Delete
 												</button>
@@ -499,6 +464,89 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					Next
 				</button>
 			</div>
+			{toast ? (
+				<div className="admin-toast" role="status">
+					{toast}
+				</div>
+			) : null}
+			{lockDialogPost ? (
+				<div className="admin-modal-backdrop">
+					<form
+						className="admin-modal"
+						role="dialog"
+						aria-label="Lock post"
+						aria-modal="true"
+						onSubmit={(event) => {
+							event.preventDefault();
+							runAction(lockDialogPost, "lock", { password: lockPassword });
+						}}
+					>
+						<h3>Lock {postTitle(lockDialogPost)}</h3>
+						<label>
+							Post password
+							<input
+								autoFocus
+								type="text"
+								value={lockPassword}
+								onChange={(event) =>
+									setLockPassword(event.currentTarget.value)
+								}
+							/>
+						</label>
+						<div className="admin-modal-actions">
+							<button
+								type="button"
+								className="admin-modal-secondary"
+								onClick={() => {
+									setLockPassword("");
+									setLockDialogPost(null);
+								}}
+							>
+								Cancel
+							</button>
+							<button
+								type="submit"
+								disabled={actionPending === `${lockDialogPost.id}:lock`}
+							>
+								Lock
+							</button>
+						</div>
+					</form>
+				</div>
+			) : null}
+			{deleteDialogPost ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal"
+						role="dialog"
+						aria-label="Delete post"
+						aria-modal="true"
+					>
+						<h3>Delete post</h3>
+						<p>This will permanently delete {postTitle(deleteDialogPost)}.</p>
+						<p>
+							It will not sync again unless a force sync imports it from Notion.
+						</p>
+						<div className="admin-modal-actions">
+							<button
+								type="button"
+								className="admin-modal-secondary"
+								onClick={() => setDeleteDialogPost(null)}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								className="danger"
+								disabled={actionPending === `${deleteDialogPost.id}:delete`}
+								onClick={() => runAction(deleteDialogPost, "delete")}
+							>
+								Delete
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }

@@ -4,10 +4,12 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import {
+	handleRss,
 	handleSitemap,
 	handlePublicApi,
 	listPostsResponse,
 	postDetailResponse,
+	rssXmlResponse,
 	sitemapXmlResponse,
 } from "../workers/api/public";
 import { encryptString, generateEncryptionKey } from "../workers/crypto";
@@ -350,6 +352,39 @@ describe("public response helpers", () => {
 		expect(xml).toContain("<loc>https://example.test/post/c%26c%20notes</loc>");
 		expect(xml).toContain("<lastmod>2026-05-02T00:00:00.000Z</lastmod>");
 		expect(xml).toContain("<lastmod>2026-05-03T00:00:00.000Z</lastmod>");
+	});
+
+	it("renders an RSS feed for published posts", () => {
+		const xml = rssXmlResponse(
+			[
+				{
+					...publishedPost,
+					title: "Quiet & Bright",
+					slug: "quiet & bright",
+					excerpt: "Life <in> quiet moments.",
+					category: "Essay",
+					tags: ["Life", "Notes"],
+					publishedAt: "2026-05-01T00:00:00.000Z",
+					updatedAt: "2026-05-02T00:00:00.000Z",
+				},
+			],
+			"https://example.test",
+			{ siteTitle: "233.life" },
+		);
+
+		expect(xml).toContain('<rss version="2.0"');
+		expect(xml).toContain("<title>233.life</title>");
+		expect(xml).toContain("<link>https://example.test/</link>");
+		expect(xml).toContain("<title>Quiet &amp; Bright</title>");
+		expect(xml).toContain(
+			"<link>https://example.test/post/quiet%20%26%20bright</link>",
+		);
+		expect(xml).toContain(
+			"<description>Life &lt;in&gt; quiet moments.</description>",
+		);
+		expect(xml).toContain("<category>Essay</category>");
+		expect(xml).toContain("<category>Life</category>");
+		expect(xml).toContain("<pubDate>Fri, 01 May 2026 00:00:00 GMT</pubDate>");
 	});
 });
 
@@ -817,6 +852,55 @@ describe("PostsRepository", () => {
 				expect.objectContaining({ slug: "first-life" }),
 				expect.objectContaining({ slug: "second-life" }),
 			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists recent published posts for RSS without hidden or locked posts", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "first-life",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "second-life",
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "hidden-life",
+					visibility: "hidden",
+					published_at: "2026-05-04T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-4",
+					notion_page_id: "notion-4",
+					slug: "locked-life",
+					published_at: "2026-05-05T00:00:00.000Z",
+				}),
+			);
+			db.exec("UPDATE posts SET locked = 1 WHERE id = 'post-4'");
+			db.insertTag("post-1", "Life");
+
+			await expect(new PostsRepository(db.asD1()).listPublishedForFeed()).resolves
+				.toEqual([
+					expect.objectContaining({ slug: "first-life", tags: ["Life"] }),
+					expect.objectContaining({ slug: "second-life" }),
+				]);
 		} finally {
 			db.close();
 		}
@@ -1650,6 +1734,48 @@ describe("handlePublicApi", () => {
 		}
 	});
 
+	it("returns an RSS XML document through the worker app", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "life post",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "hidden post",
+					visibility: "hidden",
+				}),
+			);
+			db.exec(
+				`INSERT INTO settings (key, value, encrypted, updated_at)
+				 VALUES ('siteTitle', '233.life custom', 0, '2026-05-20T00:00:00.000Z')`,
+			);
+
+			const response = await worker.fetch(
+				publicRequest("/rss.xml") as WorkerRequest,
+				envWithDb(db.asD1()),
+				{} as ExecutionContext,
+			);
+			const xml = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toBe(
+				"application/rss+xml; charset=utf-8",
+			);
+			expect(xml).toContain("<title>233.life custom</title>");
+			expect(xml).toContain("<link>https://example.test/post/life%20post</link>");
+			expect(xml).not.toContain("hidden post");
+		} finally {
+			db.close();
+		}
+	});
+
 	it("returns a sitemap XML document from the public sitemap handler", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1667,6 +1793,29 @@ describe("handlePublicApi", () => {
 			);
 			expect(xml).toContain(
 				"<loc>https://example.test/post/direct%20sitemap</loc>",
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("returns an RSS XML document from the public RSS handler", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ slug: "direct rss" }));
+
+			const response = await handleRss(
+				publicRequest("/rss.xml"),
+				envWithDb(db.asD1()),
+			);
+			const xml = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("cache-control")).toBe(
+				"public, max-age=300",
+			);
+			expect(xml).toContain(
+				"<link>https://example.test/post/direct%20rss</link>",
 			);
 		} finally {
 			db.close();

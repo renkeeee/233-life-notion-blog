@@ -1,13 +1,17 @@
 import { handleAdminApi } from "./api/admin";
-import { handlePublicApi, handleSitemap } from "./api/public";
+import { handlePublicApi, handleRss, handleSitemap } from "./api/public";
 import { runSync } from "./sync";
 import type { AppEnv } from "./types";
 
-export function routeKind(request: Request): "api" | "sitemap" | "app" {
+export function routeKind(request: Request): "api" | "sitemap" | "rss" | "app" {
 	const { pathname } = new URL(request.url);
 
 	if (pathname === "/sitemap.xml") {
 		return "sitemap";
+	}
+
+	if (pathname === "/rss.xml" || pathname === "/feed.xml") {
+		return "rss";
 	}
 
 	return pathname === "/api" || pathname.startsWith("/api/") ? "api" : "app";
@@ -48,6 +52,10 @@ export default {
 
 		if (kind === "sitemap") {
 			return handleSitemap(request, env);
+		}
+
+		if (kind === "rss") {
+			return handleRss(request, env);
 		}
 
 		if (kind === "api") {

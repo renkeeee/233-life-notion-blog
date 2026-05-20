@@ -1,4 +1,4 @@
-import { PostsRepository } from "../db/d1";
+import { PostsRepository, SettingsRepository } from "../db/d1";
 import {
 	checkCommentSubmissionRateLimit,
 	commentRateLimitMessage,
@@ -59,6 +59,8 @@ const defaultPage = 1;
 const defaultLimit = 20;
 const maxLimit = 100;
 const publicApiCacheControl = "public, no-cache";
+const defaultFeedTitle = "233.life";
+const defaultFeedDescription = "Life, written in quiet moments.";
 
 function isPublished(post: PublicPostRecord): boolean {
 	return post.visibility === "published";
@@ -343,6 +345,27 @@ function publicPostUrl(origin: string, slug: string): string {
 	return `${normalizedOrigin(origin)}/post/${encodeURIComponent(slug)}`;
 }
 
+function rssDate(value: string | null | undefined): string | null {
+	if (!value) {
+		return null;
+	}
+
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+
+	return date.toUTCString();
+}
+
+function uniqueCategories(post: PublicPostRecord): string[] {
+	const values = [post.category ?? "", ...(post.tags ?? [])]
+		.map((value) => value.trim())
+		.filter(Boolean);
+
+	return Array.from(new Set(values));
+}
+
 export function sitemapXmlResponse(
 	posts: PublicPostRecord[],
 	origin: string,
@@ -387,6 +410,105 @@ export async function handleSitemap(
 	return new Response(request.method === "HEAD" ? null : xml, {
 		headers: {
 			"content-type": "application/xml; charset=utf-8",
+			"cache-control": "public, max-age=300",
+		},
+	});
+}
+
+type RssXmlOptions = {
+	siteTitle?: string;
+	description?: string;
+	feedPath?: string;
+};
+
+export function rssXmlResponse(
+	posts: PublicPostRecord[],
+	origin: string,
+	options: RssXmlOptions = {},
+): string {
+	const siteOrigin = normalizedOrigin(origin);
+	const feedPath = options.feedPath ?? "/rss.xml";
+	const channelTitle = options.siteTitle?.trim() || defaultFeedTitle;
+	const channelDescription =
+		options.description?.trim() || defaultFeedDescription;
+	const lastBuildDate =
+		rssDate(posts[0]?.updatedAt ?? posts[0]?.publishedAt) ??
+		rssDate(new Date().toISOString());
+	const items = posts.map((post) => {
+		const postUrl = publicPostUrl(siteOrigin, post.slug);
+		const pubDate = rssDate(post.publishedAt ?? post.updatedAt);
+		const categories = uniqueCategories(post).map(
+			(category) => `\t\t<category>${xmlEscape(category)}</category>`,
+		);
+
+		return [
+			"\t<item>",
+			`\t\t<title>${xmlEscape(post.title)}</title>`,
+			`\t\t<link>${xmlEscape(postUrl)}</link>`,
+			`\t\t<guid isPermaLink="true">${xmlEscape(postUrl)}</guid>`,
+			post.excerpt.trim()
+				? `\t\t<description>${xmlEscape(post.excerpt.trim())}</description>`
+				: null,
+			pubDate ? `\t\t<pubDate>${xmlEscape(pubDate)}</pubDate>` : null,
+			...categories,
+			"\t</item>",
+		]
+			.filter((line): line is string => line !== null)
+			.join("\n");
+	});
+
+	return [
+		'<?xml version="1.0" encoding="UTF-8"?>',
+		'<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+		"<channel>",
+		`\t<title>${xmlEscape(channelTitle)}</title>`,
+		`\t<link>${xmlEscape(`${siteOrigin}/`)}</link>`,
+		`\t<description>${xmlEscape(channelDescription)}</description>`,
+		`\t<atom:link href="${xmlEscape(`${siteOrigin}${feedPath}`)}" rel="self" type="application/rss+xml" />`,
+		lastBuildDate
+			? `\t<lastBuildDate>${xmlEscape(lastBuildDate)}</lastBuildDate>`
+			: null,
+		"\t<language>en</language>",
+		...items,
+		"</channel>",
+		"</rss>",
+		"",
+	]
+		.filter((line): line is string => line !== null)
+		.join("\n");
+}
+
+async function publicSiteTitle(env: AppEnv): Promise<string> {
+	try {
+		const row = await new SettingsRepository(env.DB).get("siteTitle");
+		if (row && row.encrypted === 0 && row.value.trim()) {
+			return row.value.trim();
+		}
+	} catch {
+		// Feed generation should still work before settings are initialized.
+	}
+
+	return defaultFeedTitle;
+}
+
+export async function handleRss(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	if (request.method !== "GET" && request.method !== "HEAD") {
+		return new Response("Not found", { status: 404 });
+	}
+
+	const repository = new PostsRepository(env.DB);
+	const posts = await repository.listPublishedForFeed();
+	const xml = rssXmlResponse(posts, new URL(request.url).origin, {
+		siteTitle: await publicSiteTitle(env),
+		feedPath: "/rss.xml",
+	});
+
+	return new Response(request.method === "HEAD" ? null : xml, {
+		headers: {
+			"content-type": "application/rss+xml; charset=utf-8",
 			"cache-control": "public, max-age=300",
 		},
 	});

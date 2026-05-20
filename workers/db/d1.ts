@@ -484,6 +484,21 @@ export class PostsRepository {
 		return result.results.map(mapPostRow);
 	}
 
+	async listPublishedForFeed(limit = 50): Promise<PublicPostRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT ${aliasedPublicPostColumns("p")}
+				 FROM posts p
+				 WHERE ${publicUnlockedClauses.join(" AND ")}
+				 ORDER BY p.published_at DESC, p.updated_at DESC
+				 LIMIT ?`,
+			)
+			.bind(limit)
+			.all<PostRow>();
+
+		return this.withTags(result.results.map(mapPostRow));
+	}
+
 	async listTags(): Promise<PublicTagRecord[]> {
 		const result = await this.db
 			.prepare(

@@ -30,6 +30,10 @@ describe("worker route kind", () => {
 		expect(routeKind(workerRequest("/sitemap.xml"))).toBe("sitemap");
 	});
 
+	it.each(["/rss.xml", "/feed.xml"])("routes %s as rss", (pathname) => {
+		expect(routeKind(workerRequest(pathname))).toBe("rss");
+	});
+
 	it("routes non-api paths as app", () => {
 		expect(routeKind(workerRequest("/posts/example"))).toBe("app");
 	});

@@ -4,6 +4,7 @@ import { AccessGate } from "./components/public/AccessGate";
 import Home from "./routes/home";
 
 const Admin = lazy(() => import("./routes/admin"));
+const Archive = lazy(() => import("./routes/archive"));
 const DemoHome = lazy(() => import("./routes/demo"));
 const DemoPost = lazy(() => import("./routes/demo-post"));
 const Post = lazy(() => import("./routes/post"));
@@ -24,6 +25,7 @@ export default function App() {
 						<Route path="demo/post/:slug" element={<DemoPost />} />
 						<Route path="post/:slug" element={<Post />} />
 						<Route path="search" element={<Search />} />
+						<Route path="archive" element={<Archive />} />
 						<Route path="admin/*" element={<Admin />} />
 						<Route path="*" element={<NotFound />} />
 					</Routes>

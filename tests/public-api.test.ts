@@ -905,6 +905,60 @@ describe("PostsRepository", () => {
 			db.close();
 		}
 	});
+
+	it("lists archive posts without hidden posts and preserves locked titles", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "archive-life",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "hidden-life",
+					visibility: "hidden",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "locked-life",
+				}),
+			);
+			db.exec("UPDATE posts SET locked = 1 WHERE id = 'post-3'");
+			db.insertTag("post-1", "Life");
+
+			const response = await handlePublicApi(
+				publicRequest("/api/archive"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				items: [
+					expect.objectContaining({
+						slug: "archive-life",
+						tags: ["Life"],
+					}),
+					expect.objectContaining({
+						slug: "locked-life",
+						excerpt: "",
+						coverUrl: null,
+						locked: true,
+					}),
+				],
+			});
+		} finally {
+			db.close();
+		}
+	});
 });
 
 describe("PostContentRepository", () => {

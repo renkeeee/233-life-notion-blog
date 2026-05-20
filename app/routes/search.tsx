@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
+import { PublicHeader } from "../components/public/PublicHeader";
 import { apiGet } from "../lib/api-client";
 
 type SearchResponse = {
@@ -17,16 +17,13 @@ type LoadState =
 	| { status: "success"; posts: PublicPostSummary[]; total: number };
 
 export default function Search() {
-	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const q = searchParams.get("q")?.trim() ?? "";
-	const [query, setQuery] = useState(q);
 	const [state, setState] = useState<LoadState>(
 		q ? { status: "loading" } : { status: "idle" },
 	);
 
 	useEffect(() => {
-		setQuery(q);
 		if (!q) {
 			setState({ status: "idle" });
 			return;
@@ -60,35 +57,13 @@ export default function Search() {
 		};
 	}, [q]);
 
-	function submitSearch(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		const trimmed = query.trim();
-		navigate(trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search");
-	}
-
 	return (
 		<main className="public-shell">
-			<header className="public-header">
-				<div>
-					<Link className="back-link" to="/">
-						All posts
-					</Link>
-					<p className="eyebrow">Search</p>
-					<h1>{q ? `Results for "${q}"` : "Search posts"}</h1>
-				</div>
-				<form className="search-form" onSubmit={submitSearch}>
-					<label htmlFor="search-query">Keyword</label>
-					<div>
-						<input
-							id="search-query"
-							value={query}
-							onChange={(event) => setQuery(event.currentTarget.value)}
-							placeholder="Keyword"
-						/>
-						<button type="submit">Search</button>
-					</div>
-				</form>
-			</header>
+			<PublicHeader />
+			<section className="public-page-heading">
+				<p className="eyebrow">Search</p>
+				<h2>{q ? `Results for "${q}"` : "Search posts"}</h2>
+			</section>
 
 			{state.status === "idle" ? (
 				<p className="state-note">Enter a keyword to search published posts.</p>

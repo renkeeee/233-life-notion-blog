@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FocusEvent, FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
-import { SearchIcon } from "../components/public/SearchIcon";
+import {
+	PublicHeader,
+	type CountSummary,
+} from "../components/public/PublicHeader";
 import { apiGet } from "../lib/api-client";
 
 type PostsResponse = {
@@ -10,25 +12,11 @@ type PostsResponse = {
 	total: number;
 	page: number;
 	limit: number;
-	categories?: CategorySummary[];
-};
-
-type TagSummary = {
-	name: string;
-	count: number;
-};
-
-type TagsResponse = {
-	items: TagSummary[];
-};
-
-type CategorySummary = {
-	name: string;
-	count: number;
+	categories?: CountSummary[];
 };
 
 type CategoriesResponse = {
-	items: CategorySummary[];
+	items: CountSummary[];
 };
 
 type LoadState =
@@ -44,17 +32,11 @@ type LoadState =
 			loadMoreError: string | null;
 	  };
 
-type TagsState =
-	| { status: "idle" }
-	| { status: "loading" }
-	| { status: "error"; message: string }
-	| { status: "success"; tags: TagSummary[] };
-
 type CategoriesState =
 	| { status: "idle" }
 	| { status: "loading" }
 	| { status: "error"; message: string }
-	| { status: "success"; categories: CategorySummary[] };
+	| { status: "success"; items: CountSummary[] };
 
 type LoadMode = "replace" | "append";
 
@@ -131,22 +113,26 @@ function PostListSkeleton({
 
 export default function Home() {
 	const navigate = useNavigate();
-	const [query, setQuery] = useState("");
-	const [searchOpen, setSearchOpen] = useState(false);
-	const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-	const [categoriesOpen, setCategoriesOpen] = useState(false);
+	const [searchParams] = useSearchParams();
+	const initialCategory = searchParams.get("category")?.trim() || null;
+	const initialTag = searchParams.get("tag")?.trim() || null;
+	const [selectedCategory, setSelectedCategory] = useState<string | null>(
+		initialCategory,
+	);
 	const [categoriesState, setCategoriesState] = useState<CategoriesState>({
 		status: "idle",
 	});
-	const [selectedTag, setSelectedTag] = useState<string | null>(null);
-	const [tagPickerOpen, setTagPickerOpen] = useState(false);
-	const [tagsState, setTagsState] = useState<TagsState>({ status: "idle" });
+	const [selectedTag, setSelectedTag] = useState<string | null>(initialTag);
 	const [state, setState] = useState<LoadState>({ status: "loading" });
 	const loadMoreRef = useRef<HTMLDivElement | null>(null);
-	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const activeRequestRef = useRef(0);
 	const fetchingRef = useRef(false);
 	const categoriesRequestRef = useRef(false);
+
+	useEffect(() => {
+		setSelectedCategory(searchParams.get("category")?.trim() || null);
+		setSelectedTag(searchParams.get("tag")?.trim() || null);
+	}, [searchParams]);
 
 	const loadPosts = useCallback(
 		async (page: number, mode: LoadMode) => {
@@ -180,7 +166,7 @@ export default function Home() {
 				if (mode === "replace" && page === 1 && response.categories) {
 					setCategoriesState({
 						status: "success",
-						categories: response.categories,
+						items: response.categories,
 					});
 				}
 
@@ -246,19 +232,6 @@ export default function Home() {
 		};
 	}, [loadPosts]);
 
-	async function loadTags() {
-		setTagsState({ status: "loading" });
-		try {
-			const response = await apiGet<TagsResponse>("/api/tags");
-			setTagsState({ status: "success", tags: response.items });
-		} catch (error: unknown) {
-			setTagsState({
-				status: "error",
-				message: errorMessage(error),
-			});
-		}
-	}
-
 	const loadCategories = useCallback(async () => {
 		if (categoriesRequestRef.current) {
 			return;
@@ -270,7 +243,7 @@ export default function Home() {
 			const response = await apiGet<CategoriesResponse>("/api/categories");
 			setCategoriesState({
 				status: "success",
-				categories: response.items,
+				items: response.items,
 			});
 		} catch (error: unknown) {
 			setCategoriesState({
@@ -282,35 +255,35 @@ export default function Home() {
 		}
 	}, []);
 
-	function toggleCategories() {
-		setCategoriesOpen((current) => {
-			const next = !current;
-			if (next && categoriesState.status === "idle") {
-				void loadCategories();
-			}
-
-			return next;
-		});
-	}
-
 	function selectCategory(category: string | null) {
 		setSelectedCategory(category);
-	}
-
-	function openTagPicker() {
-		setTagPickerOpen(true);
-		if (tagsState.status === "idle") {
-			void loadTags();
+		const params = new URLSearchParams();
+		if (category) {
+			params.set("category", category);
 		}
+		if (selectedTag) {
+			params.set("tag", selectedTag);
+		}
+		navigate(params.size ? `/?${params.toString()}` : "/", { replace: true });
 	}
 
 	function selectTag(tag: string) {
 		setSelectedTag(tag);
-		setTagPickerOpen(false);
+		const params = new URLSearchParams();
+		if (selectedCategory) {
+			params.set("category", selectedCategory);
+		}
+		params.set("tag", tag);
+		navigate(`/?${params.toString()}`, { replace: true });
 	}
 
 	function clearTagFilter() {
 		setSelectedTag(null);
+		const params = new URLSearchParams();
+		if (selectedCategory) {
+			params.set("category", selectedCategory);
+		}
+		navigate(params.size ? `/?${params.toString()}` : "/", { replace: true });
 	}
 
 	const canLoadMore =
@@ -351,12 +324,6 @@ export default function Home() {
 		return () => observer.disconnect();
 	}, [canAutoLoadMore, loadNextPage]);
 
-	useEffect(() => {
-		if (searchOpen) {
-			searchInputRef.current?.focus();
-		}
-	}, [searchOpen]);
-
 	function loadMoreContent() {
 		if (state.status !== "success" || state.posts.length >= state.total) {
 			return null;
@@ -384,115 +351,16 @@ export default function Home() {
 		);
 	}
 
-	function submitSearch(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		const trimmed = query.trim();
-		if (trimmed) {
-			navigate(`/search?q=${encodeURIComponent(trimmed)}`);
-			return;
-		}
-
-		setSearchOpen(true);
-	}
-
-	function collapseSearchIfEmpty(event: FocusEvent<HTMLFormElement>) {
-		if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-			return;
-		}
-
-		setSearchOpen(false);
-	}
-
 	return (
 		<main className="public-shell">
-			<header className="public-header">
-				<div>
-					<p className="eyebrow">Life, written in quiet moments.</p>
-					<h1 className="site-title">233.life</h1>
-				</div>
-				<div className="public-header-actions">
-					<div
-						className={`category-switcher${categoriesOpen ? " expanded" : ""}`}
-					>
-						{categoriesOpen ? (
-							<div className="category-list" aria-label="Categories">
-								<button
-									type="button"
-									aria-label="All categories"
-									className={`category-option${
-										selectedCategory === null ? " active" : ""
-									}`}
-									onClick={() => selectCategory(null)}
-								>
-									All
-								</button>
-								{categoriesState.status === "error" ? (
-									<button
-										type="button"
-										className="category-option"
-										onClick={() => void loadCategories()}
-									>
-										Retry
-									</button>
-								) : null}
-								{categoriesState.status === "success"
-									? categoriesState.categories.map((category) => (
-											<button
-												type="button"
-												aria-label={`${category.name} ${category.count}`}
-												className={`category-option${
-													selectedCategory === category.name ? " active" : ""
-												}`}
-												key={category.name}
-												onClick={() => selectCategory(category.name)}
-											>
-												<span>{category.name}</span>
-												<span>{category.count}</span>
-											</button>
-										))
-									: null}
-							</div>
-						) : null}
-						<button
-							className="category-entry-button"
-							type="button"
-							aria-expanded={categoriesOpen}
-							onClick={toggleCategories}
-						>
-							Categories
-						</button>
-					</div>
-					<button className="tag-entry-button" type="button" onClick={openTagPicker}>
-						Tags
-					</button>
-					<form
-						className={`search-form expandable capsule${searchOpen ? " expanded" : ""}`}
-						onBlur={collapseSearchIfEmpty}
-						onSubmit={submitSearch}
-						role="search"
-					>
-						<div>
-							<input
-								id="home-search"
-								ref={searchInputRef}
-								aria-label="Search posts"
-								value={query}
-								onChange={(event) => setQuery(event.currentTarget.value)}
-								placeholder="Keyword"
-								tabIndex={searchOpen ? 0 : -1}
-							/>
-							<button
-								type="submit"
-								aria-expanded={searchOpen}
-								aria-label="Search"
-								onClick={() => setSearchOpen(true)}
-							>
-								<SearchIcon />
-							</button>
-						</div>
-					</form>
-				</div>
-			</header>
+			<PublicHeader
+				categoriesState={categoriesState}
+				onLoadCategories={() => void loadCategories()}
+				onSelectCategory={selectCategory}
+				onSelectTag={selectTag}
+				selectedCategory={selectedCategory}
+				selectedTag={selectedTag}
+			/>
 
 			{state.status === "loading" ? <PostListSkeleton /> : null}
 			{state.status === "error" ? (
@@ -523,48 +391,6 @@ export default function Home() {
 						{loadMoreContent()}
 					</div>
 				</>
-			) : null}
-			{tagPickerOpen ? (
-				<div className="tag-dialog-backdrop">
-					<section className="tag-dialog compact" role="dialog" aria-label="Tags">
-						<div className="tag-dialog-heading">
-							<h2>Tags</h2>
-							<button type="button" onClick={() => setTagPickerOpen(false)}>
-								Close
-							</button>
-						</div>
-						{tagsState.status === "loading" ? (
-							<p className="state-note">Loading tags...</p>
-						) : null}
-						{tagsState.status === "error" ? (
-							<div className="state-panel">
-								<p className="state-note state-error">{tagsState.message}</p>
-								<button type="button" onClick={() => void loadTags()}>
-									Retry
-								</button>
-							</div>
-						) : null}
-						{tagsState.status === "success" && tagsState.tags.length === 0 ? (
-							<p className="state-note">No tags have been synced yet.</p>
-						) : null}
-						{tagsState.status === "success" && tagsState.tags.length > 0 ? (
-							<div className="tag-picker-list">
-								{tagsState.tags.map((tag) => (
-									<button
-										type="button"
-										aria-label={`${tag.name} ${tag.count}`}
-										className={selectedTag === tag.name ? "active" : ""}
-										key={tag.name}
-										onClick={() => selectTag(tag.name)}
-									>
-										<span>{tag.name}</span>
-										<span>{tag.count}</span>
-									</button>
-								))}
-							</div>
-						) : null}
-					</section>
-				</div>
 			) : null}
 		</main>
 	);

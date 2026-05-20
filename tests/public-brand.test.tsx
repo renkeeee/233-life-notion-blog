@@ -63,14 +63,25 @@ describe("public brand", () => {
 	});
 
 	it("applies the public page background to the full viewport", () => {
-		expect(cssRule("html, body, #root")).toContain("background: #f8f7f4");
+		expect(appCss).toContain("--page-bg: #f8f7f4");
+		expect(cssRule("html, body, #root")).toContain(
+			"background: var(--page-bg)",
+		);
 		expect(appCss).toContain("body {\n\tmin-height: 100vh;");
 	});
 
 	it("uses a literary display font for the homepage title and quiet tag button styling", () => {
 		expect(cssRule(".site-title")).toContain('"Cormorant Garamond"');
-		expect(cssRule(".tag-entry-button")).toContain("border: 0");
-		expect(cssRule(".tag-entry-button")).toContain("color: #706d66");
+		expect(appCss).toContain(".public-shell .tag-entry-button");
+		expect(appCss).toContain("border: 0");
+		expect(appCss).toContain("color: var(--muted)");
+	});
+
+	it("defines light, dark, and automatic theme variables", () => {
+		expect(appCss).toContain(':root[data-theme="light"]');
+		expect(appCss).toContain(':root[data-theme="dark"]');
+		expect(appCss).toContain("@media (prefers-color-scheme: dark)");
+		expect(appCss).toContain("--page-bg: #12110f");
 	});
 
 	it("keeps the category switcher on one line while it expands", () => {

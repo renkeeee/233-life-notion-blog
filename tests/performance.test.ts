@@ -12,9 +12,11 @@ describe("frontend performance boundaries", () => {
 	it("keeps non-home routes behind lazy route chunks", () => {
 		expect(appTsx).toContain("lazy(");
 		expect(appTsx).toContain('import("./routes/admin")');
+		expect(appTsx).toContain('import("./routes/archive")');
 		expect(appTsx).toContain('import("./routes/post")');
 		expect(appTsx).toContain('import("./routes/search")');
 		expect(appTsx).not.toContain('import Admin from "./routes/admin"');
+		expect(appTsx).not.toContain('import Archive from "./routes/archive"');
 		expect(appTsx).not.toContain('import Post from "./routes/post"');
 		expect(appTsx).not.toContain('import Search from "./routes/search"');
 	});

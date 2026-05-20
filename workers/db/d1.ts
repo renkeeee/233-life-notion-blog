@@ -499,6 +499,22 @@ export class PostsRepository {
 		return this.withTags(result.results.map(mapPostRow));
 	}
 
+	async listPublishedForArchive(limit = 50000): Promise<PublicPostRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT ${aliasedPublicPostColumns("p")}
+				 FROM posts p
+				 WHERE ${publicVisibilityClauses.join(" AND ")}
+				 ORDER BY p.published_at DESC, p.updated_at DESC
+				 LIMIT ?`,
+			)
+			.bind(limit)
+			.all<PostRow>();
+
+		const posts = await this.withTags(result.results.map(mapPostRow));
+		return posts.map(hideLockedPreview);
+	}
+
 	async listTags(): Promise<PublicTagRecord[]> {
 		const result = await this.db
 			.prepare(

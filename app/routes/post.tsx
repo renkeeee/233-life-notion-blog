@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams } from "react-router";
 import { PostDetail, type PublicPostDetail } from "../components/public/PostDetail";
+import { PublicHeader } from "../components/public/PublicHeader";
 import { apiGet, apiPost } from "../lib/api-client";
 
 type LockedPostDetail = {
@@ -125,49 +126,52 @@ export default function Post() {
 	}
 
 	return (
-		<main className="public-shell narrow">
-			{state.status === "loading" ? <PostDetailSkeleton /> : null}
-			{state.status === "error" ? (
-				<div className="state-panel">
-					<p className="state-note state-error">{state.message}</p>
-					<Link to="/">Return to posts</Link>
-				</div>
-			) : null}
-			{state.status === "locked" ? (
-				<article className="post-detail">
-					<header className="post-detail-header">
-						<Link className="back-link" to="/">
-							All posts
-						</Link>
-						<p className="post-meta">Private post</p>
-						<h1>{state.post.title}</h1>
-					</header>
-					<form className="post-lock-panel" onSubmit={unlockPost}>
-						<label>
-							Post password
-							<input
-								type="password"
-								value={state.password}
-								onChange={(event) =>
-									setState({
-										...state,
-										password: event.currentTarget.value,
-										message: null,
-									})
-								}
-								autoComplete="current-password"
-							/>
-						</label>
-						{state.message ? (
-							<p className="state-note state-error">{state.message}</p>
-						) : null}
-						<button type="submit" disabled={state.submitting}>
-							{state.submitting ? "Unlocking..." : "Unlock post"}
-						</button>
-					</form>
-				</article>
-			) : null}
-			{state.status === "success" ? <PostDetail post={state.post} /> : null}
+		<main className="public-shell">
+			<PublicHeader />
+			<div className="public-content narrow">
+				{state.status === "loading" ? <PostDetailSkeleton /> : null}
+				{state.status === "error" ? (
+					<div className="state-panel">
+						<p className="state-note state-error">{state.message}</p>
+						<Link to="/">Return to posts</Link>
+					</div>
+				) : null}
+				{state.status === "locked" ? (
+					<article className="post-detail">
+						<header className="post-detail-header">
+							<Link className="back-link" to="/">
+								All posts
+							</Link>
+							<p className="post-meta">Private post</p>
+							<h1>{state.post.title}</h1>
+						</header>
+						<form className="post-lock-panel" onSubmit={unlockPost}>
+							<label>
+								Post password
+								<input
+									type="password"
+									value={state.password}
+									onChange={(event) =>
+										setState({
+											...state,
+											password: event.currentTarget.value,
+											message: null,
+										})
+									}
+									autoComplete="current-password"
+								/>
+							</label>
+							{state.message ? (
+								<p className="state-note state-error">{state.message}</p>
+							) : null}
+							<button type="submit" disabled={state.submitting}>
+								{state.submitting ? "Unlocking..." : "Unlock post"}
+							</button>
+						</form>
+					</article>
+				) : null}
+				{state.status === "success" ? <PostDetail post={state.post} /> : null}
+			</div>
 		</main>
 	);
 }

@@ -598,6 +598,14 @@ export async function handlePublicApi(
 		);
 	}
 
+	if (url.pathname === "/api/archive") {
+		return cacheableJson(
+			request,
+			{ items: (await posts.listPublishedForArchive()).map(toPublicSummary) },
+			publicApiCacheControl,
+		);
+	}
+
 	if (url.pathname.startsWith("/api/posts/")) {
 		if (request.method === "POST") {
 			if (commentSlug) {

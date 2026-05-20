@@ -117,6 +117,11 @@ describe("PostDetail", () => {
 			expect(screen.getByLabelText("Loading post")).toHaveClass(
 				"post-detail-skeleton",
 			);
+			expect(screen.getByRole("heading", { name: "233.life" })).toBeTruthy();
+			expect(screen.getByRole("link", { name: "Archived" })).toHaveAttribute(
+				"href",
+				"/archive",
+			);
 			expect(screen.queryByText("Loading post...")).toBeNull();
 		} finally {
 			apiGet.mockRestore();

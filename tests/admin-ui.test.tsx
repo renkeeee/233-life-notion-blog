@@ -381,7 +381,7 @@ describe("PostStatusTable", () => {
 		}
 	});
 
-	it("hides, restores, locks, unlocks, and deletes posts from row actions", async () => {
+	it("uses compact row actions and opens the lock password in a popover", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [
 				{
@@ -409,12 +409,18 @@ describe("PostStatusTable", () => {
 			render(<PostStatusTable csrfToken="csrf-token" />);
 
 			await screen.findByRole("link", { name: "Hello World" });
-			fireEvent.click(screen.getByRole("button", { name: "Hide Hello World" }));
-			fireEvent.change(screen.getByLabelText("Password for Hello World"), {
+			expect(
+				screen.queryByRole("button", { name: "Hide Hello World" }),
+			).toBeNull();
+			expect(screen.queryByLabelText("Post password")).toBeNull();
+
+			fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+			fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+			fireEvent.change(screen.getByLabelText("Post password"), {
 				target: { value: "post-secret" },
 			});
-			fireEvent.click(screen.getByRole("button", { name: "Lock Hello World" }));
-			fireEvent.click(screen.getByRole("button", { name: "Delete Hello World" }));
+			fireEvent.click(screen.getByRole("button", { name: "Save" }));
+			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
 			await waitFor(() =>
 				expect(apiPost).toHaveBeenCalledWith(

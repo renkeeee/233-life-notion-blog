@@ -176,6 +176,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	const [appliedSort, setAppliedSort] = useState(sortOptions[0].value);
 	const [passwords, setPasswords] = useState<Record<string, string>>({});
 	const [actionPending, setActionPending] = useState<string | null>(null);
+	const [lockPopoverPostId, setLockPopoverPostId] = useState<string | null>(null);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -252,7 +253,8 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 
 		const password = passwords[post.id] ?? "";
 		if (action === "lock" && !password.trim()) {
-			setError(`Password is required for ${title}.`);
+			setError("Password is required.");
+			setLockPopoverPostId(post.id);
 			return;
 		}
 
@@ -268,6 +270,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 			setStatus(`${title} ${actionLabels[action]}.`);
 			if (action === "lock") {
 				setPasswords((current) => ({ ...current, [post.id]: "" }));
+				setLockPopoverPostId(null);
 			}
 			const response = await apiGet<PostsResponse>(
 				buildPostsPath({
@@ -381,7 +384,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 											{formatDate(post.notionLastEditedTime ?? post.updatedAt)}
 										</td>
 										<td>{post.lastSyncError ?? "-"}</td>
-										<td>
+										<td className="admin-actions-cell">
 											<div className="admin-row-actions">
 												<button
 													type="button"
@@ -390,7 +393,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 														runAction(post, isHidden ? "restore" : "hide")
 													}
 												>
-													{isHidden ? `Restore ${title}` : `Hide ${title}`}
+													{isHidden ? "Restore" : "Hide"}
 												</button>
 												{isLocked ? (
 													<>
@@ -404,32 +407,60 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 															disabled={pendingAction("unlock")}
 															onClick={() => runAction(post, "unlock")}
 														>
-															Unlock {title}
+															Unlock
 														</button>
 													</>
 												) : (
-													<div className="admin-lock-control">
-														<label>
-															Password for {title}
-															<input
-																type="text"
-																value={passwords[post.id] ?? ""}
-																onChange={(event) => {
-																	const value = event.currentTarget.value;
-																	setPasswords((current) => ({
-																		...current,
-																		[post.id]: value,
-																	}));
-																}}
-															/>
-														</label>
+													<div className="admin-lock-action">
 														<button
 															type="button"
 															disabled={pendingAction("lock")}
-															onClick={() => runAction(post, "lock")}
+															onClick={() =>
+																setLockPopoverPostId((current) =>
+																	current === post.id ? null : post.id,
+																)
+															}
 														>
-															Lock {title}
+															Lock
 														</button>
+														{lockPopoverPostId === post.id ? (
+															<div
+																className="admin-lock-popover"
+																role="dialog"
+																aria-label="Lock post"
+															>
+																<label>
+																	Post password
+																	<input
+																		autoFocus
+																		type="text"
+																		value={passwords[post.id] ?? ""}
+																		onChange={(event) => {
+																			const value = event.currentTarget.value;
+																			setPasswords((current) => ({
+																				...current,
+																				[post.id]: value,
+																			}));
+																		}}
+																	/>
+																</label>
+																<div className="admin-lock-popover-actions">
+																	<button
+																		type="button"
+																		disabled={pendingAction("lock")}
+																		onClick={() => runAction(post, "lock")}
+																	>
+																		Save
+																	</button>
+																	<button
+																		type="button"
+																		onClick={() => setLockPopoverPostId(null)}
+																	>
+																		Cancel
+																	</button>
+																</div>
+															</div>
+														) : null}
 													</div>
 												)}
 												<button
@@ -437,7 +468,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 													disabled={pendingAction("delete")}
 													onClick={() => runAction(post, "delete")}
 												>
-													Delete {title}
+													Delete
 												</button>
 											</div>
 										</td>

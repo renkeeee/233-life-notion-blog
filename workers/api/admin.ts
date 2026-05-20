@@ -16,6 +16,10 @@ import {
 } from "../crypto";
 import { SettingsRepository } from "../db/d1";
 import {
+	loadCommentsDefaultEnabled,
+	saveCommentsDefaultEnabled,
+} from "../comments";
+import {
 	parseSettingsFromRows,
 	redactSettings,
 	serializeSettingsForStorage,
@@ -43,6 +47,10 @@ type ManualSyncBody = {
 	rangeStart: string | null;
 	rangeEnd: string | null;
 	force: boolean;
+};
+
+type CommentsDefaultBody = {
+	enabled: boolean;
 };
 
 type SyncRunRow = {
@@ -73,6 +81,7 @@ type AdminPostRow = {
 	visibility: "published" | "hidden" | "archived";
 	manual_visibility: "visible" | "hidden";
 	locked: number;
+	comments_enabled: number;
 	lock_password_encrypted: string | null;
 	published_at: string | null;
 	notion_last_edited_time: string;
@@ -80,7 +89,14 @@ type AdminPostRow = {
 	last_sync_error: string | null;
 };
 
-type AdminPostAction = "hide" | "restore" | "lock" | "unlock" | "delete";
+type AdminPostAction =
+	| "hide"
+	| "restore"
+	| "lock"
+	| "unlock"
+	| "comments-on"
+	| "comments-off"
+	| "delete";
 
 type AdminPostIdentityRow = {
 	id: string;
@@ -194,6 +210,16 @@ function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
 		rangeEnd,
 		force,
 	};
+}
+
+function validateCommentsDefaultBody(
+	body: Record<string, unknown>,
+): CommentsDefaultBody {
+	if (typeof body.enabled !== "boolean") {
+		throw new Error("enabled must be a boolean");
+	}
+
+	return { enabled: body.enabled };
 }
 
 function validateNotionSchemaBody(
@@ -1004,12 +1030,75 @@ async function handleListSyncRuns(
 	}
 }
 
+async function handleGetPostCommentSettings(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	try {
+		return json({
+			defaultEnabled: await loadCommentsDefaultEnabled(env.DB),
+		});
+	} catch {
+		return errorJson(
+			"INTERNAL_ERROR",
+			"Post comment settings could not be loaded",
+			500,
+		);
+	}
+}
+
+async function handlePutPostCommentSettings(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: CommentsDefaultBody;
+
+	try {
+		body = validateCommentsDefaultBody(await readJsonObject(request));
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid request body";
+
+		return errorJson("BAD_REQUEST", message, 400);
+	}
+
+	try {
+		await saveCommentsDefaultEnabled(env.DB, body.enabled);
+		return json({ defaultEnabled: body.enabled });
+	} catch {
+		return errorJson(
+			"INTERNAL_ERROR",
+			"Post comment settings could not be saved",
+			500,
+		);
+	}
+}
+
 function adminPostActionFromPath(
 	pathname: string,
 ): { postId: string; action: AdminPostAction } | null {
-	const match = /^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|delete)$/.exec(
-		pathname,
-	);
+	const match =
+		/^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|comments-on|comments-off|delete)$/.exec(
+			pathname,
+		);
 	if (!match) {
 		return null;
 	}
@@ -1127,11 +1216,12 @@ async function handleListPosts(
 				slug,
 				status,
 				visibility,
-				manual_visibility,
-				locked,
-				lock_password_encrypted,
-				published_at,
-				notion_last_edited_time,
+					manual_visibility,
+					locked,
+					comments_enabled,
+					lock_password_encrypted,
+					published_at,
+					notion_last_edited_time,
 				updated_at,
 				last_sync_error
 			 FROM posts
@@ -1155,11 +1245,12 @@ async function handleListPosts(
 				slug: post.slug,
 				status: post.status,
 				visibility: post.visibility,
-				manualVisibility: post.manual_visibility,
-				locked: post.locked === 1,
-				lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
-				publishedAt: post.published_at,
-				notionLastEditedTime: post.notion_last_edited_time,
+					manualVisibility: post.manual_visibility,
+					locked: post.locked === 1,
+					commentsEnabled: post.comments_enabled === 1,
+					lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
+					publishedAt: post.published_at,
+					notionLastEditedTime: post.notion_last_edited_time,
 				updatedAt: post.updated_at,
 				lastSyncError: post.last_sync_error,
 			})),
@@ -1215,6 +1306,18 @@ async function handleAdminPostAction(
 			 WHERE id = ?`,
 		)
 			.bind(action === "hide" ? "hidden" : "visible", now, post.id)
+			.run();
+
+		return json({ ok: true });
+	}
+
+	if (action === "comments-on" || action === "comments-off") {
+		await env.DB.prepare(
+			`UPDATE posts
+			 SET comments_enabled = ?, updated_at = ?
+			 WHERE id = ?`,
+		)
+			.bind(action === "comments-on" ? 1 : 0, now, post.id)
 			.run();
 
 		return json({ ok: true });
@@ -1324,6 +1427,20 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/posts" && request.method === "GET") {
 		return handleListPosts(request, env);
+	}
+
+	if (
+		url.pathname === "/api/admin/posts/comment-settings" &&
+		request.method === "GET"
+	) {
+		return handleGetPostCommentSettings(request, env);
+	}
+
+	if (
+		url.pathname === "/api/admin/posts/comment-settings" &&
+		request.method === "PUT"
+	) {
+		return handlePutPostCommentSettings(request, env);
 	}
 
 	const postAction = adminPostActionFromPath(url.pathname);

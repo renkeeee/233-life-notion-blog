@@ -1176,6 +1176,7 @@ describe("admin posts API", () => {
 						visibility: "published",
 						manualVisibility: "hidden",
 						locked: true,
+						commentsEnabled: true,
 						lockPassword: "row-secret",
 						publishedAt: "2026-05-19T02:00:00.000Z",
 						notionLastEditedTime: "2026-05-19T03:44:00.000Z",

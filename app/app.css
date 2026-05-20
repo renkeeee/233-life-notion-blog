@@ -364,6 +364,33 @@ body {
 	color: #8a2d2d;
 }
 
+.access-gate-panel {
+	display: grid;
+	gap: 16px;
+	border-top: 1px solid #dfddd6;
+	margin-top: 12vh;
+	padding-top: 28px;
+}
+
+.access-gate-panel h1 {
+	margin: 0;
+	color: #151515;
+	font-family: "Cormorant Garamond", Georgia, serif;
+	font-size: clamp(2.4rem, 7vw, 4rem);
+	line-height: 1;
+	letter-spacing: 0;
+}
+
+.access-gate-panel p {
+	margin: 0;
+	color: #56524c;
+	line-height: 1.6;
+}
+
+.turnstile-widget {
+	min-height: 65px;
+}
+
 .load-more-panel {
 	display: flex;
 	justify-content: center;
@@ -855,6 +882,128 @@ body {
 	padding: 16px;
 }
 
+.post-comments {
+	margin-top: 44px;
+}
+
+.post-comments-divider {
+	border: 0;
+	border-top: 1px solid #dfddd6;
+	margin: 0 0 24px;
+}
+
+.post-comments-heading {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.post-comments-heading h2 {
+	margin: 0;
+	color: #171715;
+	font-size: 1.35rem;
+	line-height: 1.2;
+	letter-spacing: 0;
+}
+
+.post-comments-heading span {
+	color: #777267;
+	font-size: 0.86rem;
+	font-weight: 750;
+}
+
+.post-comment-list {
+	display: grid;
+	gap: 12px;
+	list-style: none;
+	margin: 0 0 20px;
+	padding: 0;
+}
+
+.post-comment {
+	border: 1px solid #dfddd6;
+	border-radius: 8px;
+	background: #fffdfa;
+	padding: 14px;
+}
+
+.post-comment header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 8px;
+}
+
+.post-comment strong {
+	color: #26231f;
+	font-size: 0.94rem;
+}
+
+.post-comment time,
+.post-comments-empty {
+	color: #777267;
+	font-size: 0.86rem;
+}
+
+.post-comment p {
+	white-space: pre-wrap;
+	margin: 0;
+	color: #38352f;
+	line-height: 1.62;
+}
+
+.post-comment-form {
+	display: grid;
+	gap: 12px;
+	border-top: 1px solid #ebe7dd;
+	margin-top: 18px;
+	padding-top: 18px;
+}
+
+.post-comment-form label {
+	display: grid;
+	gap: 6px;
+	color: #56524c;
+	font-size: 0.9rem;
+	font-weight: 700;
+}
+
+.post-comment-form input,
+.post-comment-form textarea {
+	width: 100%;
+	box-sizing: border-box;
+	border: 1px solid #c9c5ba;
+	border-radius: 6px;
+	background: #fff;
+	color: #1d1d1b;
+	font: inherit;
+	padding: 10px 12px;
+}
+
+.post-comment-form textarea {
+	resize: vertical;
+}
+
+.post-comment-form button {
+	justify-self: start;
+	border: 1px solid #1d1d1b;
+	border-radius: 6px;
+	background: #1d1d1b;
+	color: #fff;
+	cursor: pointer;
+	font-weight: 650;
+	min-height: 40px;
+	padding: 9px 16px;
+}
+
+.post-comment-form button:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+
 .admin-shell,
 .admin-login {
 	width: min(100% - 32px, 1120px);
@@ -1320,6 +1469,44 @@ body {
 .admin-post-filters {
 	grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(180px, 1fr) auto;
 	align-items: end;
+}
+
+.admin-post-comment-settings {
+	display: grid;
+	gap: 14px;
+}
+
+.admin-post-comment-settings h3 {
+	margin: 0 0 8px;
+}
+
+.admin-checkbox-row {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	color: #45433d;
+	font-size: 0.9rem;
+	font-weight: 750;
+}
+
+.admin-checkbox-row input {
+	width: 18px;
+	min-height: 18px;
+}
+
+.admin-inline-actions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px;
+	color: #716d64;
+	font-size: 0.86rem;
+	font-weight: 650;
+}
+
+.admin-inline-actions button {
+	min-height: 36px;
+	padding: 7px 12px;
 }
 
 .admin-post-table {

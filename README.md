@@ -19,6 +19,9 @@ Create a local Worker secret in `.dev.vars`:
 node -e "console.log('CONFIG_ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64url'))" > .dev.vars
 ```
 
+Turnstile is disabled locally unless both `TURNSTILE_SITE_KEY` and
+`TURNSTILE_SECRET_KEY` are configured.
+
 Apply the local D1 migrations:
 
 ```bash
@@ -76,6 +79,12 @@ npx wrangler r2 bucket create 233-life-notion-blog-assets
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 npx wrangler secret put CONFIG_ENCRYPTION_KEY
+```
+
+Set the Turnstile secret key for access checks and comment submission:
+
+```bash
+npx wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
 4. Apply remote migrations:

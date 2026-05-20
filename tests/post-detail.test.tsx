@@ -36,6 +36,69 @@ describe("PostDetail", () => {
 		expect(container.querySelector('img[src="https://cdn.example.com/cover.jpg"]')).toBeNull();
 	});
 
+	it("renders comments and submits anonymous comments", async () => {
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
+			comment: {
+				id: "comment-2",
+				nickname: "Anonymous",
+				body: "A quiet reply.",
+				createdAt: "2026-05-20T10:00:00.000Z",
+			},
+		});
+
+		try {
+			render(
+				<MemoryRouter>
+					<PostDetail
+						post={{
+							id: "post-1",
+							slug: "hello-world",
+							title: "Hello World",
+							excerpt: "Opening body text.",
+							coverUrl: null,
+							category: null,
+							tags: [],
+							publishedAt: "2026-05-19T00:00:00.000Z",
+							updatedAt: "2026-05-19T00:00:00.000Z",
+							markdown: "Body copy",
+							commentsEnabled: true,
+							comments: [
+								{
+									id: "comment-1",
+									nickname: "Renke",
+									body: "First note.",
+									createdAt: "2026-05-19T08:00:00.000Z",
+								},
+							],
+						}}
+					/>
+				</MemoryRouter>,
+			);
+
+			expect(screen.getByRole("heading", { name: "Comments" })).toBeTruthy();
+			expect(screen.getByText("First note.")).toBeTruthy();
+			fireEvent.change(screen.getByLabelText("Comment"), {
+				target: { value: "A quiet reply." },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/posts/hello-world/comments",
+					{
+						nickname: "",
+						body: "A quiet reply.",
+						turnstileToken: "",
+					},
+				),
+			);
+			await screen.findByText("Anonymous");
+			expect(screen.getByText("A quiet reply.")).toBeTruthy();
+		} finally {
+			apiPost.mockRestore();
+		}
+	});
+
 	it("shows a post detail skeleton while the post is loading", () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")

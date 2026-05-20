@@ -6,9 +6,21 @@ import * as apiClient from "../app/lib/api-client";
 describe("demo homepage", () => {
 	it("renders mock homepage content at /demo without loading real API data", async () => {
 		window.history.pushState({}, "", "/demo");
-		const apiGet = vi.spyOn(apiClient, "apiGet").mockRejectedValue(
-			new Error("The demo route must not call the real API"),
-		);
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation((path: string) => {
+				if (path === "/api/turnstile/access") {
+					return Promise.resolve({
+						enabled: false,
+						verified: true,
+						siteKey: "",
+					});
+				}
+
+				return Promise.reject(
+					new Error("The demo route must not call the real content API"),
+				);
+			});
 
 		try {
 			render(<App />);
@@ -29,7 +41,10 @@ describe("demo homepage", () => {
 				}),
 			).toHaveAttribute("href", "/demo/post/demo-slower-morning");
 			expect(screen.getByText("7 posts")).toBeTruthy();
-			expect(apiGet).not.toHaveBeenCalled();
+			expect(apiGet).toHaveBeenCalledWith("/api/turnstile/access");
+			expect(apiGet).not.toHaveBeenCalledWith(
+				expect.stringContaining("/api/posts"),
+			);
 		} finally {
 			apiGet.mockRestore();
 			window.history.pushState({}, "", "/");
@@ -38,9 +53,21 @@ describe("demo homepage", () => {
 
 	it("opens a mock detail page from the demo homepage without loading real API data", async () => {
 		window.history.pushState({}, "", "/demo");
-		const apiGet = vi.spyOn(apiClient, "apiGet").mockRejectedValue(
-			new Error("The demo detail route must not call the real API"),
-		);
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation((path: string) => {
+				if (path === "/api/turnstile/access") {
+					return Promise.resolve({
+						enabled: false,
+						verified: true,
+						siteKey: "",
+					});
+				}
+
+				return Promise.reject(
+					new Error("The demo detail route must not call the real content API"),
+				);
+			});
 
 		try {
 			render(<App />);
@@ -69,7 +96,10 @@ describe("demo homepage", () => {
 					"The morning did not ask to be optimized. It arrived with steam, light, and the small patience of an unread page.",
 				),
 			).toBeTruthy();
-			expect(apiGet).not.toHaveBeenCalled();
+			expect(apiGet).toHaveBeenCalledWith("/api/turnstile/access");
+			expect(apiGet).not.toHaveBeenCalledWith(
+				expect.stringContaining("/api/posts"),
+			);
 		} finally {
 			apiGet.mockRestore();
 			window.history.pushState({}, "", "/");

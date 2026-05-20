@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS posts (
 	category TEXT,
 	manual_visibility TEXT NOT NULL DEFAULT 'visible' CHECK (manual_visibility IN ('visible', 'hidden')),
 	locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
-	lock_password_encrypted TEXT
+	lock_password_encrypted TEXT,
+	comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1))
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
@@ -48,6 +49,18 @@ CREATE TABLE IF NOT EXISTS deleted_posts (
 
 CREATE INDEX IF NOT EXISTS idx_deleted_posts_deleted_at
 	ON deleted_posts (deleted_at DESC);
+
+CREATE TABLE IF NOT EXISTS post_comments (
+	id TEXT PRIMARY KEY,
+	post_id TEXT NOT NULL,
+	nickname TEXT NOT NULL,
+	body TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_comments_post_created_at
+	ON post_comments (post_id, created_at);
 
 CREATE TABLE IF NOT EXISTS post_tags (
 	post_id TEXT NOT NULL,

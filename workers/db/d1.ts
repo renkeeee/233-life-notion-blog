@@ -1,5 +1,9 @@
 import type { SettingRow } from "../settings";
-import type { PostVisibility, PublicPostRecord } from "../types";
+import type {
+	PostVisibility,
+	PublicPostComment,
+	PublicPostRecord,
+} from "../types";
 
 const upsertSettingSql = `INSERT INTO settings (key, value, encrypted, updated_at)
  VALUES (?, ?, ?, ?)
@@ -72,6 +76,7 @@ type PostRow = {
 	status: string;
 	visibility: PostVisibility;
 	locked: number | boolean;
+	comments_enabled: number | boolean;
 	published_at: string | null;
 	updated_at: string;
 };
@@ -92,6 +97,13 @@ type ListPublishedResult = {
 type PublicPostDetailRecord = {
 	post: PublicPostRecord;
 	markdown: string;
+};
+
+type CommentRow = {
+	id: string;
+	nickname: string;
+	body: string;
+	created_at: string;
 };
 
 export type LockedPostRecord = {
@@ -118,6 +130,7 @@ const publicPostColumnNames = [
 	"status",
 	"visibility",
 	"locked",
+	"comments_enabled",
 	"published_at",
 	"updated_at",
 ] as const;
@@ -140,8 +153,19 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		status: row.status,
 		visibility: row.visibility,
 		locked: row.locked === 1 || row.locked === true,
+		commentsEnabled:
+			row.comments_enabled === 1 || row.comments_enabled === true,
 		publishedAt: row.published_at,
 		updatedAt: row.updated_at,
+	};
+}
+
+function mapCommentRow(row: CommentRow): PublicPostComment {
+	return {
+		id: row.id,
+		nickname: row.nickname,
+		body: row.body,
+		createdAt: row.created_at,
 	};
 }
 
@@ -348,6 +372,43 @@ export class PostsRepository {
 		}
 
 		return { post, markdown: row.markdown };
+	}
+
+	async commentsForPost(postId: string): Promise<PublicPostComment[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT id, nickname, body, created_at
+				 FROM post_comments
+				 WHERE post_id = ?
+				 ORDER BY created_at ASC`,
+			)
+			.bind(postId)
+			.all<CommentRow>();
+
+		return result.results.map(mapCommentRow);
+	}
+
+	async createComment(input: {
+		id: string;
+		postId: string;
+		nickname: string;
+		body: string;
+		now: string;
+	}): Promise<PublicPostComment> {
+		await this.db
+			.prepare(
+				`INSERT INTO post_comments (id, post_id, nickname, body, created_at)
+				 VALUES (?, ?, ?, ?, ?)`,
+			)
+			.bind(input.id, input.postId, input.nickname, input.body, input.now)
+			.run();
+
+		return {
+			id: input.id,
+			nickname: input.nickname,
+			body: input.body,
+			createdAt: input.now,
+		};
 	}
 
 	async findLockedBySlug(slug: string): Promise<LockedPostRecord | null> {

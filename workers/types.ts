@@ -2,6 +2,9 @@ export interface AppEnv {
 	DB: D1Database;
 	BLOG_ASSETS: R2Bucket;
 	CONFIG_ENCRYPTION_KEY: string;
+	TURNSTILE_SITE_KEY?: string;
+	TURNSTILE_SECRET_KEY?: string;
+	TURNSTILE_SITEVERIFY_URL?: string;
 	VALUE_FROM_CLOUDFLARE?: string;
 }
 
@@ -18,8 +21,17 @@ export interface PublicPostRecord {
 	status: string;
 	visibility: PostVisibility;
 	locked?: boolean;
+	commentsEnabled?: boolean;
+	comments?: PublicPostComment[];
 	publishedAt: string | null;
 	updatedAt: string;
+}
+
+export interface PublicPostComment {
+	id: string;
+	nickname: string;
+	body: string;
+	createdAt: string;
 }
 
 export type ApiErrorCode =

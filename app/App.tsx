@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router";
+import { AccessGate } from "./components/public/AccessGate";
 import Home from "./routes/home";
 
 const Admin = lazy(() => import("./routes/admin"));
@@ -15,17 +16,19 @@ function NotFound() {
 export default function App() {
 	return (
 		<BrowserRouter>
-			<Suspense fallback={<main className="public-shell">Loading...</main>}>
-				<Routes>
-					<Route index element={<Home />} />
-					<Route path="demo" element={<DemoHome />} />
-					<Route path="demo/post/:slug" element={<DemoPost />} />
-					<Route path="post/:slug" element={<Post />} />
-					<Route path="search" element={<Search />} />
-					<Route path="admin/*" element={<Admin />} />
-					<Route path="*" element={<NotFound />} />
-				</Routes>
-			</Suspense>
+			<AccessGate>
+				<Suspense fallback={<main className="public-shell">Loading...</main>}>
+					<Routes>
+						<Route index element={<Home />} />
+						<Route path="demo" element={<DemoHome />} />
+						<Route path="demo/post/:slug" element={<DemoPost />} />
+						<Route path="post/:slug" element={<Post />} />
+						<Route path="search" element={<Search />} />
+						<Route path="admin/*" element={<Admin />} />
+						<Route path="*" element={<NotFound />} />
+					</Routes>
+				</Suspense>
+			</AccessGate>
 		</BrowserRouter>
 	);
 }

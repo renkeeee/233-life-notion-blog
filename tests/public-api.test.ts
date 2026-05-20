@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import {
 	handleSitemap,
@@ -134,9 +134,10 @@ class SqliteD1Database {
 				`INSERT INTO posts (
 					id, notion_page_id, slug, title, excerpt, cover_url, category,
 					status, visibility, published_at, notion_last_edited_time,
-					content_hash, last_sync_error, created_at, updated_at
+					content_hash, last_sync_error, created_at, updated_at,
+					comments_enabled
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -155,6 +156,7 @@ class SqliteD1Database {
 					row.last_sync_error,
 					row.created_at,
 					row.updated_at,
+					row.comments_enabled ?? 1,
 				] as SqlInputValue[]),
 			);
 	}
@@ -180,6 +182,31 @@ class SqliteD1Database {
 				VALUES (?, ?, ?, ?, ?)`,
 			)
 			.run(postId, tag, sortOrder, now, now);
+	}
+
+	insertComment(
+		postId: string,
+		overrides: Record<string, unknown> = {},
+	): void {
+		const row = {
+			id: "comment-1",
+			nickname: "Ada",
+			body: "A small hello.",
+			created_at: "2026-05-03T00:00:00.000Z",
+			...overrides,
+		};
+		this.db
+			.prepare(
+				`INSERT INTO post_comments (id, post_id, nickname, body, created_at)
+				 VALUES (?, ?, ?, ?, ?)`,
+			)
+			.run(
+				row.id as SqlInputValue,
+				postId,
+				row.nickname as SqlInputValue,
+				row.body as SqlInputValue,
+				row.created_at as SqlInputValue,
+			);
 	}
 
 	exec(sql: string): void {
@@ -224,6 +251,15 @@ function envWithDb(db: D1Database): AppEnv {
 	};
 }
 
+function envWithTurnstile(db: D1Database): AppEnv {
+	return {
+		...envWithDb(db),
+		TURNSTILE_SITE_KEY: "test-site-key",
+		TURNSTILE_SECRET_KEY: "test-secret-key",
+		TURNSTILE_SITEVERIFY_URL: "https://turnstile.test/siteverify",
+	};
+}
+
 function postRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
 		id: "post-1",
@@ -235,6 +271,7 @@ function postRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 		category: "Essay",
 		status: "ready",
 		visibility: "published",
+		comments_enabled: 1,
 		published_at: "2026-05-01T00:00:00.000Z",
 		notion_last_edited_time: "2026-05-01T12:00:00.000Z",
 		content_hash: "hash-1",
@@ -281,6 +318,8 @@ describe("public response helpers", () => {
 			coverUrl: "https://cdn.example.com/cover.jpg",
 			category: "Essay",
 			tags: ["Life", "Notes"],
+			commentsEnabled: false,
+			comments: [],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
 			markdown: "# Hello",
@@ -797,6 +836,10 @@ describe("PostContentRepository", () => {
 });
 
 describe("handlePublicApi", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	it("returns health JSON", async () => {
 		const fakeDb = new FakeD1Database(() => []);
 
@@ -975,17 +1018,192 @@ describe("handlePublicApi", () => {
 			title: "Published post",
 			excerpt: "Opening text for the published post.",
 			coverUrl: "https://cdn.example.com/cover.jpg",
-			category: "Essay",
-			tags: [],
-			publishedAt: "2026-05-01T00:00:00.000Z",
-			updatedAt: "2026-05-02T00:00:00.000Z",
-			markdown: "# Hello world",
-		});
+				category: "Essay",
+				tags: [],
+				commentsEnabled: true,
+				comments: [],
+				publishedAt: "2026-05-01T00:00:00.000Z",
+				updatedAt: "2026-05-02T00:00:00.000Z",
+				markdown: "# Hello world",
+			});
 		expect(
 			fakeDb.calls.some((call) =>
 				call.sql.includes("SELECT markdown FROM post_content"),
 			),
-		).toBe(false);
+			).toBe(false);
+		});
+
+	it("includes post comments in published post details", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+			db.insertComment("post-1", {
+				id: "comment-1",
+				nickname: "Ada",
+				body: "A thoughtful note.",
+				created_at: "2026-05-03T00:00:00.000Z",
+			});
+
+			const response = await handlePublicApi(
+				publicRequest("/api/posts/commented-post"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual(
+				expect.objectContaining({
+					commentsEnabled: true,
+					comments: [
+						{
+							id: "comment-1",
+							nickname: "Ada",
+							body: "A thoughtful note.",
+							createdAt: "2026-05-03T00:00:00.000Z",
+						},
+					],
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("creates comments with anonymous fallback after Turnstile validation", async () => {
+		const db = new SqliteD1Database();
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ success: true }), {
+				headers: { "content-type": "application/json" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+
+			const response = await handlePublicApi(
+				new Request("https://example.test/api/posts/commented-post/comments", {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+						"cf-connecting-ip": "203.0.113.10",
+					},
+					body: JSON.stringify({
+						nickname: "",
+						body: "This is the submitted comment.",
+						turnstileToken: "turnstile-token",
+					}),
+				}),
+				envWithTurnstile(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				comment: expect.objectContaining({
+					nickname: "Anonymous",
+					body: "This is the submitted comment.",
+				}),
+			});
+			expect(fetchMock).toHaveBeenCalledWith(
+				"https://turnstile.test/siteverify",
+				expect.objectContaining({
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						secret: "test-secret-key",
+						response: "turnstile-token",
+						remoteip: "203.0.113.10",
+					}),
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("blocks comments when post comments are disabled", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					slug: "quiet-post",
+					comments_enabled: 0,
+				}),
+			);
+			db.insertContent("post-1", "# Quiet");
+
+			const response = await handlePublicApi(
+				new Request("https://example.test/api/posts/quiet-post/comments", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						body: "Nope",
+						turnstileToken: "turnstile-token",
+					}),
+				}),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(403);
+			await expect(response.json()).resolves.toEqual({
+				error: {
+					code: "FORBIDDEN",
+					message: "Comments are disabled for this post",
+				},
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("issues a Turnstile access cookie after challenge validation", async () => {
+		const db = new SqliteD1Database();
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ success: true }), {
+				headers: { "content-type": "application/json" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		try {
+			const statusResponse = await handlePublicApi(
+				publicRequest("/api/turnstile/access"),
+				envWithTurnstile(db.asD1()),
+			);
+			const protectedResponse = await handlePublicApi(
+				publicRequest("/api/posts?page=1&limit=1"),
+				envWithTurnstile(db.asD1()),
+			);
+			const verifyResponse = await handlePublicApi(
+				new Request("https://example.test/api/turnstile/access", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ turnstileToken: "access-token" }),
+				}),
+				envWithTurnstile(db.asD1()),
+			);
+
+			expect(statusResponse.status).toBe(200);
+			await expect(statusResponse.json()).resolves.toEqual({
+				enabled: true,
+				verified: false,
+				siteKey: "test-site-key",
+			});
+			expect(protectedResponse.status).toBe(403);
+			expect(verifyResponse.status).toBe(200);
+			expect(verifyResponse.headers.get("set-cookie")).toContain(
+				"turnstile_access=",
+			);
+			await expect(verifyResponse.json()).resolves.toEqual({
+				enabled: true,
+				verified: true,
+				siteKey: "test-site-key",
+			});
+		} finally {
+			db.close();
+		}
 	});
 
 	it("returns a locked marker and unlocks post detail with the configured password", async () => {

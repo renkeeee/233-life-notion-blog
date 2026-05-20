@@ -4,6 +4,7 @@ import {
 	contentHashForBytes,
 	uploadAssetIfMissing,
 } from "./assets";
+import { loadCommentsDefaultEnabled } from "./comments";
 import { sha256Hex } from "./crypto";
 import { SettingsRepository } from "./db/d1";
 import { NotionApiError, NotionClient, type NotionFetcher } from "./notion/client";
@@ -261,10 +262,19 @@ export async function runSync(
 
 	try {
 		const settings = await loadSettings(env);
+		const commentsDefaultEnabled = await loadCommentsDefaultEnabled(env.DB);
 		const pages = await deps.notionSource.listPages(settings, window);
 
 		for (const page of pages) {
-			const action = await syncPage(env, settings, runId, page, input, deps);
+			const action = await syncPage(
+				env,
+				settings,
+				runId,
+				page,
+				input,
+				deps,
+				commentsDefaultEnabled,
+			);
 			counts[action] += 1;
 		}
 
@@ -367,6 +377,7 @@ async function syncPage(
 	page: NotionSyncPage,
 	input: RunSyncInput,
 	deps: ResolvedSyncDependencies,
+	commentsDefaultEnabled: boolean,
 ): Promise<SyncAction> {
 	const itemId = deps.id();
 	const startedAt = deps.now();
@@ -423,6 +434,7 @@ async function syncPage(
 						metadataForExistingPost,
 						existing.content_hash,
 						deps,
+						commentsDefaultEnabled,
 					),
 					...prepareReplacePostTags(
 						env.DB,
@@ -465,6 +477,7 @@ async function syncPage(
 					{ ...metadata, id: postId, excerpt: existing?.excerpt ?? "" },
 					existing?.content_hash ?? null,
 					deps,
+					commentsDefaultEnabled,
 				),
 				...prepareReplacePostTags(env.DB, postId, metadata.tags, deps),
 				prepareInsertSyncItem(env.DB, {
@@ -499,6 +512,7 @@ async function syncPage(
 					{ ...metadata, id: postId, excerpt },
 					existingContent.content_hash,
 					deps,
+					commentsDefaultEnabled,
 				),
 				...prepareReplacePostTags(env.DB, postId, metadata.tags, deps),
 				prepareInsertSyncItem(env.DB, {
@@ -530,6 +544,7 @@ async function syncPage(
 				{ ...metadata, id: postId, excerpt, coverUrl },
 				contentHash,
 				deps,
+				commentsDefaultEnabled,
 			),
 			...prepareReplacePostTags(env.DB, postId, metadata.tags, deps),
 			prepareUpsertPostContent(
@@ -860,6 +875,7 @@ function prepareUpsertPost(
 	post: PostMetadata,
 	contentHash: string | null,
 	deps: ResolvedSyncDependencies,
+	commentsDefaultEnabled: boolean,
 ): D1PreparedStatement {
 	const now = deps.now();
 
@@ -868,9 +884,9 @@ function prepareUpsertPost(
 			`INSERT INTO posts (
 				id, notion_page_id, slug, title, excerpt, cover_url, category,
 				status, visibility, published_at, notion_last_edited_time,
-				content_hash, last_sync_error, created_at, updated_at
+				content_hash, last_sync_error, created_at, updated_at, comments_enabled
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
 			ON CONFLICT(notion_page_id) DO UPDATE SET
 				slug = excluded.slug,
 				title = excluded.title,
@@ -900,6 +916,7 @@ function prepareUpsertPost(
 			contentHash,
 			now,
 			now,
+			commentsDefaultEnabled ? 1 : 0,
 		);
 }
 

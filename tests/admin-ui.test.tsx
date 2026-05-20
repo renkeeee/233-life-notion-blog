@@ -464,6 +464,81 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("saves default comment settings and toggles per-post comments", async () => {
+		const postsResponse = {
+			items: [
+				{
+					id: "post-1",
+					title: "Quiet Post",
+					slug: "quiet-post",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					commentsEnabled: false,
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation((path: string) => {
+				if (path === "/api/admin/posts/comment-settings") {
+					return Promise.resolve({ defaultEnabled: false });
+				}
+
+				return Promise.resolve(postsResponse);
+			});
+		const apiPut = vi
+			.spyOn(apiClient, "apiPut")
+			.mockResolvedValue({ defaultEnabled: true });
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			const defaultToggle = await screen.findByLabelText(
+				"Enable comments for newly synced posts",
+			);
+			expect(defaultToggle).not.toBeChecked();
+			fireEvent.click(defaultToggle);
+			fireEvent.click(screen.getByRole("button", { name: "Save default" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/comment-settings",
+					{ enabled: true },
+					"csrf-token",
+				),
+			);
+			await waitFor(() =>
+				expect(screen.getAllByText("Comment default saved.")).toHaveLength(2),
+			);
+
+			await screen.findByRole("link", { name: "Quiet Post" });
+			expect(screen.getByText("published / comments off")).toBeTruthy();
+			fireEvent.click(screen.getByRole("button", { name: "Enable comments" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments-on",
+					{},
+					"csrf-token",
+				),
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("shows locked post passwords in a global dialog from the trailing icon action", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [

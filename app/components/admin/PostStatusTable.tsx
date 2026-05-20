@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { apiGet, apiPost } from "../../lib/api-client";
+import { apiGet, apiPost, apiPut } from "../../lib/api-client";
 
 type AdminPostRecord = {
 	id: string;
@@ -10,6 +10,7 @@ type AdminPostRecord = {
 	visibility?: string | null;
 	manualVisibility?: "visible" | "hidden" | null;
 	locked?: boolean | null;
+	commentsEnabled?: boolean | null;
 	lockPassword?: string | null;
 	publishedAt?: string | null;
 	notionLastEditedTime?: string | null;
@@ -33,7 +34,18 @@ type SortOption = {
 	sortDirection: "asc" | "desc";
 };
 
-type AdminPostAction = "hide" | "restore" | "lock" | "unlock" | "delete";
+type AdminPostAction =
+	| "hide"
+	| "restore"
+	| "lock"
+	| "unlock"
+	| "comments-on"
+	| "comments-off"
+	| "delete";
+
+type CommentSettingsResponse = {
+	defaultEnabled: boolean;
+};
 
 const pageSize = 20;
 const sortOptions: SortOption[] = [
@@ -86,6 +98,8 @@ const actionLabels: Record<AdminPostAction, string> = {
 	restore: "restored",
 	lock: "locked",
 	unlock: "unlocked",
+	"comments-on": "comments enabled",
+	"comments-off": "comments disabled",
 	delete: "deleted",
 };
 
@@ -209,11 +223,43 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	const [passwordDialogPost, setPasswordDialogPost] =
 		useState<AdminPostRecord | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
+	const [defaultCommentsEnabled, setDefaultCommentsEnabled] = useState(true);
+	const [commentSettingsStatus, setCommentSettingsStatus] =
+		useState("Loading comment defaults...");
+	const [commentSettingsPending, setCommentSettingsPending] = useState(false);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
 		[total],
 	);
+
+	useEffect(() => {
+		let cancelled = false;
+		setCommentSettingsStatus("Loading comment defaults...");
+
+		apiGet<CommentSettingsResponse>("/api/admin/posts/comment-settings")
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+
+				setDefaultCommentsEnabled(response.defaultEnabled);
+				setCommentSettingsStatus("Default loaded.");
+			})
+			.catch((loadError: unknown) => {
+				if (!cancelled) {
+					setCommentSettingsStatus(
+						loadError instanceof Error
+							? loadError.message
+							: "Comment defaults could not be loaded.",
+					);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -278,6 +324,29 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		setPage(1);
 	}
 
+	async function saveCommentDefaults() {
+		setCommentSettingsPending(true);
+		setCommentSettingsStatus("Saving comment defaults...");
+		try {
+			const response = await apiPut<CommentSettingsResponse>(
+				"/api/admin/posts/comment-settings",
+				{ enabled: defaultCommentsEnabled },
+				csrfToken,
+			);
+			setDefaultCommentsEnabled(response.defaultEnabled);
+			setCommentSettingsStatus("Comment default saved.");
+			setToast("Comment default saved.");
+		} catch (error) {
+			setCommentSettingsStatus(
+				error instanceof Error
+					? error.message
+					: "Comment default could not be saved.",
+			);
+		} finally {
+			setCommentSettingsPending(false);
+		}
+	}
+
 	async function runAction(
 		post: AdminPostRecord,
 		action: AdminPostAction,
@@ -300,7 +369,12 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				action === "lock" ? { password } : {},
 				csrfToken,
 			);
-			if (action === "hide" || action === "restore") {
+			if (
+				action === "hide" ||
+				action === "restore" ||
+				action === "comments-on" ||
+				action === "comments-off"
+			) {
 				setToast(`${title} ${actionLabels[action]}.`);
 			}
 			if (action === "lock") {
@@ -349,6 +423,35 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				<h2>Post status</h2>
 				<span className="admin-badge">Database view</span>
 			</div>
+
+			<section className="admin-module admin-post-comment-settings">
+				<div>
+					<h3>Comment defaults</h3>
+					<p className="admin-note">
+						Controls whether newly synced posts accept comments by default.
+					</p>
+				</div>
+				<label className="admin-checkbox-row">
+					<input
+						type="checkbox"
+						checked={defaultCommentsEnabled}
+						onChange={(event) =>
+							setDefaultCommentsEnabled(event.currentTarget.checked)
+						}
+					/>
+					Enable comments for newly synced posts
+				</label>
+				<div className="admin-inline-actions">
+					<button
+						type="button"
+						disabled={commentSettingsPending}
+						onClick={saveCommentDefaults}
+					>
+						{commentSettingsPending ? "Saving..." : "Save default"}
+					</button>
+					<span>{commentSettingsStatus}</span>
+				</div>
+			</section>
 
 			<form className="admin-form admin-post-filters" onSubmit={applyFilters}>
 				<label>
@@ -403,6 +506,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 								const title = postTitle(post);
 								const isHidden = post.manualVisibility === "hidden";
 								const isLocked = post.locked === true;
+								const commentsEnabled = post.commentsEnabled !== false;
 								const pendingAction = (action: string) =>
 									actionPending === `${post.id}:${action}`;
 
@@ -417,6 +521,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 											{post.visibility ?? "-"}
 											{isHidden ? " / manually hidden" : ""}
 											{isLocked ? " / locked" : ""}
+											{commentsEnabled ? "" : " / comments off"}
 										</td>
 										<td>
 											{formatDate(post.notionLastEditedTime ?? post.updatedAt)}
@@ -453,6 +558,22 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 														Lock
 													</button>
 												)}
+												<button
+													type="button"
+													disabled={pendingAction(
+														commentsEnabled ? "comments-off" : "comments-on",
+													)}
+													onClick={() =>
+														runAction(
+															post,
+															commentsEnabled ? "comments-off" : "comments-on",
+														)
+													}
+												>
+													{commentsEnabled
+														? "Disable comments"
+														: "Enable comments"}
+												</button>
 												<button
 													type="button"
 													className="danger-link"

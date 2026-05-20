@@ -1,7 +1,12 @@
 import { PostsRepository } from "../db/d1";
-import { constantTimeEqual, decryptString } from "../crypto";
+import { constantTimeEqual, decryptString, randomToken } from "../crypto";
 import { errorJson, json, readJsonObject } from "../http";
 import type { AppEnv, PublicPostRecord } from "../types";
+import {
+	handleTurnstileAccess,
+	requireTurnstileAccess,
+	verifyTurnstileToken,
+} from "../turnstile";
 
 type PublicPostSummary = {
 	id: string;
@@ -15,6 +20,13 @@ type PublicPostSummary = {
 	locked?: boolean;
 	publishedAt: string | null;
 	updatedAt: string;
+};
+
+type PublicPostComment = {
+	id: string;
+	nickname: string;
+	body: string;
+	createdAt: string;
 };
 
 type CategorySummary = {
@@ -84,6 +96,7 @@ export function listPostsResponse(
 export function postDetailResponse(
 	post: PublicPostRecord,
 	markdown: string,
+	comments: PublicPostComment[] = [],
 ) {
 	if (!isPublished(post)) {
 		return null;
@@ -91,6 +104,8 @@ export function postDetailResponse(
 
 	return {
 		...toPublicSummary(post),
+		commentsEnabled: post.locked === true ? false : post.commentsEnabled === true,
+		comments,
 		markdown,
 	};
 }
@@ -200,6 +215,70 @@ function unlockSlugFromPath(pathname: string): string | null {
 	return postSlugFromPath(pathname.slice(0, -suffix.length));
 }
 
+function commentsSlugFromPath(pathname: string): string | null {
+	const suffix = "/comments";
+
+	if (!pathname.endsWith(suffix)) {
+		return null;
+	}
+
+	return postSlugFromPath(pathname.slice(0, -suffix.length));
+}
+
+function stringFromBody(body: Record<string, unknown>, key: string): string {
+	const value = body[key];
+	return typeof value === "string" ? value.trim() : "";
+}
+
+async function handleCreateComment(
+	request: Request,
+	env: AppEnv,
+	posts: PostsRepository,
+	slug: string,
+): Promise<Response> {
+	let body: Record<string, unknown>;
+	try {
+		body = await readJsonObject(request);
+	} catch {
+		return errorJson("BAD_REQUEST", "Invalid request body", 400);
+	}
+
+	const content = stringFromBody(body, "body");
+	const nickname = stringFromBody(body, "nickname") || "Anonymous";
+	const turnstileToken = stringFromBody(body, "turnstileToken");
+
+	if (content.length === 0) {
+		return errorJson("BAD_REQUEST", "Comment content is required", 400);
+	}
+
+	if (content.length > 2000 || nickname.length > 80) {
+		return errorJson("BAD_REQUEST", "Comment is too long", 400);
+	}
+
+	const post = await posts.findPublishedBySlug(slug);
+	if (!post) {
+		return errorJson("NOT_FOUND", "Post not found", 404);
+	}
+
+	if (post.commentsEnabled !== true) {
+		return errorJson("FORBIDDEN", "Comments are disabled for this post", 403);
+	}
+
+	if (!(await verifyTurnstileToken(turnstileToken, request, env))) {
+		return errorJson("FORBIDDEN", "Turnstile verification failed", 403);
+	}
+
+	const comment = await posts.createComment({
+		id: randomToken(12),
+		postId: post.id,
+		nickname,
+		body: content,
+		now: new Date().toISOString(),
+	});
+
+	return json({ comment });
+}
+
 async function passwordFromRequest(request: Request): Promise<string | null> {
 	try {
 		const body = await readJsonObject(request);
@@ -292,6 +371,19 @@ export async function handlePublicApi(
 		return json({ ok: true });
 	}
 
+	if (url.pathname === "/api/turnstile/access") {
+		return handleTurnstileAccess(request, env);
+	}
+
+	const commentSlug =
+		request.method === "POST" ? commentsSlugFromPath(url.pathname) : null;
+	if (!commentSlug) {
+		const turnstileAccessError = await requireTurnstileAccess(request, env);
+		if (turnstileAccessError) {
+			return turnstileAccessError;
+		}
+	}
+
 	if (url.pathname === "/api/posts") {
 		const pagination = paginationFromParams(url.searchParams);
 		if (!pagination) {
@@ -350,6 +442,10 @@ export async function handlePublicApi(
 
 	if (url.pathname.startsWith("/api/posts/")) {
 		if (request.method === "POST") {
+			if (commentSlug) {
+				return handleCreateComment(request, env, posts, commentSlug);
+			}
+
 			const slug = unlockSlugFromPath(url.pathname);
 			if (!slug) {
 				return errorJson("NOT_FOUND", "Post not found", 404);
@@ -378,8 +474,14 @@ export async function handlePublicApi(
 				return errorJson("NOT_FOUND", "Post content not found", 404);
 			}
 
-			return json(postDetailResponse(detail.post, detail.markdown));
-		}
+				return json(
+					postDetailResponse(
+						detail.post,
+						detail.markdown,
+						await posts.commentsForPost(detail.post.id),
+					),
+				);
+			}
 
 		const slug = postSlugFromPath(url.pathname);
 		if (!slug) {
@@ -390,7 +492,11 @@ export async function handlePublicApi(
 		if (detail) {
 			return cacheableJson(
 				request,
-				postDetailResponse(detail.post, detail.markdown),
+				postDetailResponse(
+					detail.post,
+					detail.markdown,
+					await posts.commentsForPost(detail.post.id),
+				),
 				publicApiCacheControl,
 			);
 		}

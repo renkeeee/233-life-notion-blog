@@ -1069,6 +1069,62 @@ describe("handlePublicApi", () => {
 		}
 	});
 
+	it("keeps existing comments visible but blocks new comments when site comments are disabled", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+			db.insertComment("post-1");
+			db.exec(
+				`INSERT INTO settings (key, value, encrypted, updated_at)
+				 VALUES (
+					'commentsGlobalEnabled', 'false', 0,
+					'2026-05-20T00:00:00.000Z'
+				 )`,
+			);
+
+			const detail = await handlePublicApi(
+				publicRequest("/api/posts/commented-post"),
+				envWithDb(db.asD1()),
+			);
+			const create = await handlePublicApi(
+				new Request("https://example.test/api/posts/commented-post/comments", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						body: "Nope",
+						turnstileToken: "turnstile-token",
+					}),
+				}),
+				envWithDb(db.asD1()),
+			);
+
+			expect(detail.status).toBe(200);
+			await expect(detail.json()).resolves.toEqual(
+				expect.objectContaining({
+					commentsEnabled: false,
+					comments: [
+						{
+							id: "comment-1",
+							nickname: "Ada",
+							body: "A small hello.",
+							createdAt: "2026-05-03T00:00:00.000Z",
+						},
+					],
+				}),
+			);
+			expect(create.status).toBe(403);
+			await expect(create.json()).resolves.toEqual({
+				error: {
+					code: "FORBIDDEN",
+					message: "Comments are disabled for this site",
+				},
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("creates comments with anonymous fallback after Turnstile validation", async () => {
 		const db = new SqliteD1Database();
 		const fetchMock = vi.fn().mockResolvedValue(
@@ -1117,6 +1173,90 @@ describe("handlePublicApi", () => {
 					}),
 				}),
 			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("rate limits rapid comment bursts from the same client", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+
+			const submit = (index: number) =>
+				handlePublicApi(
+					new Request("https://example.test/api/posts/commented-post/comments", {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							"cf-connecting-ip": "203.0.113.20",
+							"user-agent": "vitest",
+						},
+						body: JSON.stringify({
+							body: `Fast comment ${index}`,
+							turnstileToken: "turnstile-token",
+						}),
+					}),
+					envWithDb(db.asD1()),
+				);
+
+			const first = await submit(1);
+			const second = await submit(2);
+			const third = await submit(3);
+			const fourth = await submit(4);
+
+			expect(first.status).toBe(200);
+			expect(second.status).toBe(200);
+			expect(third.status).toBe(200);
+			expect(fourth.status).toBe(429);
+			expect(Number(fourth.headers.get("retry-after"))).toBeGreaterThan(0);
+			await expect(fourth.json()).resolves.toEqual({
+				error: {
+					code: "RATE_LIMITED",
+					message: "Too many comments. Please wait before posting again.",
+				},
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("rate limits duplicate comments from the same client", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+
+			const submit = () =>
+				handlePublicApi(
+					new Request("https://example.test/api/posts/commented-post/comments", {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							"cf-connecting-ip": "203.0.113.21",
+							"user-agent": "vitest",
+						},
+						body: JSON.stringify({
+							nickname: "Ada",
+							body: "This is the same note.",
+							turnstileToken: "turnstile-token",
+						}),
+					}),
+					envWithDb(db.asD1()),
+				);
+
+			const first = await submit();
+			const second = await submit();
+
+			expect(first.status).toBe(200);
+			expect(second.status).toBe(429);
+			await expect(second.json()).resolves.toEqual({
+				error: {
+					code: "RATE_LIMITED",
+					message: "Too many comments. Please wait before posting again.",
+				},
+			});
 		} finally {
 			db.close();
 		}

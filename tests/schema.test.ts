@@ -9,6 +9,7 @@ import addPostExcerptMigrationSql from "../migrations/0004_add_post_excerpt.sql?
 import addPostCategoryMigrationSql from "../migrations/0005_add_post_category.sql?raw";
 import addPostManagementMigrationSql from "../migrations/0006_add_post_management.sql?raw";
 import addCommentsMigrationSql from "../migrations/0007_add_comments.sql?raw";
+import addCommentRateLimitsMigrationSql from "../migrations/0008_add_comment_rate_limits.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -16,6 +17,7 @@ const requiredTables = [
 	"posts",
 	"deleted_posts",
 	"post_comments",
+	"comment_rate_limits",
 	"post_tags",
 	"post_content",
 	"assets",
@@ -32,6 +34,7 @@ const requiredIndexes = [
 	"idx_posts_management_visibility",
 	"idx_deleted_posts_deleted_at",
 	"idx_post_comments_post_created_at",
+	"idx_comment_rate_limits_reset_at",
 	"idx_assets_content_hash",
 	"idx_sync_runs_started_at",
 	"idx_sync_items_run_id",
@@ -129,6 +132,7 @@ describe("D1 schema", () => {
 
 			expect(tables.map(({ name }) => name)).toEqual([
 				"assets",
+				"comment_rate_limits",
 				"deleted_posts",
 				"post_comments",
 				"post_content",
@@ -156,6 +160,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addPostCategoryMigrationSql);
 			migratedDb.exec(addPostManagementMigrationSql);
 			migratedDb.exec(addCommentsMigrationSql);
+			migratedDb.exec(addCommentRateLimitsMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);

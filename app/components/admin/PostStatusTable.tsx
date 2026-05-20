@@ -43,6 +43,7 @@ type AdminPostAction =
 
 type CommentSettingsResponse = {
 	defaultEnabled: boolean;
+	globalEnabled: boolean;
 };
 
 type AdminPostComment = {
@@ -241,9 +242,10 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	const [commentsDialogPost, setCommentsDialogPost] =
 		useState<AdminPostRecord | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
+	const [globalCommentsEnabled, setGlobalCommentsEnabled] = useState(true);
 	const [defaultCommentsEnabled, setDefaultCommentsEnabled] = useState(true);
 	const [commentSettingsStatus, setCommentSettingsStatus] =
-		useState("Loading comment defaults...");
+		useState("Loading comment settings...");
 	const [commentSettingsPending, setCommentSettingsPending] = useState(false);
 	const [postComments, setPostComments] = useState<AdminPostComment[]>([]);
 	const [postCommentsEnabled, setPostCommentsEnabled] = useState(true);
@@ -261,7 +263,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
-		setCommentSettingsStatus("Loading comment defaults...");
+		setCommentSettingsStatus("Loading comment settings...");
 
 		apiGet<CommentSettingsResponse>("/api/admin/posts/comment-settings")
 			.then((response) => {
@@ -269,15 +271,16 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					return;
 				}
 
+				setGlobalCommentsEnabled(response.globalEnabled);
 				setDefaultCommentsEnabled(response.defaultEnabled);
-				setCommentSettingsStatus("Default loaded.");
+				setCommentSettingsStatus("Comment settings loaded.");
 			})
 			.catch((loadError: unknown) => {
 				if (!cancelled) {
 					setCommentSettingsStatus(
 						loadError instanceof Error
 							? loadError.message
-							: "Comment defaults could not be loaded.",
+							: "Comment settings could not be loaded.",
 					);
 				}
 			});
@@ -352,21 +355,25 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 
 	async function saveCommentDefaults() {
 		setCommentSettingsPending(true);
-		setCommentSettingsStatus("Saving comment defaults...");
+		setCommentSettingsStatus("Saving comment settings...");
 		try {
 			const response = await apiPut<CommentSettingsResponse>(
 				"/api/admin/posts/comment-settings",
-				{ enabled: defaultCommentsEnabled },
+				{
+					defaultEnabled: defaultCommentsEnabled,
+					globalEnabled: globalCommentsEnabled,
+				},
 				csrfToken,
 			);
+			setGlobalCommentsEnabled(response.globalEnabled);
 			setDefaultCommentsEnabled(response.defaultEnabled);
-			setCommentSettingsStatus("Comment default saved.");
-			setToast("Comment default saved.");
+			setCommentSettingsStatus("Comment settings saved.");
+			setToast("Comment settings saved.");
 		} catch (error) {
 			setCommentSettingsStatus(
 				error instanceof Error
 					? error.message
-					: "Comment default could not be saved.",
+					: "Comment settings could not be saved.",
 			);
 		} finally {
 			setCommentSettingsPending(false);
@@ -550,11 +557,22 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 
 			<section className="admin-module admin-post-comment-settings">
 				<div>
-					<h3>Comment defaults</h3>
+					<h3>Comment settings</h3>
 					<p className="admin-note">
-						Controls whether newly synced posts accept comments by default.
+						Controls whether visitors can add comments and whether newly synced
+						posts accept comments by default.
 					</p>
 				</div>
+				<label className="admin-checkbox-row">
+					<input
+						type="checkbox"
+						checked={globalCommentsEnabled}
+						onChange={(event) =>
+							setGlobalCommentsEnabled(event.currentTarget.checked)
+						}
+					/>
+					Allow new comments across all posts
+				</label>
 				<label className="admin-checkbox-row">
 					<input
 						type="checkbox"
@@ -571,7 +589,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 						disabled={commentSettingsPending}
 						onClick={saveCommentDefaults}
 					>
-						{commentSettingsPending ? "Saving..." : "Save default"}
+						{commentSettingsPending ? "Saving..." : "Save settings"}
 					</button>
 					<span>{commentSettingsStatus}</span>
 				</div>

@@ -1,4 +1,9 @@
 import { PostsRepository } from "../db/d1";
+import {
+	checkCommentSubmissionRateLimit,
+	commentRateLimitMessage,
+	loadCommentsGlobalEnabled,
+} from "../comments";
 import { constantTimeEqual, decryptString, randomToken } from "../crypto";
 import { errorJson, json, readJsonObject } from "../http";
 import type { AppEnv, PublicPostRecord } from "../types";
@@ -97,14 +102,20 @@ export function postDetailResponse(
 	post: PublicPostRecord,
 	markdown: string,
 	comments: PublicPostComment[] = [],
+	options: { commentsGlobalEnabled?: boolean } = {},
 ) {
 	if (!isPublished(post)) {
 		return null;
 	}
 
+	const commentsGlobalEnabled = options.commentsGlobalEnabled !== false;
+
 	return {
 		...toPublicSummary(post),
-		commentsEnabled: post.locked === true ? false : post.commentsEnabled === true,
+		commentsEnabled:
+			post.locked === true
+				? false
+				: commentsGlobalEnabled && post.commentsEnabled === true,
 		comments,
 		markdown,
 	};
@@ -260,12 +271,37 @@ async function handleCreateComment(
 		return errorJson("NOT_FOUND", "Post not found", 404);
 	}
 
+	if (!(await loadCommentsGlobalEnabled(env.DB))) {
+		return errorJson("FORBIDDEN", "Comments are disabled for this site", 403);
+	}
+
 	if (post.commentsEnabled !== true) {
 		return errorJson("FORBIDDEN", "Comments are disabled for this post", 403);
 	}
 
 	if (!(await verifyTurnstileToken(turnstileToken, request, env))) {
 		return errorJson("FORBIDDEN", "Turnstile verification failed", 403);
+	}
+
+	const rateLimit = await checkCommentSubmissionRateLimit(env.DB, {
+		body: content,
+		nickname,
+		postId: post.id,
+		request,
+		rootKey: env.CONFIG_ENCRYPTION_KEY,
+	});
+
+	if (!rateLimit.allowed) {
+		return json(
+			{
+				error: {
+					code: "RATE_LIMITED",
+					message: commentRateLimitMessage,
+				},
+			},
+			429,
+			{ "retry-after": String(rateLimit.retryAfterSeconds) },
+		);
 	}
 
 	const comment = await posts.createComment({
@@ -474,14 +510,17 @@ export async function handlePublicApi(
 				return errorJson("NOT_FOUND", "Post content not found", 404);
 			}
 
-				return json(
-					postDetailResponse(
-						detail.post,
-						detail.markdown,
-						await posts.commentsForPost(detail.post.id),
-					),
-				);
-			}
+			return json(
+				postDetailResponse(
+					detail.post,
+					detail.markdown,
+					await posts.commentsForPost(detail.post.id),
+					{
+						commentsGlobalEnabled: await loadCommentsGlobalEnabled(env.DB),
+					},
+				),
+			);
+		}
 
 		const slug = postSlugFromPath(url.pathname);
 		if (!slug) {
@@ -496,6 +535,9 @@ export async function handlePublicApi(
 					detail.post,
 					detail.markdown,
 					await posts.commentsForPost(detail.post.id),
+					{
+						commentsGlobalEnabled: await loadCommentsGlobalEnabled(env.DB),
+					},
 				),
 				publicApiCacheControl,
 			);

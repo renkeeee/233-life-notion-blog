@@ -1287,6 +1287,64 @@ describe("admin posts API", () => {
 		}
 	});
 
+	it("saves global and default comment settings for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const headers = {
+				cookie: session.cookie,
+				"content-type": "application/json",
+				"x-csrf-token": session.csrfToken,
+			};
+
+			const initial = await handleAdminApi(
+				adminRequest("/api/admin/posts/comment-settings", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+			const update = await handleAdminApi(
+				adminRequest("/api/admin/posts/comment-settings", {
+					body: JSON.stringify({
+						defaultEnabled: false,
+						globalEnabled: false,
+					}),
+					headers,
+					method: "PUT",
+				}),
+				env,
+			);
+			const saved = await handleAdminApi(
+				adminRequest("/api/admin/posts/comment-settings", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+
+			expect(initial.status).toBe(200);
+			await expect(initial.json()).resolves.toEqual({
+				defaultEnabled: true,
+				globalEnabled: true,
+			});
+			expect(update.status).toBe(200);
+			await expect(update.json()).resolves.toEqual({
+				defaultEnabled: false,
+				globalEnabled: false,
+			});
+			expect(saved.status).toBe(200);
+			await expect(saved.json()).resolves.toEqual({
+				defaultEnabled: false,
+				globalEnabled: false,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("hides, restores, locks, unlocks, and deletes posts for authenticated admins", async () => {
 		const db = new SqliteD1Database();
 		try {

@@ -17,7 +17,9 @@ import {
 import { SettingsRepository } from "../db/d1";
 import {
 	loadCommentsDefaultEnabled,
+	loadCommentsGlobalEnabled,
 	saveCommentsDefaultEnabled,
+	saveCommentsGlobalEnabled,
 } from "../comments";
 import {
 	parseSettingsFromRows,
@@ -49,8 +51,13 @@ type ManualSyncBody = {
 	force: boolean;
 };
 
-type CommentsDefaultBody = {
+type CommentsEnabledBody = {
 	enabled: boolean;
+};
+
+type CommentSettingsBody = {
+	defaultEnabled?: boolean;
+	globalEnabled?: boolean;
 };
 
 type SyncRunRow = {
@@ -225,14 +232,62 @@ function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
 	};
 }
 
-function validateCommentsDefaultBody(
+function validateCommentsEnabledBody(
 	body: Record<string, unknown>,
-): CommentsDefaultBody {
+): CommentsEnabledBody {
 	if (typeof body.enabled !== "boolean") {
 		throw new Error("enabled must be a boolean");
 	}
 
 	return { enabled: body.enabled };
+}
+
+function validateCommentSettingsBody(
+	body: Record<string, unknown>,
+): CommentSettingsBody {
+	if (
+		body.enabled !== undefined &&
+		body.defaultEnabled !== undefined &&
+		body.enabled !== body.defaultEnabled
+	) {
+		throw new Error("enabled and defaultEnabled must match when both are set");
+	}
+
+	if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+		throw new Error("enabled must be a boolean");
+	}
+
+	if (
+		body.defaultEnabled !== undefined &&
+		typeof body.defaultEnabled !== "boolean"
+	) {
+		throw new Error("defaultEnabled must be a boolean");
+	}
+
+	if (
+		body.globalEnabled !== undefined &&
+		typeof body.globalEnabled !== "boolean"
+	) {
+		throw new Error("globalEnabled must be a boolean");
+	}
+
+	const defaultEnabled =
+		typeof body.defaultEnabled === "boolean"
+			? body.defaultEnabled
+			: typeof body.enabled === "boolean"
+				? body.enabled
+				: undefined;
+	const globalEnabled =
+		typeof body.globalEnabled === "boolean" ? body.globalEnabled : undefined;
+
+	if (defaultEnabled === undefined && globalEnabled === undefined) {
+		throw new Error("At least one comment setting is required");
+	}
+
+	return {
+		...(defaultEnabled !== undefined ? { defaultEnabled } : {}),
+		...(globalEnabled !== undefined ? { globalEnabled } : {}),
+	};
 }
 
 function validateNotionSchemaBody(
@@ -1056,6 +1111,7 @@ async function handleGetPostCommentSettings(
 	try {
 		return json({
 			defaultEnabled: await loadCommentsDefaultEnabled(env.DB),
+			globalEnabled: await loadCommentsGlobalEnabled(env.DB),
 		});
 	} catch {
 		return errorJson(
@@ -1082,10 +1138,10 @@ async function handlePutPostCommentSettings(
 		return csrfError;
 	}
 
-	let body: CommentsDefaultBody;
+	let body: CommentSettingsBody;
 
 	try {
-		body = validateCommentsDefaultBody(await readJsonObject(request));
+		body = validateCommentSettingsBody(await readJsonObject(request));
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Invalid request body";
@@ -1094,8 +1150,21 @@ async function handlePutPostCommentSettings(
 	}
 
 	try {
-		await saveCommentsDefaultEnabled(env.DB, body.enabled);
-		return json({ defaultEnabled: body.enabled });
+		const currentDefaultEnabled = await loadCommentsDefaultEnabled(env.DB);
+		const currentGlobalEnabled = await loadCommentsGlobalEnabled(env.DB);
+		const defaultEnabled = body.defaultEnabled ?? currentDefaultEnabled;
+		const globalEnabled = body.globalEnabled ?? currentGlobalEnabled;
+		const now = new Date().toISOString();
+
+		if (body.defaultEnabled !== undefined) {
+			await saveCommentsDefaultEnabled(env.DB, defaultEnabled, now);
+		}
+
+		if (body.globalEnabled !== undefined) {
+			await saveCommentsGlobalEnabled(env.DB, globalEnabled, now);
+		}
+
+		return json({ defaultEnabled, globalEnabled });
 	} catch {
 		return errorJson(
 			"INTERNAL_ERROR",
@@ -1210,9 +1279,9 @@ async function handlePutAdminPostComments(
 		return csrfError;
 	}
 
-	let body: CommentsDefaultBody;
+	let body: CommentsEnabledBody;
 	try {
-		body = validateCommentsDefaultBody(await readJsonObject(request));
+		body = validateCommentsEnabledBody(await readJsonObject(request));
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Invalid request body";

@@ -490,7 +490,10 @@ describe("PostStatusTable", () => {
 			.spyOn(apiClient, "apiGet")
 			.mockImplementation((path: string) => {
 				if (path === "/api/admin/posts/comment-settings") {
-					return Promise.resolve({ defaultEnabled: false });
+					return Promise.resolve({
+						defaultEnabled: false,
+						globalEnabled: false,
+					});
 				}
 				if (path === "/api/admin/posts/post-1/comments") {
 					return Promise.resolve({
@@ -525,7 +528,10 @@ describe("PostStatusTable", () => {
 					});
 				}
 
-				return Promise.resolve({ defaultEnabled: true });
+				return Promise.resolve({
+					defaultEnabled: true,
+					globalEnabled: true,
+				});
 			});
 		const apiDelete = vi
 			.spyOn(apiClient, "apiDelete")
@@ -534,22 +540,27 @@ describe("PostStatusTable", () => {
 		try {
 			render(<PostStatusTable csrfToken="csrf-token" />);
 
-			const defaultToggle = await screen.findByLabelText(
+			const globalToggle = await screen.findByLabelText(
+				"Allow new comments across all posts",
+			);
+			expect(globalToggle).not.toBeChecked();
+			fireEvent.click(globalToggle);
+			const defaultToggle = screen.getByLabelText(
 				"Enable comments for newly synced posts",
 			);
 			expect(defaultToggle).not.toBeChecked();
 			fireEvent.click(defaultToggle);
-			fireEvent.click(screen.getByRole("button", { name: "Save default" }));
+			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(
 					"/api/admin/posts/comment-settings",
-					{ enabled: true },
+					{ defaultEnabled: true, globalEnabled: true },
 					"csrf-token",
 				),
 			);
 			await waitFor(() =>
-				expect(screen.getAllByText("Comment default saved.")).toHaveLength(2),
+				expect(screen.getAllByText("Comment settings saved.")).toHaveLength(2),
 			);
 
 			await screen.findByRole("link", { name: "Quiet Post" });

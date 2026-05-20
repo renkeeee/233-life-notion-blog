@@ -9,6 +9,7 @@ export type PublicPostSummary = {
 	coverThumbnailUrl?: string | null;
 	category: string | null;
 	tags: string[];
+	locked?: boolean;
 	publishedAt: string | null;
 	updatedAt: string;
 };
@@ -37,17 +38,23 @@ export function PostList({
 	return (
 		<div className="post-list">
 			{posts.map((post, index) => {
-				const excerpt = post.excerpt?.trim() ?? "";
+				const isLocked = post.locked === true;
+				const excerpt = isLocked ? "" : (post.excerpt?.trim() ?? "");
 				const href = postHref(post);
-				const coverSrc = post.coverThumbnailUrl || post.coverUrl;
+				const coverSrc = isLocked
+					? null
+					: post.coverThumbnailUrl || post.coverUrl;
 				const coverSrcSet =
-					post.coverThumbnailUrl && post.coverUrl
+					!isLocked && post.coverThumbnailUrl && post.coverUrl
 						? `${post.coverThumbnailUrl} 440w, ${post.coverUrl} 900w`
 						: undefined;
 
 				return (
-					<article className="post-list-item" key={post.id}>
-						{post.coverUrl && coverSrc ? (
+					<article
+						className={`post-list-item${isLocked ? " locked" : ""}`}
+						key={post.id}
+					>
+						{!isLocked && post.coverUrl && coverSrc ? (
 							<Link className="post-list-cover" to={href}>
 								<img
 									src={coverSrc}

@@ -1360,13 +1360,51 @@ body {
 	color: #0e6f6b;
 }
 
-.admin-row-actions > button:last-child {
+.admin-row-actions .danger-link {
 	color: #8a4a43;
 }
 
 .admin-row-actions button:disabled {
 	cursor: not-allowed;
 	opacity: 0.48;
+}
+
+.admin-password-action {
+	display: inline-flex;
+	position: relative;
+}
+
+.admin-row-actions .admin-action-icon {
+	align-items: center;
+	border: 1px solid #d2cdc1;
+	border-radius: 999px;
+	display: inline-flex;
+	height: 24px;
+	justify-content: center;
+	margin-left: 2px;
+	padding: 0;
+	text-decoration: none;
+	width: 24px;
+}
+
+.admin-row-actions .admin-action-icon:hover {
+	border-color: #0e6f6b;
+}
+
+.admin-password-popover {
+	background: #fffdfa;
+	border: 1px solid #d9d6cd;
+	border-radius: 999px;
+	box-shadow: 0 12px 28px rgba(35, 35, 31, 0.16);
+	color: #302e29;
+	font-size: 0.78rem;
+	font-weight: 750;
+	inset: calc(100% + 8px) 0 auto auto;
+	max-width: 220px;
+	overflow-wrap: anywhere;
+	padding: 8px 11px;
+	position: absolute;
+	z-index: 20;
 }
 
 .admin-pagination {

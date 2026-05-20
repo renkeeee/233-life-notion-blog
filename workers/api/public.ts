@@ -12,6 +12,7 @@ type PublicPostSummary = {
 	coverThumbnailUrl?: string;
 	category: string | null;
 	tags: string[];
+	locked?: boolean;
 	publishedAt: string | null;
 	updatedAt: string;
 };
@@ -59,6 +60,7 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 		...(coverThumbnailUrl ? { coverThumbnailUrl } : {}),
 		category: post.category,
 		tags: post.tags,
+		...(post.locked === true ? { locked: true } : {}),
 		publishedAt: post.publishedAt,
 		updatedAt: post.updatedAt,
 	};

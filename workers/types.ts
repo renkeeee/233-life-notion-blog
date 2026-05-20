@@ -17,6 +17,7 @@ export interface PublicPostRecord {
 	tags: string[];
 	status: string;
 	visibility: PostVisibility;
+	locked?: boolean;
 	publishedAt: string | null;
 	updatedAt: string;
 }

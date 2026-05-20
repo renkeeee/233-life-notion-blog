@@ -71,6 +71,7 @@ type PostRow = {
 	category: string | null;
 	status: string;
 	visibility: PostVisibility;
+	locked: number | boolean;
 	published_at: string | null;
 	updated_at: string;
 };
@@ -116,6 +117,7 @@ const publicPostColumnNames = [
 	"category",
 	"status",
 	"visibility",
+	"locked",
 	"published_at",
 	"updated_at",
 ] as const;
@@ -137,8 +139,21 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		tags: [],
 		status: row.status,
 		visibility: row.visibility,
+		locked: row.locked === 1 || row.locked === true,
 		publishedAt: row.published_at,
 		updatedAt: row.updated_at,
+	};
+}
+
+function hideLockedPreview(post: PublicPostRecord): PublicPostRecord {
+	if (post.locked !== true) {
+		return post;
+	}
+
+	return {
+		...post,
+		excerpt: "",
+		coverUrl: null,
 	};
 }
 
@@ -156,6 +171,10 @@ function likePattern(value: string): string {
 const publicVisibilityClauses = [
 	"p.visibility = 'published'",
 	"p.manual_visibility = 'visible'",
+] as const;
+
+const publicUnlockedClauses = [
+	...publicVisibilityClauses,
 	"p.locked = 0",
 ] as const;
 
@@ -189,7 +208,10 @@ function publishedFilters(options: {
 			`(
 				p.title LIKE ? ESCAPE '\\'
 				OR COALESCE(p.category, '') LIKE ? ESCAPE '\\'
-				OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+				OR (
+					p.locked = 0
+					AND COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+				)
 				OR EXISTS (
 					SELECT 1
 					FROM post_tags search_tags
@@ -237,8 +259,10 @@ export class PostsRepository {
 			.bind(...filters.values)
 			.first<{ total: number }>();
 
+		const items = await this.withTags(itemResult.results.map(mapPostRow));
+
 		return {
-			items: await this.withTags(itemResult.results.map(mapPostRow)),
+			items: items.map(hideLockedPreview),
 			total: Number(countRow?.total ?? 0),
 		};
 	}
@@ -254,7 +278,10 @@ export class PostsRepository {
 				 AND (
 					p.title LIKE ? ESCAPE '\\'
 					OR COALESCE(p.category, '') LIKE ? ESCAPE '\\'
-					OR COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+					OR (
+						p.locked = 0
+						AND COALESCE(pc.markdown, '') LIKE ? ESCAPE '\\'
+					)
 					OR EXISTS (
 						SELECT 1
 						FROM post_tags search_tags
@@ -268,7 +295,8 @@ export class PostsRepository {
 			.bind(pattern, pattern, pattern, pattern, limit)
 			.all<PostRow>();
 
-		return this.withTags(result.results.map(mapPostRow));
+		const posts = await this.withTags(result.results.map(mapPostRow));
+		return posts.map(hideLockedPreview);
 	}
 
 	async findPublishedBySlug(slug: string): Promise<PublicPostRecord | null> {
@@ -385,7 +413,7 @@ export class PostsRepository {
 			.prepare(
 				`SELECT ${aliasedPublicPostColumns("p")}
 				 FROM posts p
-				 WHERE ${publicVisibilityClauses.join(" AND ")}
+				 WHERE ${publicUnlockedClauses.join(" AND ")}
 				 ORDER BY p.published_at DESC, p.updated_at DESC
 				 LIMIT ?`,
 			)

@@ -458,6 +458,45 @@ describe("PostStatusTable", () => {
 			confirm.mockRestore();
 		}
 	});
+
+	it("shows locked post passwords only from the trailing icon action", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "post-1",
+					title: "Locked World",
+					slug: "locked-world",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: true,
+					lockPassword: "post-secret",
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("link", { name: "Locked World" });
+			expect(screen.queryByText("post-secret")).toBeNull();
+			const showPassword = screen.getByRole("button", { name: "Show password" });
+			expect(showPassword).toHaveClass("admin-action-icon");
+			fireEvent.click(showPassword);
+
+			expect(screen.getByText("post-secret")).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
 });
 
 describe("PasswordChangePanel", () => {

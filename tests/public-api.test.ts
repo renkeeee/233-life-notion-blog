@@ -441,7 +441,7 @@ describe("PostsRepository", () => {
 		}
 	});
 
-	it("excludes manually hidden and locked posts from public listings", async () => {
+	it("excludes manually hidden posts but lists locked titles with hidden summaries", async () => {
 		const db = new SqliteD1Database();
 		try {
 			db.insertPost(
@@ -450,6 +450,7 @@ describe("PostsRepository", () => {
 					notion_page_id: "notion-1",
 					slug: "visible-life",
 					title: "Visible Life",
+					excerpt: "Visible opening text.",
 				}),
 			);
 			db.insertPost(
@@ -466,6 +467,8 @@ describe("PostsRepository", () => {
 					notion_page_id: "notion-3",
 					slug: "locked-life",
 					title: "Locked Life",
+					excerpt: "Private opening text.",
+					cover_url: "https://cdn.example.com/private.jpg",
 				}),
 			);
 			db.exec("UPDATE posts SET manual_visibility = 'hidden' WHERE id = 'post-2'");
@@ -478,8 +481,21 @@ describe("PostsRepository", () => {
 			});
 
 			expect(result).toEqual({
-				items: [expect.objectContaining({ slug: "visible-life" })],
-				total: 1,
+				items: [
+					expect.objectContaining({
+						slug: "visible-life",
+						excerpt: "Visible opening text.",
+						locked: false,
+					}),
+					expect.objectContaining({
+						slug: "locked-life",
+						title: "Locked Life",
+						excerpt: "",
+						coverUrl: null,
+						locked: true,
+					}),
+				],
+				total: 2,
 			});
 		} finally {
 			db.close();

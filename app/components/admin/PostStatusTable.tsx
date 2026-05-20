@@ -161,6 +161,33 @@ function rangeLabel(page: number, limit: number, total: number): string {
 	return `${start}-${end} of ${total} posts`;
 }
 
+function EyeIcon() {
+	return (
+		<svg
+			aria-hidden="true"
+			fill="none"
+			height="15"
+			viewBox="0 0 24 24"
+			width="15"
+		>
+			<path
+				d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth="2"
+			/>
+			<path
+				d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth="2"
+			/>
+		</svg>
+	);
+}
+
 export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	const [posts, setPosts] = useState<AdminPostRecord[]>([]);
 	const [status, setStatus] = useState("Loading post status...");
@@ -179,6 +206,9 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		useState<AdminPostRecord | null>(null);
 	const [deleteDialogPost, setDeleteDialogPost] =
 		useState<AdminPostRecord | null>(null);
+	const [passwordPopoverPostId, setPasswordPopoverPostId] = useState<
+		string | null
+	>(null);
 	const [lockPassword, setLockPassword] = useState("");
 
 	const pageCount = useMemo(
@@ -277,9 +307,11 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 			if (action === "lock") {
 				setLockPassword("");
 				setLockDialogPost(null);
+				setPasswordPopoverPostId(null);
 			}
 			if (action === "delete") {
 				setDeleteDialogPost(null);
+				setPasswordPopoverPostId(null);
 			}
 			const response = await apiGet<PostsResponse>(
 				buildPostsPath({
@@ -402,20 +434,13 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 													{isHidden ? "Restore" : "Hide"}
 												</button>
 												{isLocked ? (
-													<>
-														{post.lockPassword ? (
-															<span className="admin-secret">
-																Password: {post.lockPassword}
-															</span>
-														) : null}
-														<button
-															type="button"
-															disabled={pendingAction("unlock")}
-															onClick={() => runAction(post, "unlock")}
-														>
-															Unlock
-														</button>
-													</>
+													<button
+														type="button"
+														disabled={pendingAction("unlock")}
+														onClick={() => runAction(post, "unlock")}
+													>
+														Unlock
+													</button>
 												) : (
 													<button
 														type="button"
@@ -430,11 +455,36 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												)}
 												<button
 													type="button"
+													className="danger-link"
 													disabled={pendingAction("delete")}
 													onClick={() => setDeleteDialogPost(post)}
 												>
 													Delete
 												</button>
+												{isLocked && post.lockPassword ? (
+													<span className="admin-password-action">
+														<button
+															type="button"
+															aria-label="Show password"
+															className="admin-action-icon"
+															onClick={() =>
+																setPasswordPopoverPostId((current) =>
+																	current === post.id ? null : post.id,
+																)
+															}
+														>
+															<EyeIcon />
+														</button>
+														{passwordPopoverPostId === post.id ? (
+															<span
+																className="admin-password-popover"
+																role="status"
+															>
+																{post.lockPassword}
+															</span>
+														) : null}
+													</span>
+												) : null}
 											</div>
 										</td>
 									</tr>

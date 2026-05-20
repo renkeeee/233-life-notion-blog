@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router";
 import Admin from "./routes/admin";
 import DemoHome from "./routes/demo";
+import DemoPost from "./routes/demo-post";
 import Home from "./routes/home";
 import Post from "./routes/post";
 import Search from "./routes/search";
@@ -15,6 +16,7 @@ export default function App() {
 			<Routes>
 				<Route index element={<Home />} />
 				<Route path="demo" element={<DemoHome />} />
+				<Route path="demo/post/:slug" element={<DemoPost />} />
 				<Route path="post/:slug" element={<Post />} />
 				<Route path="search" element={<Search />} />
 				<Route path="admin/*" element={<Admin />} />

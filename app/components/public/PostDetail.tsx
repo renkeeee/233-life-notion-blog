@@ -18,15 +18,23 @@ function formatDate(value: string | null): string {
 	}).format(new Date(value));
 }
 
-export function PostDetail({ post }: { post: PublicPostDetail }) {
+export function PostDetail({
+	post,
+	backHref = "/",
+	backLabel = "All posts",
+}: {
+	post: PublicPostDetail;
+	backHref?: string;
+	backLabel?: string;
+}) {
 	const tags = post.tags ?? [];
 	const category = post.category?.trim() ?? "";
 
 	return (
 		<article className="post-detail">
 			<header className="post-detail-header">
-				<Link className="back-link" to="/">
-					All posts
+				<Link className="back-link" to={backHref}>
+					{backLabel}
 				</Link>
 				<p className="post-meta">
 					<time dateTime={post.publishedAt ?? post.updatedAt}>

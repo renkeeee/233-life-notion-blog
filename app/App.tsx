@@ -1,10 +1,12 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router";
-import Admin from "./routes/admin";
-import DemoHome from "./routes/demo";
-import DemoPost from "./routes/demo-post";
 import Home from "./routes/home";
-import Post from "./routes/post";
-import Search from "./routes/search";
+
+const Admin = lazy(() => import("./routes/admin"));
+const DemoHome = lazy(() => import("./routes/demo"));
+const DemoPost = lazy(() => import("./routes/demo-post"));
+const Post = lazy(() => import("./routes/post"));
+const Search = lazy(() => import("./routes/search"));
 
 function NotFound() {
 	return <main className="mx-auto max-w-5xl px-4 py-10">Not found</main>;
@@ -13,15 +15,17 @@ function NotFound() {
 export default function App() {
 	return (
 		<BrowserRouter>
-			<Routes>
-				<Route index element={<Home />} />
-				<Route path="demo" element={<DemoHome />} />
-				<Route path="demo/post/:slug" element={<DemoPost />} />
-				<Route path="post/:slug" element={<Post />} />
-				<Route path="search" element={<Search />} />
-				<Route path="admin/*" element={<Admin />} />
-				<Route path="*" element={<NotFound />} />
-			</Routes>
+			<Suspense fallback={<main className="public-shell">Loading...</main>}>
+				<Routes>
+					<Route index element={<Home />} />
+					<Route path="demo" element={<DemoHome />} />
+					<Route path="demo/post/:slug" element={<DemoPost />} />
+					<Route path="post/:slug" element={<Post />} />
+					<Route path="search" element={<Search />} />
+					<Route path="admin/*" element={<Admin />} />
+					<Route path="*" element={<NotFound />} />
+				</Routes>
+			</Suspense>
 		</BrowserRouter>
 	);
 }

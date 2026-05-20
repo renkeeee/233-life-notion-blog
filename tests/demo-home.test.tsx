@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "../app/App";
 import * as apiClient from "../app/lib/api-client";
@@ -51,21 +51,24 @@ describe("demo homepage", () => {
 				}),
 			);
 
-			expect(
-				await screen.findByRole("heading", {
-					name: "The shape of a slower morning",
-				}),
-			).toBeTruthy();
-			expect(screen.getByText("All demo posts")).toHaveAttribute(
+			await waitFor(() =>
+				expect(window.location.pathname).toBe("/demo/post/demo-slower-morning"),
+			);
+			expect(await screen.findByText("All demo posts")).toHaveAttribute(
 				"href",
 				"/demo",
 			);
+			expect(
+				screen.getByRole("heading", {
+					name: "The shape of a slower morning",
+					level: 1,
+				}),
+			).toBeTruthy();
 			expect(
 				screen.getByText(
 					"The morning did not ask to be optimized. It arrived with steam, light, and the small patience of an unread page.",
 				),
 			).toBeTruthy();
-			expect(window.location.pathname).toBe("/demo/post/demo-slower-morning");
 			expect(apiGet).not.toHaveBeenCalled();
 		} finally {
 			apiGet.mockRestore();

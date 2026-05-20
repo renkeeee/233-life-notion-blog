@@ -6,6 +6,7 @@ export type PublicPostSummary = {
 	title: string;
 	excerpt: string;
 	coverUrl: string | null;
+	coverThumbnailUrl?: string | null;
 	category: string | null;
 	tags: string[];
 	publishedAt: string | null;
@@ -35,15 +36,36 @@ export function PostList({
 }: PostListProps) {
 	return (
 		<div className="post-list">
-			{posts.map((post) => {
+			{posts.map((post, index) => {
 				const excerpt = post.excerpt?.trim() ?? "";
 				const href = postHref(post);
+				const coverSrc = post.coverThumbnailUrl || post.coverUrl;
+				const coverSrcSet =
+					post.coverThumbnailUrl && post.coverUrl
+						? `${post.coverThumbnailUrl} 440w, ${post.coverUrl} 900w`
+						: undefined;
 
 				return (
 					<article className="post-list-item" key={post.id}>
-						{post.coverUrl ? (
+						{post.coverUrl && coverSrc ? (
 							<Link className="post-list-cover" to={href}>
-								<img src={post.coverUrl} alt="" loading="lazy" />
+								<img
+									src={coverSrc}
+									srcSet={coverSrcSet}
+									sizes="(max-width: 720px) 100vw, 220px"
+									alt=""
+									loading={index === 0 ? "eager" : "lazy"}
+									fetchPriority={index === 0 ? "high" : "auto"}
+									onError={(event) => {
+										if (
+											post.coverThumbnailUrl &&
+											post.coverUrl &&
+											event.currentTarget.src !== post.coverUrl
+										) {
+											event.currentTarget.src = post.coverUrl;
+										}
+									}}
+								/>
 							</Link>
 						) : null}
 						<div className="post-list-body">

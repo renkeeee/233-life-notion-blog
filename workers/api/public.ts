@@ -1,4 +1,4 @@
-import { PostContentRepository, PostsRepository } from "../db/d1";
+import { PostsRepository } from "../db/d1";
 import { errorJson, json } from "../http";
 import type { AppEnv, PublicPostRecord } from "../types";
 
@@ -8,10 +8,16 @@ type PublicPostSummary = {
 	title: string;
 	excerpt: string;
 	coverUrl: string | null;
+	coverThumbnailUrl?: string;
 	category: string | null;
 	tags: string[];
 	publishedAt: string | null;
 	updatedAt: string;
+};
+
+type CategorySummary = {
+	name: string;
+	count: number;
 };
 
 type ListOptions = {
@@ -26,21 +32,30 @@ type PublicPostList = {
 	total: number;
 };
 
+type ListPostsResponseOptions = ListOptions & {
+	categories?: CategorySummary[];
+};
+
 const defaultPage = 1;
 const defaultLimit = 20;
 const maxLimit = 100;
+const listCacheControl = "public, max-age=60, stale-while-revalidate=300";
+const detailCacheControl = "public, max-age=300, stale-while-revalidate=86400";
 
 function isPublished(post: PublicPostRecord): boolean {
 	return post.visibility === "published";
 }
 
 function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
+	const coverThumbnailUrl = thumbnailUrlForCover(post.coverUrl);
+
 	return {
 		id: post.id,
 		slug: post.slug,
 		title: post.title,
 		excerpt: post.excerpt,
 		coverUrl: post.coverUrl,
+		...(coverThumbnailUrl ? { coverThumbnailUrl } : {}),
 		category: post.category,
 		tags: post.tags,
 		publishedAt: post.publishedAt,
@@ -50,7 +65,7 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 
 export function listPostsResponse(
 	result: PublicPostList,
-	options: ListOptions = {},
+	options: ListPostsResponseOptions = {},
 ) {
 	const page = options.page ?? defaultPage;
 	const limit = options.limit ?? defaultLimit;
@@ -60,6 +75,7 @@ export function listPostsResponse(
 		total: result.total,
 		page,
 		limit,
+		...(options.categories ? { categories: options.categories } : {}),
 	};
 }
 
@@ -75,6 +91,54 @@ export function postDetailResponse(
 		...toPublicSummary(post),
 		markdown,
 	};
+}
+
+function thumbnailUrlForCover(coverUrl: string | null): string | null {
+	if (!coverUrl) {
+		return null;
+	}
+
+	try {
+		const url = new URL(coverUrl);
+		if (url.hostname !== "assets.233.life" || !url.pathname.startsWith("/assets/")) {
+			return null;
+		}
+
+		return `${url.origin}/cdn-cgi/image/width=440,quality=82,format=auto${url.pathname}${url.search}`;
+	} catch {
+		return null;
+	}
+}
+
+function weakEtag(value: string): string {
+	let hash = 0x811c9dc5;
+
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193);
+	}
+
+	return `W/"${(hash >>> 0).toString(16)}-${value.length.toString(16)}"`;
+}
+
+function cacheableJson<T>(
+	request: Request,
+	body: T,
+	cacheControl: string,
+): Response {
+	const text = JSON.stringify(body);
+	const etag = weakEtag(text);
+	const headers = new Headers({
+		"content-type": "application/json; charset=utf-8",
+		"cache-control": cacheControl,
+		etag,
+	});
+
+	if (request.headers.get("if-none-match") === etag) {
+		return new Response(null, { status: 304, headers });
+	}
+
+	return new Response(text, { headers });
 }
 
 function parsePositiveInteger(
@@ -197,7 +261,6 @@ export async function handlePublicApi(
 ): Promise<Response> {
 	const url = new URL(request.url);
 	const posts = new PostsRepository(env.DB);
-	const content = new PostContentRepository(env.DB);
 
 	if (request.method !== "GET") {
 		return errorJson("NOT_FOUND", "Route not found", 404);
@@ -224,22 +287,43 @@ export async function handlePublicApi(
 		).trim();
 		const tag = (url.searchParams.get("tag") ?? "").trim();
 		const category = (url.searchParams.get("category") ?? "").trim();
+		const includes = new Set(
+			(url.searchParams.get("include") ?? "")
+				.split(",")
+				.map((item) => item.trim())
+				.filter(Boolean),
+		);
 		const result = await posts.listPublished({
 			...pagination,
 			q: query || undefined,
 			tag: tag || undefined,
 			category: category || undefined,
 		});
+		const categories = includes.has("categories")
+			? await posts.listCategories()
+			: undefined;
 
-		return json(listPostsResponse(result, { ...pagination, tag, category }));
+		return cacheableJson(
+			request,
+			listPostsResponse(result, { ...pagination, tag, category, categories }),
+			listCacheControl,
+		);
 	}
 
 	if (url.pathname === "/api/tags") {
-		return json({ items: await posts.listTags() });
+		return cacheableJson(
+			request,
+			{ items: await posts.listTags() },
+			detailCacheControl,
+		);
 	}
 
 	if (url.pathname === "/api/categories") {
-		return json({ items: await posts.listCategories() });
+		return cacheableJson(
+			request,
+			{ items: await posts.listCategories() },
+			detailCacheControl,
+		);
 	}
 
 	if (url.pathname.startsWith("/api/posts/")) {
@@ -248,36 +332,43 @@ export async function handlePublicApi(
 			return errorJson("NOT_FOUND", "Post not found", 404);
 		}
 
-		const post = await posts.findPublishedBySlug(slug);
-		if (!post) {
-			return errorJson("NOT_FOUND", "Post not found", 404);
+		const detail = await posts.findPublishedDetailBySlug(slug);
+		if (detail) {
+			return cacheableJson(
+				request,
+				postDetailResponse(detail.post, detail.markdown),
+				detailCacheControl,
+			);
 		}
 
-		const markdown = await content.markdownForPost(post.id);
-		if (markdown === null) {
+		const post = await posts.findPublishedBySlug(slug);
+		if (post) {
 			return errorJson("NOT_FOUND", "Post content not found", 404);
 		}
 
-		const response = postDetailResponse(post, markdown);
-		if (!response) {
-			return errorJson("NOT_FOUND", "Post not found", 404);
-		}
-
-		return json(response);
+		return errorJson("NOT_FOUND", "Post not found", 404);
 	}
 
 	if (url.pathname === "/api/search") {
 		const q = (url.searchParams.get("q") ?? "").trim();
 		if (!q) {
-			return json({ items: [], total: 0, q: "" });
+			return cacheableJson(
+				request,
+				{ items: [], total: 0, q: "" },
+				listCacheControl,
+			);
 		}
 
 		const records = await posts.searchPublished(q);
-		return json({
-			items: records.map(toPublicSummary),
-			total: records.length,
-			q,
-		});
+		return cacheableJson(
+			request,
+			{
+				items: records.map(toPublicSummary),
+				total: records.length,
+				q,
+			},
+			listCacheControl,
+		);
 	}
 
 	return errorJson("NOT_FOUND", "Route not found", 404);

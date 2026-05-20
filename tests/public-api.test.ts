@@ -580,7 +580,13 @@ describe("PostsRepository", () => {
 	it("lists categories with published post counts", async () => {
 		const db = new SqliteD1Database();
 		try {
-			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1", category: "Essay" }));
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					category: "Essay",
+				}),
+			);
 			db.insertPost(
 				postRow({
 					id: "post-2",
@@ -753,6 +759,10 @@ describe("handlePublicApi", () => {
 		);
 
 		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe(
+			"public, max-age=60, stale-while-revalidate=300",
+		);
+		expect(response.headers.get("etag")).toMatch(/^W\/"/);
 		await expect(response.json()).resolves.toEqual({
 			items: [
 				expect.objectContaining({
@@ -764,6 +774,55 @@ describe("handlePublicApi", () => {
 			page: 1,
 			limit: 1,
 		});
+	});
+
+	it("returns 304 for matching public API entity tags", async () => {
+		const fakeDb = new FakeD1Database((sql) => {
+			if (sql.includes("COUNT(DISTINCT p.id)")) {
+				return [{ total: 1 }];
+			}
+			if (sql.includes("SELECT DISTINCT")) {
+				return [postRow({ id: "post-1", slug: "life-post" })];
+			}
+			return [];
+		});
+		const env = envWithDb(fakeDb.asD1());
+		const firstResponse = await handlePublicApi(
+			publicRequest("/api/posts?page=1&limit=1"),
+			env,
+		);
+		const etag = firstResponse.headers.get("etag");
+		const secondResponse = await handlePublicApi(
+			new Request("https://example.test/api/posts?page=1&limit=1", {
+				headers: { "if-none-match": etag ?? "" },
+			}),
+			env,
+		);
+
+		expect(secondResponse.status).toBe(304);
+		expect(secondResponse.headers.get("etag")).toBe(etag);
+		expect(await secondResponse.text()).toBe("");
+	});
+
+	it("can include category counts in the first posts response", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1", category: "Essay" }));
+
+			const response = await handlePublicApi(
+				publicRequest("/api/posts?page=1&limit=20&include=categories"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual(
+				expect.objectContaining({
+					categories: [{ name: "Essay", count: 1 }],
+				}),
+			);
+		} finally {
+			db.close();
+		}
 	});
 
 	it("rejects invalid pagination values", async () => {
@@ -810,11 +869,13 @@ describe("handlePublicApi", () => {
 
 	it("returns one published post with markdown by decoded slug", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
+			if (sql.includes("JOIN post_content")) {
+				return [
+					{ ...postRow({ slug: "hello world" }), markdown: "# Hello world" },
+				];
+			}
 			if (sql.includes("WHERE slug = ?")) {
 				return [postRow({ slug: "hello world" })];
-			}
-			if (sql.includes("FROM post_content")) {
-				return [{ markdown: "# Hello world" }];
 			}
 			return [];
 		});
@@ -825,22 +886,33 @@ describe("handlePublicApi", () => {
 		);
 
 		expect(response.status).toBe(200);
-			await expect(response.json()).resolves.toEqual({
-				id: "post-1",
-				slug: "hello world",
-				title: "Published post",
-				excerpt: "Opening text for the published post.",
-				coverUrl: "https://cdn.example.com/cover.jpg",
-				category: "Essay",
-				tags: [],
+		expect(response.headers.get("cache-control")).toBe(
+			"public, max-age=300, stale-while-revalidate=86400",
+		);
+		await expect(response.json()).resolves.toEqual({
+			id: "post-1",
+			slug: "hello world",
+			title: "Published post",
+			excerpt: "Opening text for the published post.",
+			coverUrl: "https://cdn.example.com/cover.jpg",
+			category: "Essay",
+			tags: [],
 			publishedAt: "2026-05-01T00:00:00.000Z",
 			updatedAt: "2026-05-02T00:00:00.000Z",
 			markdown: "# Hello world",
 		});
+		expect(
+			fakeDb.calls.some((call) =>
+				call.sql.includes("SELECT markdown FROM post_content"),
+			),
+		).toBe(false);
 	});
 
 	it("returns structured 404 when post markdown content is missing", async () => {
 		const fakeDb = new FakeD1Database((sql) => {
+			if (sql.includes("JOIN post_content")) {
+				return [];
+			}
 			if (sql.includes("WHERE slug = ?")) {
 				return [postRow()];
 			}
@@ -901,6 +973,9 @@ describe("handlePublicApi", () => {
 			);
 
 			expect(response.status).toBe(200);
+			expect(response.headers.get("cache-control")).toBe(
+				"public, max-age=300, stale-while-revalidate=86400",
+			);
 			await expect(response.json()).resolves.toEqual({
 				items: [
 					{ name: "Life", count: 2 },
@@ -931,6 +1006,9 @@ describe("handlePublicApi", () => {
 			);
 
 			expect(response.status).toBe(200);
+			expect(response.headers.get("cache-control")).toBe(
+				"public, max-age=300, stale-while-revalidate=86400",
+			);
 			await expect(response.json()).resolves.toEqual({
 				items: [
 					{ name: "Essay", count: 1 },
@@ -965,12 +1043,18 @@ describe("handlePublicApi", () => {
 		);
 
 		expect(searchResponse.status).toBe(200);
+		expect(searchResponse.headers.get("cache-control")).toBe(
+			"public, max-age=60, stale-while-revalidate=300",
+		);
 		await expect(searchResponse.json()).resolves.toEqual({
 			items: [expect.objectContaining({ slug: "api-post", title: "API post" })],
 			total: 1,
 			q: "api",
 		});
 		expect(emptyResponse.status).toBe(200);
+		expect(emptyResponse.headers.get("cache-control")).toBe(
+			"public, max-age=60, stale-while-revalidate=300",
+		);
 		await expect(emptyResponse.json()).resolves.toEqual({
 			items: [],
 			total: 0,

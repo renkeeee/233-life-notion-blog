@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import "react-datepicker/dist/react-datepicker.css";
 import { AdminLogin } from "../components/admin/AdminLogin";
 import { AdminShell, type AdminTab } from "../components/admin/AdminShell";
 import { PostStatusTable } from "../components/admin/PostStatusTable";

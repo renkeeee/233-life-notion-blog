@@ -88,6 +88,11 @@ type ListPublishedResult = {
 	total: number;
 };
 
+type PublicPostDetailRecord = {
+	post: PublicPostRecord;
+	markdown: string;
+};
+
 export type PublicTagRecord = {
 	name: string;
 	count: number;
@@ -270,6 +275,32 @@ export class PostsRepository {
 
 		const [post] = await this.withTags([mapPostRow(row)]);
 		return post ?? null;
+	}
+
+	async findPublishedDetailBySlug(
+		slug: string,
+	): Promise<PublicPostDetailRecord | null> {
+		const row = await this.db
+			.prepare(
+				`SELECT ${aliasedPublicPostColumns("p")}, pc.markdown
+				 FROM posts p
+				 JOIN post_content pc ON pc.post_id = p.id
+				 WHERE p.slug = ? AND p.visibility = 'published'
+				 LIMIT 1`,
+			)
+			.bind(slug)
+			.first<PostRow & { markdown: string }>();
+
+		if (!row) {
+			return null;
+		}
+
+		const [post] = await this.withTags([mapPostRow(row)]);
+		if (!post) {
+			return null;
+		}
+
+		return { post, markdown: row.markdown };
 	}
 
 	async listPublishedForSitemap(limit = 50000): Promise<PublicPostRecord[]> {

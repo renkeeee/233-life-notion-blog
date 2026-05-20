@@ -70,7 +70,7 @@ describe("home pagination", () => {
 	it("loads the next posts page when the bottom sentinel enters view", async () => {
 		installIntersectionObserver();
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
-			if (url === "/api/posts?page=1&limit=20") {
+			if (url === "/api/posts?page=1&limit=20&include=categories") {
 				return Promise.resolve({
 					items: [post()],
 					total: 2,
@@ -109,8 +109,9 @@ describe("home pagination", () => {
 
 		await screen.findByRole("heading", { name: "First post" });
 		expect(screen.getByText("The first few words from the post body.")).toBeTruthy();
-		expect(apiGet).toHaveBeenCalledWith("/api/posts?page=1&limit=20");
+		expect(apiGet).toHaveBeenCalledWith("/api/posts?page=1&limit=20&include=categories");
 
+		await waitFor(() => expect(observerCallback).not.toBeNull());
 		await act(async () => {
 			observerCallback?.(
 				[{ isIntersecting: true } as IntersectionObserverEntry],
@@ -144,6 +145,41 @@ describe("home pagination", () => {
 
 		await screen.findByRole("heading", { name: "First post" });
 		expect(screen.queryByText("Hidden list tag")).toBeNull();
+	});
+
+	it("uses responsive thumbnails for homepage cover images when provided", async () => {
+		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				post({
+					coverUrl: "https://assets.233.life/assets/original.jpg",
+					coverThumbnailUrl:
+						"https://assets.233.life/cdn-cgi/image/width=440/assets/original.jpg",
+				}),
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+
+		const { container } = render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByRole("heading", { name: "First post" });
+		const image = container.querySelector(".post-list-cover img");
+
+		expect(image).not.toBeNull();
+		expect(image!).toHaveAttribute(
+			"src",
+			"https://assets.233.life/cdn-cgi/image/width=440/assets/original.jpg",
+		);
+		expect(image!).toHaveAttribute(
+			"srcset",
+			expect.stringContaining("https://assets.233.life/assets/original.jpg 900w"),
+		);
+		expect(image!).toHaveAttribute("sizes");
 	});
 
 	it("expands the search input from the icon button and collapses it on blur", async () => {
@@ -207,17 +243,13 @@ describe("home pagination", () => {
 
 	it("preloads categories on home load before the category switcher is opened", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
-			if (url === "/api/posts?page=1&limit=20") {
+			if (url === "/api/posts?page=1&limit=20&include=categories") {
 				return Promise.resolve({
 					items: [post({ title: "First post" })],
 					total: 1,
 					page: 1,
 					limit: 20,
-				});
-			}
-			if (url === "/api/categories") {
-				return Promise.resolve({
-					items: [{ name: "Essay", count: 1 }],
+					categories: [{ name: "Essay", count: 1 }],
 				});
 			}
 
@@ -231,7 +263,11 @@ describe("home pagination", () => {
 		);
 
 		await screen.findByRole("heading", { name: "First post" });
-		await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/categories"));
+		await waitFor(() =>
+			expect(apiGet).toHaveBeenCalledWith(
+				"/api/posts?page=1&limit=20&include=categories",
+			),
+		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Categories" }));
 
@@ -239,28 +275,24 @@ describe("home pagination", () => {
 		expect(screen.getByRole("button", { name: "Essay 1" })).toBeTruthy();
 		expect(
 			apiGet.mock.calls.filter(([url]) => url === "/api/categories"),
-		).toHaveLength(1);
+		).toHaveLength(0);
 	});
 
 	it("expands categories and filters posts by the selected category", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
-			if (url === "/api/posts?page=1&limit=20") {
+			if (url === "/api/posts?page=1&limit=20&include=categories") {
 				return Promise.resolve({
 					items: [post({ title: "First post" })],
 					total: 2,
 					page: 1,
 					limit: 20,
-				});
-			}
-			if (url === "/api/categories") {
-				return Promise.resolve({
-					items: [
+					categories: [
 						{ name: "Essay", count: 1 },
 						{ name: "Note", count: 1 },
 					],
 				});
 			}
-			if (url === "/api/posts?page=1&limit=20&category=Essay") {
+			if (url === "/api/posts?page=1&limit=20&category=Essay&include=categories") {
 				return Promise.resolve({
 					items: [post({ title: "Essay post", category: "Essay" })],
 					total: 1,
@@ -285,7 +317,7 @@ describe("home pagination", () => {
 
 		await screen.findByRole("heading", { name: "Essay post" });
 		expect(apiGet).toHaveBeenCalledWith(
-			"/api/posts?page=1&limit=20&category=Essay",
+			"/api/posts?page=1&limit=20&category=Essay&include=categories",
 		);
 		expect(screen.getByRole("button", { name: "All categories" })).toHaveClass(
 			"category-option",
@@ -295,12 +327,13 @@ describe("home pagination", () => {
 
 	it("opens the tag picker and filters posts by the selected tag", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
-			if (url === "/api/posts?page=1&limit=20") {
+			if (url === "/api/posts?page=1&limit=20&include=categories") {
 				return Promise.resolve({
 					items: [post({ title: "First post" })],
 					total: 2,
 					page: 1,
 					limit: 20,
+					categories: [],
 				});
 			}
 			if (url === "/api/tags") {
@@ -314,7 +347,7 @@ describe("home pagination", () => {
 			if (url === "/api/categories") {
 				return Promise.resolve({ items: [] });
 			}
-			if (url === "/api/posts?page=1&limit=20&tag=Life") {
+			if (url === "/api/posts?page=1&limit=20&tag=Life&include=categories") {
 				return Promise.resolve({
 					items: [post({ title: "Life post", tags: ["Life"] })],
 					total: 1,
@@ -339,7 +372,7 @@ describe("home pagination", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Life 1" }));
 
 		await screen.findByRole("heading", { name: "Life post" });
-		expect(apiGet).toHaveBeenCalledWith("/api/posts?page=1&limit=20&tag=Life");
+		expect(apiGet).toHaveBeenCalledWith("/api/posts?page=1&limit=20&tag=Life&include=categories");
 		expect(screen.getByText("Filtered by Life")).toBeTruthy();
 	});
 });

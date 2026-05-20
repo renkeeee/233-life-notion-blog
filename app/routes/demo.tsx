@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import type { FocusEvent, FormEvent } from "react";
-import { FiSearch } from "react-icons/fi";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
+import { SearchIcon } from "../components/public/SearchIcon";
 import { demoPosts } from "../lib/demo-posts";
 
 type CountSummary = {
@@ -151,7 +151,7 @@ export default function DemoHome() {
 								aria-label="Search"
 								onClick={() => setSearchOpen(true)}
 							>
-								<FiSearch aria-hidden="true" focusable="false" />
+								<SearchIcon />
 							</button>
 						</div>
 					</form>

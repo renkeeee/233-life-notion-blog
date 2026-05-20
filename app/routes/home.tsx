@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FocusEvent, FormEvent } from "react";
-import { FiSearch } from "react-icons/fi";
 import { useNavigate } from "react-router";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
+import { SearchIcon } from "../components/public/SearchIcon";
 import { apiGet } from "../lib/api-client";
 
 type PostsResponse = {
@@ -10,6 +10,7 @@ type PostsResponse = {
 	total: number;
 	page: number;
 	limit: number;
+	categories?: CategorySummary[];
 };
 
 type TagSummary = {
@@ -75,6 +76,10 @@ function postsPath(
 
 	if (category) {
 		params.set("category", category);
+	}
+
+	if (page === 1) {
+		params.set("include", "categories");
 	}
 
 	return `/api/posts?${params.toString()}`;
@@ -170,6 +175,13 @@ export default function Home() {
 
 				if (activeRequestRef.current !== requestId) {
 					return;
+				}
+
+				if (mode === "replace" && page === 1 && response.categories) {
+					setCategoriesState({
+						status: "success",
+						categories: response.categories,
+					});
 				}
 
 				setState((current) => {
@@ -270,12 +282,15 @@ export default function Home() {
 		}
 	}, []);
 
-	useEffect(() => {
-		void loadCategories();
-	}, [loadCategories]);
-
 	function toggleCategories() {
-		setCategoriesOpen((current) => !current);
+		setCategoriesOpen((current) => {
+			const next = !current;
+			if (next && categoriesState.status === "idle") {
+				void loadCategories();
+			}
+
+			return next;
+		});
 	}
 
 	function selectCategory(category: string | null) {
@@ -472,7 +487,7 @@ export default function Home() {
 								aria-label="Search"
 								onClick={() => setSearchOpen(true)}
 							>
-								<FiSearch aria-hidden="true" focusable="false" />
+								<SearchIcon />
 							</button>
 						</div>
 					</form>

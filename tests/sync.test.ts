@@ -1193,6 +1193,100 @@ describe("admin posts API", () => {
 		}
 	});
 
+	it("lists, updates, and deletes comments for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'commented-post', 'Commented Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-19T03:44:00.000Z', 'content-hash', NULL,
+					'2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z'
+				)`,
+			);
+			db.exec(
+				`INSERT INTO post_comments (id, post_id, nickname, body, created_at)
+				 VALUES (
+					'comment-1', 'post-1', 'Ada', 'A small hello.',
+					'2026-05-20T10:00:00.000Z'
+				 )`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const headers = {
+				cookie: session.cookie,
+				"content-type": "application/json",
+				"x-csrf-token": session.csrfToken,
+			};
+
+			const list = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/comments", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+			const update = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/comments", {
+					body: JSON.stringify({ enabled: false }),
+					headers,
+					method: "PUT",
+				}),
+				env,
+			);
+			const remove = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/comments/comment-1", {
+					headers,
+					method: "DELETE",
+				}),
+				env,
+			);
+
+			expect(list.status).toBe(200);
+			await expect(list.json()).resolves.toEqual({
+				post: {
+					id: "post-1",
+					title: "Commented Post",
+					commentsEnabled: true,
+				},
+				comments: [
+					{
+						id: "comment-1",
+						nickname: "Ada",
+						body: "A small hello.",
+						createdAt: "2026-05-20T10:00:00.000Z",
+					},
+				],
+			});
+			expect(update.status).toBe(200);
+			await expect(update.json()).resolves.toEqual({
+				post: {
+					id: "post-1",
+					title: "Commented Post",
+					commentsEnabled: false,
+				},
+			});
+			expect(
+				db.row<{ comments_enabled: number }>(
+					"SELECT comments_enabled FROM posts WHERE id = ?",
+					"post-1",
+				).comments_enabled,
+			).toBe(0);
+			expect(remove.status).toBe(200);
+			expect(
+				db.rows("SELECT * FROM post_comments WHERE post_id = 'post-1'"),
+			).toHaveLength(0);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("hides, restores, locks, unlocks, and deletes posts for authenticated admins", async () => {
 		const db = new SqliteD1Database();
 		try {

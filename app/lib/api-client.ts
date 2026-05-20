@@ -78,3 +78,18 @@ export async function apiPut<T>(
 	});
 	return parseJson<T>(response);
 }
+
+export async function apiDelete<T>(
+	path: string,
+	csrfToken: string,
+	fetcher: Fetcher = defaultFetcher,
+): Promise<T> {
+	const response = await fetcher(path, {
+		method: "DELETE",
+		credentials: "same-origin",
+		headers: {
+			"x-csrf-token": csrfToken,
+		},
+	});
+	return parseJson<T>(response);
+}

@@ -105,6 +105,19 @@ type AdminPostIdentityRow = {
 	title: string;
 };
 
+type AdminPostCommentParentRow = {
+	id: string;
+	title: string;
+	comments_enabled: number;
+};
+
+type AdminPostCommentRow = {
+	id: string;
+	nickname: string;
+	body: string;
+	created_at: string;
+};
+
 type NotionSchemaBody = {
 	notionDatabaseId: string;
 	notionToken?: string;
@@ -1092,6 +1105,180 @@ async function handlePutPostCommentSettings(
 	}
 }
 
+function decodePathSegment(value: string): string | null {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return null;
+	}
+}
+
+function adminPostCommentsFromPath(pathname: string): { postId: string } | null {
+	const match = /^\/api\/admin\/posts\/([^/]+)\/comments$/.exec(pathname);
+	const postId = match ? decodePathSegment(match[1]) : null;
+
+	return postId ? { postId } : null;
+}
+
+function adminPostCommentFromPath(
+	pathname: string,
+): { postId: string; commentId: string } | null {
+	const match = /^\/api\/admin\/posts\/([^/]+)\/comments\/([^/]+)$/.exec(
+		pathname,
+	);
+	const postId = match ? decodePathSegment(match[1]) : null;
+	const commentId = match ? decodePathSegment(match[2]) : null;
+
+	return postId && commentId ? { postId, commentId } : null;
+}
+
+async function adminPostCommentParent(
+	env: AppEnv,
+	postId: string,
+): Promise<AdminPostCommentParentRow | null> {
+	return env.DB.prepare(
+		`SELECT id, title, comments_enabled
+		 FROM posts
+		 WHERE id = ?
+		 LIMIT 1`,
+	)
+		.bind(postId)
+		.first<AdminPostCommentParentRow>();
+}
+
+function adminPostCommentParentResponse(row: AdminPostCommentParentRow) {
+	return {
+		id: row.id,
+		title: row.title,
+		commentsEnabled: row.comments_enabled === 1,
+	};
+}
+
+function adminPostCommentResponse(row: AdminPostCommentRow) {
+	return {
+		id: row.id,
+		nickname: row.nickname,
+		body: row.body,
+		createdAt: row.created_at,
+	};
+}
+
+async function handleGetAdminPostComments(
+	request: Request,
+	env: AppEnv,
+	postId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const post = await adminPostCommentParent(env, postId);
+	if (!post) {
+		return errorJson("NOT_FOUND", "Post not found", 404);
+	}
+
+	const comments = await env.DB.prepare(
+		`SELECT id, nickname, body, created_at
+		 FROM post_comments
+		 WHERE post_id = ?
+		 ORDER BY created_at DESC`,
+	)
+		.bind(post.id)
+		.all<AdminPostCommentRow>();
+
+	return json({
+		post: adminPostCommentParentResponse(post),
+		comments: comments.results.map(adminPostCommentResponse),
+	});
+}
+
+async function handlePutAdminPostComments(
+	request: Request,
+	env: AppEnv,
+	postId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: CommentsDefaultBody;
+	try {
+		body = validateCommentsDefaultBody(await readJsonObject(request));
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid request body";
+
+		return errorJson("BAD_REQUEST", message, 400);
+	}
+
+	const post = await adminPostCommentParent(env, postId);
+	if (!post) {
+		return errorJson("NOT_FOUND", "Post not found", 404);
+	}
+
+	await env.DB.prepare(
+		`UPDATE posts
+		 SET comments_enabled = ?, updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(body.enabled ? 1 : 0, new Date().toISOString(), post.id)
+		.run();
+
+	return json({
+		post: {
+			...adminPostCommentParentResponse(post),
+			commentsEnabled: body.enabled,
+		},
+	});
+}
+
+async function handleDeleteAdminPostComment(
+	request: Request,
+	env: AppEnv,
+	postId: string,
+	commentId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	const comment = await env.DB.prepare(
+		`SELECT id
+		 FROM post_comments
+		 WHERE id = ?
+		 AND post_id = ?
+		 LIMIT 1`,
+	)
+		.bind(commentId, postId)
+		.first<{ id: string }>();
+
+	if (!comment) {
+		return errorJson("NOT_FOUND", "Comment not found", 404);
+	}
+
+	await env.DB.prepare("DELETE FROM post_comments WHERE id = ?")
+		.bind(comment.id)
+		.run();
+
+	return json({ ok: true });
+}
+
 function adminPostActionFromPath(
 	pathname: string,
 ): { postId: string; action: AdminPostAction } | null {
@@ -1216,12 +1403,12 @@ async function handleListPosts(
 				slug,
 				status,
 				visibility,
-					manual_visibility,
-					locked,
-					comments_enabled,
-					lock_password_encrypted,
-					published_at,
-					notion_last_edited_time,
+				manual_visibility,
+				locked,
+				comments_enabled,
+				lock_password_encrypted,
+				published_at,
+				notion_last_edited_time,
 				updated_at,
 				last_sync_error
 			 FROM posts
@@ -1245,12 +1432,12 @@ async function handleListPosts(
 				slug: post.slug,
 				status: post.status,
 				visibility: post.visibility,
-					manualVisibility: post.manual_visibility,
-					locked: post.locked === 1,
-					commentsEnabled: post.comments_enabled === 1,
-					lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
-					publishedAt: post.published_at,
-					notionLastEditedTime: post.notion_last_edited_time,
+				manualVisibility: post.manual_visibility,
+				locked: post.locked === 1,
+				commentsEnabled: post.comments_enabled === 1,
+				lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
+				publishedAt: post.published_at,
+				notionLastEditedTime: post.notion_last_edited_time,
 				updatedAt: post.updated_at,
 				lastSyncError: post.last_sync_error,
 			})),
@@ -1441,6 +1628,25 @@ export async function handleAdminApi(
 		request.method === "PUT"
 	) {
 		return handlePutPostCommentSettings(request, env);
+	}
+
+	const postComment = adminPostCommentFromPath(url.pathname);
+	if (postComment && request.method === "DELETE") {
+		return handleDeleteAdminPostComment(
+			request,
+			env,
+			postComment.postId,
+			postComment.commentId,
+		);
+	}
+
+	const postComments = adminPostCommentsFromPath(url.pathname);
+	if (postComments && request.method === "GET") {
+		return handleGetAdminPostComments(request, env, postComments.postId);
+	}
+
+	if (postComments && request.method === "PUT") {
+		return handlePutAdminPostComments(request, env, postComments.postId);
 	}
 
 	const postAction = adminPostActionFromPath(url.pathname);

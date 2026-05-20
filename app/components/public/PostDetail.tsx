@@ -51,6 +51,7 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 	const [resetSignal, setResetSignal] = useState(0);
 	const [submitting, setSubmitting] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
+	const [composerOpen, setComposerOpen] = useState(false);
 	const commentsEnabled = post.commentsEnabled === true;
 	const shouldRender = commentsEnabled || comments.length > 0;
 	const onTurnstileToken = useCallback((token: string) => {
@@ -127,7 +128,16 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 			) : (
 				<p className="post-comments-empty">No comments yet.</p>
 			)}
-			{commentsEnabled ? (
+			{commentsEnabled && !composerOpen ? (
+				<button
+					type="button"
+					className="post-comment-toggle"
+					onClick={() => setComposerOpen(true)}
+				>
+					Comment
+				</button>
+			) : null}
+			{commentsEnabled && composerOpen ? (
 				<form className="post-comment-form" onSubmit={submitComment}>
 					<label>
 						Nickname
@@ -168,9 +178,10 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 						{submitting ? "Posting..." : "Post comment"}
 					</button>
 				</form>
-			) : (
+			) : null}
+			{!commentsEnabled ? (
 				<p className="post-comments-empty">Comments are closed.</p>
-			)}
+			) : null}
 		</section>
 	);
 }

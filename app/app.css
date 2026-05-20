@@ -963,6 +963,18 @@ body {
 	padding-top: 18px;
 }
 
+.post-comment-toggle {
+	border: 1px solid #1d1d1b;
+	border-radius: 999px;
+	background: #1d1d1b;
+	color: #fff;
+	cursor: pointer;
+	font-weight: 650;
+	min-height: 38px;
+	margin-top: 14px;
+	padding: 8px 16px;
+}
+
 .post-comment-form label {
 	display: grid;
 	gap: 6px;
@@ -1707,6 +1719,89 @@ body {
 .admin-shell .admin-modal-actions .danger {
 	background: #8a4a43;
 	border-color: #8a4a43;
+}
+
+.admin-comments-modal {
+	width: min(100%, 620px);
+	max-height: min(760px, calc(100vh - 48px));
+	overflow-y: auto;
+}
+
+.admin-comments-modal-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 14px;
+}
+
+.admin-comments-toggle {
+	align-items: center;
+	display: flex !important;
+	gap: 9px;
+}
+
+.admin-comments-toggle input {
+	min-height: 18px;
+	width: 18px;
+}
+
+.admin-comment-list {
+	display: grid;
+	gap: 12px;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.admin-comment-item {
+	border: 1px solid #ded9cf;
+	border-radius: 8px;
+	background: #fff;
+	padding: 14px;
+}
+
+.admin-comment-item header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 9px;
+}
+
+.admin-comment-item strong,
+.admin-comment-item time {
+	display: block;
+}
+
+.admin-comment-item strong {
+	color: #25231f;
+	font-size: 0.92rem;
+}
+
+.admin-comment-item time {
+	color: #716d64;
+	font-size: 0.78rem;
+	font-weight: 650;
+	margin-top: 3px;
+}
+
+.admin-comment-item p {
+	color: #3f3b35;
+	font-size: 0.92rem;
+	white-space: pre-wrap;
+}
+
+.admin-comment-item button {
+	border: 0;
+	background: transparent;
+	color: #8a4a43;
+	cursor: pointer;
+	font-size: 0.78rem;
+	font-weight: 750;
+	min-height: 0;
+	padding: 2px 0;
+	text-decoration: underline;
+	text-underline-offset: 3px;
 }
 
 @media (max-width: 720px) {

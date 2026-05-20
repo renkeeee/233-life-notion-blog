@@ -77,6 +77,8 @@ describe("PostDetail", () => {
 
 			expect(screen.getByRole("heading", { name: "Comments" })).toBeTruthy();
 			expect(screen.getByText("First note.")).toBeTruthy();
+			expect(screen.queryByLabelText("Comment")).toBeNull();
+			fireEvent.click(screen.getByRole("button", { name: "Comment" }));
 			fireEvent.change(screen.getByLabelText("Comment"), {
 				target: { value: "A quiet reply." },
 			});

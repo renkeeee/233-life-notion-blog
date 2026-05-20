@@ -464,7 +464,7 @@ describe("PostStatusTable", () => {
 		}
 	});
 
-	it("saves default comment settings and toggles per-post comments", async () => {
+	it("opens post comments in a modal, saves the toggle, and deletes comments", async () => {
 		const postsResponse = {
 			items: [
 				{
@@ -492,13 +492,44 @@ describe("PostStatusTable", () => {
 				if (path === "/api/admin/posts/comment-settings") {
 					return Promise.resolve({ defaultEnabled: false });
 				}
+				if (path === "/api/admin/posts/post-1/comments") {
+					return Promise.resolve({
+						post: {
+							id: "post-1",
+							title: "Quiet Post",
+							commentsEnabled: false,
+						},
+						comments: [
+							{
+								id: "comment-1",
+								nickname: "Ada",
+								body: "A small hello.",
+								createdAt: "2026-05-20T10:00:00.000Z",
+							},
+						],
+					});
+				}
 
 				return Promise.resolve(postsResponse);
 			});
 		const apiPut = vi
 			.spyOn(apiClient, "apiPut")
-			.mockResolvedValue({ defaultEnabled: true });
-		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+			.mockImplementation((path: string) => {
+				if (path === "/api/admin/posts/post-1/comments") {
+					return Promise.resolve({
+						post: {
+							id: "post-1",
+							title: "Quiet Post",
+							commentsEnabled: true,
+						},
+					});
+				}
+
+				return Promise.resolve({ defaultEnabled: true });
+			});
+		const apiDelete = vi
+			.spyOn(apiClient, "apiDelete")
+			.mockResolvedValue({ ok: true });
 
 		try {
 			render(<PostStatusTable csrfToken="csrf-token" />);
@@ -523,19 +554,44 @@ describe("PostStatusTable", () => {
 
 			await screen.findByRole("link", { name: "Quiet Post" });
 			expect(screen.getByText("published / comments off")).toBeTruthy();
-			fireEvent.click(screen.getByRole("button", { name: "Enable comments" }));
+			expect(
+				screen.queryByRole("button", { name: "Enable comments" }),
+			).toBeNull();
+			fireEvent.click(screen.getByRole("button", { name: "Comments" }));
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Post comments",
+			});
+			expect(within(dialog).getByText("A small hello.")).toBeTruthy();
+			const postToggle = within(dialog).getByLabelText(
+				"Enable comments for this post",
+			);
+			expect(postToggle).not.toBeChecked();
+			fireEvent.click(postToggle);
+			fireEvent.click(within(dialog).getByRole("button", { name: "Save setting" }));
 
 			await waitFor(() =>
-				expect(apiPost).toHaveBeenCalledWith(
-					"/api/admin/posts/post-1/comments-on",
-					{},
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments",
+					{ enabled: true },
 					"csrf-token",
 				),
+			);
+			fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+			await waitFor(() =>
+				expect(apiDelete).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-1",
+					"csrf-token",
+				),
+			);
+			await waitFor(() =>
+				expect(within(dialog).queryByText("A small hello.")).toBeNull(),
 			);
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();
-			apiPost.mockRestore();
+			apiDelete.mockRestore();
 		}
 	});
 

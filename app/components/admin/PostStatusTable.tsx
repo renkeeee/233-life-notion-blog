@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { apiGet, apiPost, apiPut } from "../../lib/api-client";
+import { apiDelete, apiGet, apiPost, apiPut } from "../../lib/api-client";
 
 type AdminPostRecord = {
 	id: string;
@@ -39,12 +39,26 @@ type AdminPostAction =
 	| "restore"
 	| "lock"
 	| "unlock"
-	| "comments-on"
-	| "comments-off"
 	| "delete";
 
 type CommentSettingsResponse = {
 	defaultEnabled: boolean;
+};
+
+type AdminPostComment = {
+	id: string;
+	nickname: string;
+	body: string;
+	createdAt: string;
+};
+
+type AdminPostCommentsResponse = {
+	post: {
+		id: string;
+		title: string;
+		commentsEnabled: boolean;
+	};
+	comments: AdminPostComment[];
 };
 
 const pageSize = 20;
@@ -98,8 +112,6 @@ const actionLabels: Record<AdminPostAction, string> = {
 	restore: "restored",
 	lock: "locked",
 	unlock: "unlocked",
-	"comments-on": "comments enabled",
-	"comments-off": "comments disabled",
 	delete: "deleted",
 };
 
@@ -132,6 +144,10 @@ function formatDate(value?: string | null): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	}).format(new Date(value));
+}
+
+function formatCommentDate(value: string): string {
+	return formatDate(value);
 }
 
 function sortOptionFor(value: string): SortOption {
@@ -222,11 +238,21 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		useState<AdminPostRecord | null>(null);
 	const [passwordDialogPost, setPasswordDialogPost] =
 		useState<AdminPostRecord | null>(null);
+	const [commentsDialogPost, setCommentsDialogPost] =
+		useState<AdminPostRecord | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
 	const [defaultCommentsEnabled, setDefaultCommentsEnabled] = useState(true);
 	const [commentSettingsStatus, setCommentSettingsStatus] =
 		useState("Loading comment defaults...");
 	const [commentSettingsPending, setCommentSettingsPending] = useState(false);
+	const [postComments, setPostComments] = useState<AdminPostComment[]>([]);
+	const [postCommentsEnabled, setPostCommentsEnabled] = useState(true);
+	const [postCommentsLoading, setPostCommentsLoading] = useState(false);
+	const [postCommentsSaving, setPostCommentsSaving] = useState(false);
+	const [postCommentsDeleting, setPostCommentsDeleting] = useState<string | null>(
+		null,
+	);
+	const [postCommentsError, setPostCommentsError] = useState<string | null>(null);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -347,6 +373,109 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		}
 	}
 
+	function refreshPostInList(postId: string, updates: Partial<AdminPostRecord>) {
+		setPosts((current) =>
+			current.map((post) =>
+				post.id === postId
+					? {
+							...post,
+							...updates,
+						}
+					: post,
+			),
+		);
+		setCommentsDialogPost((current) =>
+			current?.id === postId
+				? {
+						...current,
+						...updates,
+					}
+				: current,
+		);
+	}
+
+	async function openCommentsDialog(post: AdminPostRecord) {
+		setCommentsDialogPost(post);
+		setPostComments([]);
+		setPostCommentsEnabled(post.commentsEnabled !== false);
+		setPostCommentsLoading(true);
+		setPostCommentsError(null);
+
+		try {
+			const response = await apiGet<AdminPostCommentsResponse>(
+				`/api/admin/posts/${encodeURIComponent(post.id)}/comments`,
+			);
+			setPostComments(response.comments);
+			setPostCommentsEnabled(response.post.commentsEnabled);
+			refreshPostInList(post.id, {
+				title: response.post.title,
+				commentsEnabled: response.post.commentsEnabled,
+			});
+		} catch (error) {
+			setPostCommentsError(
+				error instanceof Error ? error.message : "Comments could not be loaded.",
+			);
+		} finally {
+			setPostCommentsLoading(false);
+		}
+	}
+
+	async function savePostCommentsSetting() {
+		if (!commentsDialogPost) {
+			return;
+		}
+
+		setPostCommentsSaving(true);
+		setPostCommentsError(null);
+		try {
+			const response = await apiPut<Pick<AdminPostCommentsResponse, "post">>(
+				`/api/admin/posts/${encodeURIComponent(commentsDialogPost.id)}/comments`,
+				{ enabled: postCommentsEnabled },
+				csrfToken,
+			);
+			refreshPostInList(commentsDialogPost.id, {
+				commentsEnabled: response.post.commentsEnabled,
+			});
+			setPostCommentsEnabled(response.post.commentsEnabled);
+			setToast(`${postTitle(commentsDialogPost)} comments updated.`);
+		} catch (error) {
+			setPostCommentsError(
+				error instanceof Error
+					? error.message
+					: "Comment setting could not be saved.",
+			);
+		} finally {
+			setPostCommentsSaving(false);
+		}
+	}
+
+	async function deletePostComment(comment: AdminPostComment) {
+		if (!commentsDialogPost) {
+			return;
+		}
+
+		setPostCommentsDeleting(comment.id);
+		setPostCommentsError(null);
+		try {
+			await apiDelete(
+				`/api/admin/posts/${encodeURIComponent(
+					commentsDialogPost.id,
+				)}/comments/${encodeURIComponent(comment.id)}`,
+				csrfToken,
+			);
+			setPostComments((current) =>
+				current.filter((item) => item.id !== comment.id),
+			);
+			setToast("Comment deleted.");
+		} catch (error) {
+			setPostCommentsError(
+				error instanceof Error ? error.message : "Comment could not be deleted.",
+			);
+		} finally {
+			setPostCommentsDeleting(null);
+		}
+	}
+
 	async function runAction(
 		post: AdminPostRecord,
 		action: AdminPostAction,
@@ -369,12 +498,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				action === "lock" ? { password } : {},
 				csrfToken,
 			);
-			if (
-				action === "hide" ||
-				action === "restore" ||
-				action === "comments-on" ||
-				action === "comments-off"
-			) {
+			if (action === "hide" || action === "restore") {
 				setToast(`${title} ${actionLabels[action]}.`);
 			}
 			if (action === "lock") {
@@ -560,19 +684,9 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												)}
 												<button
 													type="button"
-													disabled={pendingAction(
-														commentsEnabled ? "comments-off" : "comments-on",
-													)}
-													onClick={() =>
-														runAction(
-															post,
-															commentsEnabled ? "comments-off" : "comments-on",
-														)
-													}
+													onClick={() => openCommentsDialog(post)}
 												>
-													{commentsEnabled
-														? "Disable comments"
-														: "Enable comments"}
+													Comments
 												</button>
 												<button
 													type="button"
@@ -691,6 +805,93 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 								type="button"
 								className="admin-modal-secondary"
 								onClick={() => setPasswordDialogPost(null)}
+							>
+								Close
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
+			{commentsDialogPost ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal admin-comments-modal"
+						role="dialog"
+						aria-label="Post comments"
+						aria-modal="true"
+					>
+						<div className="admin-comments-modal-heading">
+							<div>
+								<h3>Comments</h3>
+								<p>{postTitle(commentsDialogPost)}</p>
+							</div>
+							<span className="admin-badge">
+								{postComments.length} comments
+							</span>
+						</div>
+						<label className="admin-comments-toggle">
+							<input
+								type="checkbox"
+								checked={postCommentsEnabled}
+								onChange={(event) =>
+									setPostCommentsEnabled(event.currentTarget.checked)
+								}
+							/>
+							Enable comments for this post
+						</label>
+						<div className="admin-modal-actions">
+							<button
+								type="button"
+								className="admin-modal-secondary"
+								disabled={postCommentsSaving}
+								onClick={savePostCommentsSetting}
+							>
+								{postCommentsSaving ? "Saving..." : "Save setting"}
+							</button>
+						</div>
+						{postCommentsError ? (
+							<p className="admin-error">{postCommentsError}</p>
+						) : null}
+						{postCommentsLoading ? (
+							<p className="admin-note">Loading comments...</p>
+						) : postComments.length > 0 ? (
+							<ol className="admin-comment-list">
+								{postComments.map((comment) => (
+									<li className="admin-comment-item" key={comment.id}>
+										<header>
+											<div>
+												<strong>{comment.nickname || "Anonymous"}</strong>
+												<time dateTime={comment.createdAt}>
+													{formatCommentDate(comment.createdAt)}
+												</time>
+											</div>
+											<button
+												type="button"
+												className="danger-link"
+												disabled={postCommentsDeleting === comment.id}
+												onClick={() => deletePostComment(comment)}
+											>
+												{postCommentsDeleting === comment.id
+													? "Deleting..."
+													: "Delete"}
+											</button>
+										</header>
+										<p>{comment.body}</p>
+									</li>
+								))}
+							</ol>
+						) : (
+							<p className="admin-note">No comments yet.</p>
+						)}
+						<div className="admin-modal-actions">
+							<button
+								type="button"
+								className="admin-modal-secondary"
+								onClick={() => {
+									setCommentsDialogPost(null);
+									setPostComments([]);
+									setPostCommentsError(null);
+								}}
 							>
 								Close
 							</button>

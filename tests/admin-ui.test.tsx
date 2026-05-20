@@ -360,6 +360,11 @@ describe("PostStatusTable", () => {
 			).toHaveAttribute("href", "/post/hello-world");
 			expect(screen.queryByText("hello-world")).toBeNull();
 			expect(screen.getByText("1-20 of 25 posts")).toBeTruthy();
+			const table = screen.getByRole("table");
+			expect(
+				within(table).queryByRole("columnheader", { name: "Status" }),
+			).toBeNull();
+			expect(within(table).queryByText("Published")).toBeNull();
 
 			fireEvent.change(screen.getByLabelText("Title keyword"), {
 				target: { value: "Hello" },

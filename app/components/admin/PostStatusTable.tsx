@@ -392,7 +392,6 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 						<thead>
 							<tr>
 								<th>Title</th>
-								<th>Status</th>
 								<th>Visibility</th>
 								<th>Updated</th>
 								<th>Sync error</th>
@@ -414,7 +413,6 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												{title}
 											</a>
 										</td>
-										<td>{post.status ?? "-"}</td>
 										<td>
 											{post.visibility ?? "-"}
 											{isHidden ? " / manually hidden" : ""}

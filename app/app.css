@@ -744,6 +744,10 @@ body {
 	padding: 26px 0;
 }
 
+.post-list-item.locked {
+	grid-template-columns: minmax(0, 1fr);
+}
+
 .post-list-item:first-child {
 	border-top: 0;
 }
@@ -778,6 +782,15 @@ body {
 .back-link:hover,
 .markdown a:hover {
 	color: #0e6f6b;
+}
+
+.post-lock-status {
+	color: #777267;
+	display: inline-flex;
+	font-size: 0.86rem;
+	font-weight: 700;
+	line-height: 1.2;
+	margin: 0;
 }
 
 .back-link {
@@ -1371,7 +1384,6 @@ body {
 
 .admin-password-action {
 	display: inline-flex;
-	position: relative;
 }
 
 .admin-row-actions .admin-action-icon {
@@ -1389,22 +1401,6 @@ body {
 
 .admin-row-actions .admin-action-icon:hover {
 	border-color: #0e6f6b;
-}
-
-.admin-password-popover {
-	background: #fffdfa;
-	border: 1px solid #d9d6cd;
-	border-radius: 999px;
-	box-shadow: 0 12px 28px rgba(35, 35, 31, 0.16);
-	color: #302e29;
-	font-size: 0.78rem;
-	font-weight: 750;
-	inset: calc(100% + 8px) 0 auto auto;
-	max-width: 220px;
-	overflow-wrap: anywhere;
-	padding: 8px 11px;
-	position: absolute;
-	z-index: 20;
 }
 
 .admin-pagination {
@@ -1488,6 +1484,21 @@ body {
 	min-height: 40px;
 	padding: 8px 12px;
 	width: 100%;
+}
+
+.admin-modal .admin-password-value {
+	background: #f7f3ea;
+	border: 1px solid #ded9cf;
+	border-radius: 999px;
+	color: #25231f;
+	font-family:
+		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		monospace;
+	font-size: 0.9rem;
+	font-weight: 750;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+	padding: 10px 12px;
 }
 
 .admin-modal-actions {

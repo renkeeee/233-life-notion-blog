@@ -84,6 +84,9 @@ export function PostList({
 							<h2>
 								<Link to={href}>{post.title}</Link>
 							</h2>
+							{isLocked ? (
+								<p className="post-lock-status">Password protected</p>
+							) : null}
 							{excerpt ? <p className="post-excerpt">{excerpt}</p> : null}
 						</div>
 					</article>

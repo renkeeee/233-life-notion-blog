@@ -147,6 +147,32 @@ describe("home pagination", () => {
 		expect(screen.queryByText("Hidden list tag")).toBeNull();
 	});
 
+	it("shows a protected status for locked homepage posts", async () => {
+		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				post({
+					locked: true,
+					excerpt: "Private opening should not render.",
+					coverUrl: "https://assets.233.life/assets/private.jpg",
+				}),
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+
+		const { container } = render(
+			<MemoryRouter>
+				<Home />
+			</MemoryRouter>,
+		);
+
+		await screen.findByRole("heading", { name: "First post" });
+		expect(screen.getByText("Password protected")).toBeTruthy();
+		expect(screen.queryByText("Private opening should not render.")).toBeNull();
+		expect(container.querySelector(".post-list-cover")).toBeNull();
+	});
+
 	it("uses responsive thumbnails for homepage cover images when provided", async () => {
 		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [

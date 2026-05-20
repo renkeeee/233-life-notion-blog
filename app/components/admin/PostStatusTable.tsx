@@ -206,9 +206,8 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		useState<AdminPostRecord | null>(null);
 	const [deleteDialogPost, setDeleteDialogPost] =
 		useState<AdminPostRecord | null>(null);
-	const [passwordPopoverPostId, setPasswordPopoverPostId] = useState<
-		string | null
-	>(null);
+	const [passwordDialogPost, setPasswordDialogPost] =
+		useState<AdminPostRecord | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
 
 	const pageCount = useMemo(
@@ -307,11 +306,14 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 			if (action === "lock") {
 				setLockPassword("");
 				setLockDialogPost(null);
-				setPasswordPopoverPostId(null);
+				setPasswordDialogPost(null);
+			}
+			if (action === "unlock") {
+				setPasswordDialogPost(null);
 			}
 			if (action === "delete") {
 				setDeleteDialogPost(null);
-				setPasswordPopoverPostId(null);
+				setPasswordDialogPost(null);
 			}
 			const response = await apiGet<PostsResponse>(
 				buildPostsPath({
@@ -467,22 +469,10 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 															type="button"
 															aria-label="Show password"
 															className="admin-action-icon"
-															onClick={() =>
-																setPasswordPopoverPostId((current) =>
-																	current === post.id ? null : post.id,
-																)
-															}
+															onClick={() => setPasswordDialogPost(post)}
 														>
 															<EyeIcon />
 														</button>
-														{passwordPopoverPostId === post.id ? (
-															<span
-																className="admin-password-popover"
-																role="status"
-															>
-																{post.lockPassword}
-															</span>
-														) : null}
 													</span>
 												) : null}
 											</div>
@@ -562,6 +552,31 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 							</button>
 						</div>
 					</form>
+				</div>
+			) : null}
+			{passwordDialogPost ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal"
+						role="dialog"
+						aria-label="Post password"
+						aria-modal="true"
+					>
+						<h3>Post password</h3>
+						<p>{postTitle(passwordDialogPost)}</p>
+						<p className="admin-password-value">
+							{passwordDialogPost.lockPassword}
+						</p>
+						<div className="admin-modal-actions">
+							<button
+								type="button"
+								className="admin-modal-secondary"
+								onClick={() => setPasswordDialogPost(null)}
+							>
+								Close
+							</button>
+						</div>
+					</div>
 				</div>
 			) : null}
 			{deleteDialogPost ? (

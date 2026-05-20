@@ -459,7 +459,7 @@ describe("PostStatusTable", () => {
 		}
 	});
 
-	it("shows locked post passwords only from the trailing icon action", async () => {
+	it("shows locked post passwords in a global dialog from the trailing icon action", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [
 				{
@@ -487,11 +487,14 @@ describe("PostStatusTable", () => {
 
 			await screen.findByRole("link", { name: "Locked World" });
 			expect(screen.queryByText("post-secret")).toBeNull();
+			const row = screen.getByRole("row", { name: /Locked World/ });
 			const showPassword = screen.getByRole("button", { name: "Show password" });
 			expect(showPassword).toHaveClass("admin-action-icon");
 			fireEvent.click(showPassword);
 
-			expect(screen.getByText("post-secret")).toBeTruthy();
+			const dialog = screen.getByRole("dialog", { name: "Post password" });
+			expect(within(dialog).getByText("post-secret")).toBeTruthy();
+			expect(within(row).queryByText("post-secret")).toBeNull();
 			expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();

@@ -284,7 +284,7 @@ export default function Admin() {
 		}
 
 		if (activeTab === "posts") {
-			return <PostStatusTable />;
+			return <PostStatusTable csrfToken={session.csrfToken} />;
 		}
 
 		return <Overview mustChangePassword={session.mustChangePassword} />;

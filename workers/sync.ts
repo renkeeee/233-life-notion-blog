@@ -125,6 +125,14 @@ interface ExistingContentState {
 	markdown: string;
 }
 
+interface DeletedPostState {
+	notion_page_id: string;
+	post_id: string | null;
+	slug: string | null;
+	title: string | null;
+	deleted_at: string;
+}
+
 interface CachedAsset {
 	sourceUrl: string;
 	cdnUrl: string;
@@ -369,6 +377,24 @@ async function syncPage(
 	try {
 		const existing = await existingPostState(env.DB, page.id);
 		existingBeforeSync = existing !== null;
+		const deleted = existing ? null : await deletedPostState(env.DB, page.id);
+		if (deleted && !input.force) {
+			await insertSyncItem(env.DB, {
+				id: itemId,
+				runId,
+				notionPageId: page.id,
+				postId: null,
+				action: "skipped",
+				status: "skipped",
+				startedAt,
+				finishedAt: deps.now(),
+			});
+			return "skipped";
+		}
+		if (deleted && input.force) {
+			await deleteDeletedPostTombstone(env.DB, page.id);
+		}
+
 		const metadata = mapNotionPageToPostMetadata(
 			page,
 			settings.fieldMapping,
@@ -565,6 +591,31 @@ async function existingPostState(
 		)
 		.bind(notionPageId)
 		.first<ExistingPostState>();
+}
+
+async function deletedPostState(
+	db: D1Database,
+	notionPageId: string,
+): Promise<DeletedPostState | null> {
+	return db
+		.prepare(
+			`SELECT notion_page_id, post_id, slug, title, deleted_at
+			 FROM deleted_posts
+			 WHERE notion_page_id = ?
+			 LIMIT 1`,
+		)
+		.bind(notionPageId)
+		.first<DeletedPostState>();
+}
+
+async function deleteDeletedPostTombstone(
+	db: D1Database,
+	notionPageId: string,
+): Promise<void> {
+	await db
+		.prepare("DELETE FROM deleted_posts WHERE notion_page_id = ?")
+		.bind(notionPageId)
+		.run();
 }
 
 async function contentState(

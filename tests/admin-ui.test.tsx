@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
+import { PostStatusTable } from "../app/components/admin/PostStatusTable";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
 import { SyncPanel } from "../app/components/admin/SyncPanel";
 import Admin, { PasswordChangePanel } from "../app/routes/admin";
@@ -324,6 +325,119 @@ describe("SettingsPanel", () => {
 			apiGet.mockRestore();
 			apiPost.mockRestore();
 			apiPut.mockRestore();
+		}
+	});
+});
+
+describe("PostStatusTable", () => {
+	it("loads posts with pagination, filters, sorting, and title links", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "post-1",
+					title: "Hello World",
+					slug: "hello-world",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					publishedAt: "2026-05-18T09:24:00.000Z",
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 25,
+			page: 1,
+			limit: 20,
+		});
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			expect(
+				await screen.findByRole("link", { name: "Hello World" }),
+			).toHaveAttribute("href", "/post/hello-world");
+			expect(screen.getByText("1-20 of 25 posts")).toBeTruthy();
+
+			fireEvent.change(screen.getByLabelText("Title keyword"), {
+				target: { value: "Hello" },
+			});
+			fireEvent.change(screen.getByLabelText("Status"), {
+				target: { value: "Published" },
+			});
+			fireEvent.change(screen.getByLabelText("Sort"), {
+				target: { value: "publishedAt:asc" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+
+			await waitFor(() =>
+				expect(apiGet).toHaveBeenLastCalledWith(
+					"/api/admin/posts?page=1&limit=20&q=Hello&status=Published&sortBy=publishedAt&sortDirection=asc",
+				),
+			);
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("hides, restores, locks, unlocks, and deletes posts from row actions", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "post-1",
+					title: "Hello World",
+					slug: "hello-world",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+		const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("link", { name: "Hello World" });
+			fireEvent.click(screen.getByRole("button", { name: "Hide Hello World" }));
+			fireEvent.change(screen.getByLabelText("Password for Hello World"), {
+				target: { value: "post-secret" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Lock Hello World" }));
+			fireEvent.click(screen.getByRole("button", { name: "Delete Hello World" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/hide",
+					{},
+					"csrf-token",
+				),
+			);
+			expect(apiPost).toHaveBeenCalledWith(
+				"/api/admin/posts/post-1/lock",
+				{ password: "post-secret" },
+				"csrf-token",
+			);
+			expect(apiPost).toHaveBeenCalledWith(
+				"/api/admin/posts/post-1/delete",
+				{},
+				"csrf-token",
+			);
+			expect(confirm).toHaveBeenCalled();
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			confirm.mockRestore();
 		}
 	});
 });

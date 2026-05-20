@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS posts (
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	excerpt TEXT NOT NULL DEFAULT '',
-	category TEXT
+	category TEXT,
+	manual_visibility TEXT NOT NULL DEFAULT 'visible' CHECK (manual_visibility IN ('visible', 'hidden')),
+	locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+	lock_password_encrypted TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
@@ -31,6 +34,20 @@ CREATE INDEX IF NOT EXISTS idx_posts_notion_last_edited_time
 
 CREATE INDEX IF NOT EXISTS idx_posts_category
 	ON posts (category);
+
+CREATE INDEX IF NOT EXISTS idx_posts_management_visibility
+	ON posts (manual_visibility, locked, visibility, published_at DESC);
+
+CREATE TABLE IF NOT EXISTS deleted_posts (
+	notion_page_id TEXT PRIMARY KEY,
+	post_id TEXT,
+	slug TEXT,
+	title TEXT,
+	deleted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_deleted_posts_deleted_at
+	ON deleted_posts (deleted_at DESC);
 
 CREATE TABLE IF NOT EXISTS post_tags (
 	post_id TEXT NOT NULL,

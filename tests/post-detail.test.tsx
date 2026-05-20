@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { PostDetail } from "../app/components/public/PostDetail";
@@ -55,6 +55,54 @@ describe("PostDetail", () => {
 			expect(screen.queryByText("Loading post...")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
+		}
+	});
+
+	it("prompts for a password and unlocks locked post details", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			locked: true,
+			slug: "locked-post",
+			title: "Locked post",
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
+			id: "post-1",
+			slug: "locked-post",
+			title: "Locked post",
+			excerpt: "Private opening.",
+			coverUrl: null,
+			category: null,
+			tags: [],
+			publishedAt: "2026-05-19T00:00:00.000Z",
+			updatedAt: "2026-05-19T00:00:00.000Z",
+			markdown: "Private body",
+		});
+
+		try {
+			render(
+				<MemoryRouter initialEntries={["/post/locked-post"]}>
+					<Routes>
+						<Route path="/post/:slug" element={<Post />} />
+					</Routes>
+				</MemoryRouter>,
+			);
+
+			await screen.findByRole("heading", { name: "Locked post" });
+			expect(screen.getByLabelText("Post password")).toBeTruthy();
+			fireEvent.change(screen.getByLabelText("Post password"), {
+				target: { value: "open-sesame" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Unlock post" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/posts/locked-post/unlock",
+					{ password: "open-sesame" },
+				),
+			);
+			await screen.findByText("Private body");
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
 		}
 	});
 });

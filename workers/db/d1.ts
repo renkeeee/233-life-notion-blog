@@ -93,6 +93,13 @@ type PublicPostDetailRecord = {
 	markdown: string;
 };
 
+export type LockedPostRecord = {
+	id: string;
+	slug: string;
+	title: string;
+	lockPasswordEncrypted: string | null;
+};
+
 export type PublicTagRecord = {
 	name: string;
 	count: number;
@@ -146,12 +153,18 @@ function likePattern(value: string): string {
 	return `%${escapeLike(value)}%`;
 }
 
+const publicVisibilityClauses = [
+	"p.visibility = 'published'",
+	"p.manual_visibility = 'visible'",
+	"p.locked = 0",
+] as const;
+
 function publishedFilters(options: {
 	q?: string;
 	tag?: string;
 	category?: string;
 }): { joins: string; where: string; values: unknown[] } {
-	const clauses = ["p.visibility = 'published'"];
+	const clauses: string[] = [...publicVisibilityClauses];
 	const values: unknown[] = [];
 	const q = options.q?.trim();
 	const tag = options.tag?.trim();
@@ -237,7 +250,7 @@ export class PostsRepository {
 				`SELECT DISTINCT ${aliasedPublicPostColumns("p")}
 				 FROM posts p
 				 LEFT JOIN post_content pc ON pc.post_id = p.id
-				 WHERE p.visibility = 'published'
+				 WHERE ${publicVisibilityClauses.join(" AND ")}
 				 AND (
 					p.title LIKE ? ESCAPE '\\'
 					OR COALESCE(p.category, '') LIKE ? ESCAPE '\\'
@@ -263,7 +276,10 @@ export class PostsRepository {
 			.prepare(
 				`SELECT ${publicPostColumns}
 				 FROM posts
-				 WHERE slug = ? AND visibility = 'published'
+				 WHERE slug = ?
+				 AND visibility = 'published'
+				 AND manual_visibility = 'visible'
+				 AND locked = 0
 				 LIMIT 1`,
 			)
 			.bind(slug)
@@ -285,7 +301,68 @@ export class PostsRepository {
 				`SELECT ${aliasedPublicPostColumns("p")}, pc.markdown
 				 FROM posts p
 				 JOIN post_content pc ON pc.post_id = p.id
-				 WHERE p.slug = ? AND p.visibility = 'published'
+				 WHERE p.slug = ?
+				 AND p.visibility = 'published'
+				 AND p.manual_visibility = 'visible'
+				 AND p.locked = 0
+				 LIMIT 1`,
+			)
+			.bind(slug)
+			.first<PostRow & { markdown: string }>();
+
+		if (!row) {
+			return null;
+		}
+
+		const [post] = await this.withTags([mapPostRow(row)]);
+		if (!post) {
+			return null;
+		}
+
+		return { post, markdown: row.markdown };
+	}
+
+	async findLockedBySlug(slug: string): Promise<LockedPostRecord | null> {
+		const row = await this.db
+			.prepare(
+				`SELECT id, slug, title, lock_password_encrypted
+				 FROM posts p
+				 WHERE p.slug = ?
+				 AND p.visibility = 'published'
+				 AND p.manual_visibility = 'visible'
+				 AND p.locked = 1
+				 LIMIT 1`,
+			)
+			.bind(slug)
+			.first<{
+				id: string;
+				slug: string;
+				title: string;
+				lock_password_encrypted: string | null;
+			}>();
+
+		return row
+			? {
+					id: row.id,
+					slug: row.slug,
+					title: row.title,
+					lockPasswordEncrypted: row.lock_password_encrypted,
+				}
+			: null;
+	}
+
+	async findLockedDetailBySlug(
+		slug: string,
+	): Promise<PublicPostDetailRecord | null> {
+		const row = await this.db
+			.prepare(
+				`SELECT ${aliasedPublicPostColumns("p")}, pc.markdown
+				 FROM posts p
+				 JOIN post_content pc ON pc.post_id = p.id
+				 WHERE p.slug = ?
+				 AND p.visibility = 'published'
+				 AND p.manual_visibility = 'visible'
+				 AND p.locked = 1
 				 LIMIT 1`,
 			)
 			.bind(slug)
@@ -306,10 +383,10 @@ export class PostsRepository {
 	async listPublishedForSitemap(limit = 50000): Promise<PublicPostRecord[]> {
 		const result = await this.db
 			.prepare(
-				`SELECT ${publicPostColumns}
-				 FROM posts
-				 WHERE visibility = 'published'
-				 ORDER BY published_at DESC, updated_at DESC
+				`SELECT ${aliasedPublicPostColumns("p")}
+				 FROM posts p
+				 WHERE ${publicVisibilityClauses.join(" AND ")}
+				 ORDER BY p.published_at DESC, p.updated_at DESC
 				 LIMIT ?`,
 			)
 			.bind(limit)
@@ -324,7 +401,7 @@ export class PostsRepository {
 				`SELECT pt.tag AS name, COUNT(DISTINCT p.id) AS count
 				 FROM post_tags pt
 				 JOIN posts p ON p.id = pt.post_id
-				 WHERE p.visibility = 'published'
+				 WHERE ${publicVisibilityClauses.join(" AND ")}
 				 GROUP BY pt.tag
 				 ORDER BY count DESC, pt.tag ASC`,
 			)
@@ -341,7 +418,7 @@ export class PostsRepository {
 			.prepare(
 				`SELECT p.category AS name, COUNT(DISTINCT p.id) AS count
 				 FROM posts p
-				 WHERE p.visibility = 'published'
+				 WHERE ${publicVisibilityClauses.join(" AND ")}
 				 AND p.category IS NOT NULL
 				 AND TRIM(p.category) <> ''
 				 GROUP BY p.category

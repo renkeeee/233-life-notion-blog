@@ -1,5 +1,6 @@
 import { PostsRepository } from "../db/d1";
-import { errorJson, json } from "../http";
+import { constantTimeEqual, decryptString } from "../crypto";
+import { errorJson, json, readJsonObject } from "../http";
 import type { AppEnv, PublicPostRecord } from "../types";
 
 type PublicPostSummary = {
@@ -189,6 +190,26 @@ function postSlugFromPath(pathname: string): string | null {
 	}
 }
 
+function unlockSlugFromPath(pathname: string): string | null {
+	const suffix = "/unlock";
+	if (!pathname.endsWith(suffix)) {
+		return null;
+	}
+
+	return postSlugFromPath(pathname.slice(0, -suffix.length));
+}
+
+async function passwordFromRequest(request: Request): Promise<string | null> {
+	try {
+		const body = await readJsonObject(request);
+		return typeof body.password === "string" && body.password.length > 0
+			? body.password
+			: null;
+	} catch {
+		return null;
+	}
+}
+
 function xmlEscape(value: string): string {
 	return value
 		.replaceAll("&", "&amp;")
@@ -262,7 +283,7 @@ export async function handlePublicApi(
 	const url = new URL(request.url);
 	const posts = new PostsRepository(env.DB);
 
-	if (request.method !== "GET") {
+	if (request.method !== "GET" && request.method !== "POST") {
 		return errorJson("NOT_FOUND", "Route not found", 404);
 	}
 
@@ -327,6 +348,38 @@ export async function handlePublicApi(
 	}
 
 	if (url.pathname.startsWith("/api/posts/")) {
+		if (request.method === "POST") {
+			const slug = unlockSlugFromPath(url.pathname);
+			if (!slug) {
+				return errorJson("NOT_FOUND", "Post not found", 404);
+			}
+
+			const password = await passwordFromRequest(request);
+			if (!password) {
+				return errorJson("BAD_REQUEST", "Password is required", 400);
+			}
+
+			const locked = await posts.findLockedBySlug(slug);
+			if (!locked || !locked.lockPasswordEncrypted) {
+				return errorJson("NOT_FOUND", "Post not found", 404);
+			}
+
+			const expected = await decryptString(
+				locked.lockPasswordEncrypted,
+				env.CONFIG_ENCRYPTION_KEY,
+			);
+			if (!constantTimeEqual(password, expected)) {
+				return errorJson("UNAUTHORIZED", "Invalid post password", 401);
+			}
+
+			const detail = await posts.findLockedDetailBySlug(slug);
+			if (!detail) {
+				return errorJson("NOT_FOUND", "Post content not found", 404);
+			}
+
+			return json(postDetailResponse(detail.post, detail.markdown));
+		}
+
 		const slug = postSlugFromPath(url.pathname);
 		if (!slug) {
 			return errorJson("NOT_FOUND", "Post not found", 404);
@@ -337,6 +390,15 @@ export async function handlePublicApi(
 			return cacheableJson(
 				request,
 				postDetailResponse(detail.post, detail.markdown),
+				detailCacheControl,
+			);
+		}
+
+		const locked = await posts.findLockedBySlug(slug);
+		if (locked) {
+			return cacheableJson(
+				request,
+				{ locked: true, slug: locked.slug, title: locked.title },
 				detailCacheControl,
 			);
 		}

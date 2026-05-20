@@ -7,7 +7,13 @@ import {
 	type AdminSession,
 } from "../auth";
 import { parseCookies, serializeCookie } from "../cookies";
-import { hashPassword, randomToken, verifyPassword } from "../crypto";
+import {
+	decryptString,
+	encryptString,
+	hashPassword,
+	randomToken,
+	verifyPassword,
+} from "../crypto";
 import { SettingsRepository } from "../db/d1";
 import {
 	parseSettingsFromRows,
@@ -65,10 +71,22 @@ type AdminPostRow = {
 	slug: string;
 	status: string;
 	visibility: "published" | "hidden" | "archived";
+	manual_visibility: "visible" | "hidden";
+	locked: number;
+	lock_password_encrypted: string | null;
 	published_at: string | null;
 	notion_last_edited_time: string;
 	updated_at: string;
 	last_sync_error: string | null;
+};
+
+type AdminPostAction = "hide" | "restore" | "lock" | "unlock" | "delete";
+
+type AdminPostIdentityRow = {
+	id: string;
+	notion_page_id: string;
+	slug: string;
+	title: string;
 };
 
 type NotionSchemaBody = {
@@ -986,6 +1004,103 @@ async function handleListSyncRuns(
 	}
 }
 
+function adminPostActionFromPath(
+	pathname: string,
+): { postId: string; action: AdminPostAction } | null {
+	const match = /^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|delete)$/.exec(
+		pathname,
+	);
+	if (!match) {
+		return null;
+	}
+
+	return {
+		postId: decodeURIComponent(match[1]),
+		action: match[2] as AdminPostAction,
+	};
+}
+
+function parseAdminPostsPagination(params: URLSearchParams): {
+	page: number;
+	limit: number;
+} | null {
+	const page = params.get("page") ?? "1";
+	const limit = params.get("limit") ?? "20";
+
+	if (!/^[1-9]\d*$/.test(page) || !/^[1-9]\d*$/.test(limit)) {
+		return null;
+	}
+
+	return {
+		page: Number(page),
+		limit: Math.min(Number(limit), 100),
+	};
+}
+
+function adminPostsSort(params: URLSearchParams): {
+	column: string;
+	direction: "ASC" | "DESC";
+	sortBy: string;
+	sortDirection: "asc" | "desc";
+} {
+	const sortBy = params.get("sortBy") ?? "updatedAt";
+	const sortDirection = params.get("sortDirection") === "asc" ? "asc" : "desc";
+	const columns: Record<string, string> = {
+		updatedAt: "updated_at",
+		publishedAt: "published_at",
+		notionLastEditedTime: "notion_last_edited_time",
+		title: "title",
+	};
+
+	return {
+		column: columns[sortBy] ?? columns.updatedAt,
+		direction: sortDirection === "asc" ? "ASC" : "DESC",
+		sortBy: columns[sortBy] ? sortBy : "updatedAt",
+		sortDirection,
+	};
+}
+
+function adminPostsFilters(params: URLSearchParams): {
+	where: string;
+	values: unknown[];
+	q: string;
+	status: string;
+} {
+	const clauses: string[] = [];
+	const values: unknown[] = [];
+	const q = (params.get("q") ?? "").trim();
+	const status = (params.get("status") ?? "").trim();
+
+	if (q) {
+		clauses.push("(title LIKE ? ESCAPE '\\' OR slug LIKE ? ESCAPE '\\')");
+		const pattern = `%${q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+		values.push(pattern, pattern);
+	}
+
+	if (status) {
+		clauses.push("status = ?");
+		values.push(status);
+	}
+
+	return {
+		where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+		values,
+		q,
+		status,
+	};
+}
+
+async function decryptPostPassword(
+	encrypted: string | null,
+	env: AppEnv,
+): Promise<string | null> {
+	if (!encrypted) {
+		return null;
+	}
+
+	return decryptString(encrypted, env.CONFIG_ENCRYPTION_KEY);
+}
+
 async function handleListPosts(
 	request: Request,
 	env: AppEnv,
@@ -997,6 +1112,14 @@ async function handleListPosts(
 	}
 
 	try {
+		const url = new URL(request.url);
+		const pagination = parseAdminPostsPagination(url.searchParams);
+		if (!pagination) {
+			return errorJson("BAD_REQUEST", "Invalid pagination", 400);
+		}
+		const filters = adminPostsFilters(url.searchParams);
+		const sort = adminPostsSort(url.searchParams);
+		const offset = (pagination.page - 1) * pagination.limit;
 		const result = await env.DB.prepare(
 			`SELECT
 				id,
@@ -1004,34 +1127,156 @@ async function handleListPosts(
 				slug,
 				status,
 				visibility,
+				manual_visibility,
+				locked,
+				lock_password_encrypted,
 				published_at,
 				notion_last_edited_time,
 				updated_at,
 				last_sync_error
 			 FROM posts
-			 ORDER BY updated_at DESC
-			 LIMIT ?`,
+			 ${filters.where}
+			 ORDER BY ${sort.column} ${sort.direction}, updated_at DESC
+			 LIMIT ? OFFSET ?`,
 		)
-			.bind(100)
+			.bind(...filters.values, pagination.limit, offset)
 			.all<AdminPostRow>();
-
-		return json({
-			items: result.results.map((post) => ({
+		const countRow = await env.DB.prepare(
+			`SELECT COUNT(*) AS total
+			 FROM posts
+			 ${filters.where}`,
+		)
+			.bind(...filters.values)
+			.first<{ total: number }>();
+		const items = await Promise.all(
+			result.results.map(async (post) => ({
 				id: post.id,
 				title: post.title,
 				slug: post.slug,
 				status: post.status,
 				visibility: post.visibility,
+				manualVisibility: post.manual_visibility,
+				locked: post.locked === 1,
+				lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
 				publishedAt: post.published_at,
 				notionLastEditedTime: post.notion_last_edited_time,
 				updatedAt: post.updated_at,
 				lastSyncError: post.last_sync_error,
 			})),
-			total: result.results.length,
+		);
+
+		return json({
+			items,
+			total: Number(countRow?.total ?? 0),
+			page: pagination.page,
+			limit: pagination.limit,
 		});
 	} catch {
 		return errorJson("INTERNAL_ERROR", "Posts could not be loaded", 500);
 	}
+}
+
+async function handleAdminPostAction(
+	request: Request,
+	env: AppEnv,
+	postId: string,
+	action: AdminPostAction,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+
+	if (csrfError) {
+		return csrfError;
+	}
+
+	const now = new Date().toISOString();
+	const post = await env.DB.prepare(
+		`SELECT id, notion_page_id, slug, title
+		 FROM posts
+		 WHERE id = ?
+		 LIMIT 1`,
+	)
+		.bind(postId)
+		.first<AdminPostIdentityRow>();
+
+	if (!post) {
+		return errorJson("NOT_FOUND", "Post not found", 404);
+	}
+
+	if (action === "hide" || action === "restore") {
+		await env.DB.prepare(
+			`UPDATE posts
+			 SET manual_visibility = ?, updated_at = ?
+			 WHERE id = ?`,
+		)
+			.bind(action === "hide" ? "hidden" : "visible", now, post.id)
+			.run();
+
+		return json({ ok: true });
+	}
+
+	if (action === "lock") {
+		let password: string | null = null;
+		try {
+			const body = await readJsonObject(request);
+			password = typeof body.password === "string" ? body.password.trim() : null;
+		} catch {
+			password = null;
+		}
+
+		if (!password) {
+			return errorJson("BAD_REQUEST", "Password is required", 400);
+		}
+
+		await env.DB.prepare(
+			`UPDATE posts
+			 SET locked = 1,
+				 lock_password_encrypted = ?,
+				 updated_at = ?
+			 WHERE id = ?`,
+		)
+			.bind(await encryptString(password, env.CONFIG_ENCRYPTION_KEY), now, post.id)
+			.run();
+
+		return json({ ok: true });
+	}
+
+	if (action === "unlock") {
+		await env.DB.prepare(
+			`UPDATE posts
+			 SET locked = 0,
+				 lock_password_encrypted = NULL,
+				 updated_at = ?
+			 WHERE id = ?`,
+		)
+			.bind(now, post.id)
+			.run();
+
+		return json({ ok: true });
+	}
+
+	await env.DB
+		.prepare(
+			`INSERT INTO deleted_posts (
+				notion_page_id, post_id, slug, title, deleted_at
+			)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(notion_page_id) DO UPDATE SET
+				post_id = excluded.post_id,
+				slug = excluded.slug,
+				title = excluded.title,
+				deleted_at = excluded.deleted_at`,
+		)
+		.bind(post.notion_page_id, post.id, post.slug, post.title, now)
+		.run();
+	await env.DB.prepare("DELETE FROM posts WHERE id = ?").bind(post.id).run();
+
+	return json({ ok: true });
 }
 
 export async function handleAdminApi(
@@ -1079,6 +1324,16 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/posts" && request.method === "GET") {
 		return handleListPosts(request, env);
+	}
+
+	const postAction = adminPostActionFromPath(url.pathname);
+	if (postAction && request.method === "POST") {
+		return handleAdminPostAction(
+			request,
+			env,
+			postAction.postId,
+			postAction.action,
+		);
 	}
 
 	return adminNotFound();

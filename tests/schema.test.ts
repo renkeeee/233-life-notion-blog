@@ -7,11 +7,13 @@ import simplifyPostMetadataMigrationSql from "../migrations/0002_simplify_post_m
 import addPostTagsMigrationSql from "../migrations/0003_add_post_tags.sql?raw";
 import addPostExcerptMigrationSql from "../migrations/0004_add_post_excerpt.sql?raw";
 import addPostCategoryMigrationSql from "../migrations/0005_add_post_category.sql?raw";
+import addPostManagementMigrationSql from "../migrations/0006_add_post_management.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
 	"settings",
 	"posts",
+	"deleted_posts",
 	"post_tags",
 	"post_content",
 	"assets",
@@ -25,6 +27,8 @@ const requiredIndexes = [
 	"idx_post_tags_tag",
 	"idx_post_tags_post_id",
 	"idx_posts_category",
+	"idx_posts_management_visibility",
+	"idx_deleted_posts_deleted_at",
 	"idx_assets_content_hash",
 	"idx_sync_runs_started_at",
 	"idx_sync_items_run_id",
@@ -63,6 +67,13 @@ describe("D1 schema", () => {
 		expect(normalizedSchemaSql).toContain("excerpt TEXT NOT NULL DEFAULT ''");
 		expect(normalizedSchemaSql).toContain("category TEXT");
 		expect(normalizedSchemaSql).toContain("cover_url TEXT");
+		expect(normalizedSchemaSql).toContain(
+			"manual_visibility TEXT NOT NULL DEFAULT 'visible' CHECK (manual_visibility IN ('visible', 'hidden'))",
+		);
+		expect(normalizedSchemaSql).toContain(
+			"locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1))",
+		);
+		expect(normalizedSchemaSql).toContain("lock_password_encrypted TEXT");
 		expect(normalizedSchemaSql).not.toContain("tags_json TEXT");
 	});
 
@@ -112,6 +123,7 @@ describe("D1 schema", () => {
 
 			expect(tables.map(({ name }) => name)).toEqual([
 				"assets",
+				"deleted_posts",
 				"post_content",
 				"post_tags",
 				"posts",
@@ -135,6 +147,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addPostTagsMigrationSql);
 			migratedDb.exec(addPostExcerptMigrationSql);
 			migratedDb.exec(addPostCategoryMigrationSql);
+			migratedDb.exec(addPostManagementMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -157,6 +170,9 @@ describe("D1 schema", () => {
 				"updated_at",
 				"excerpt",
 				"category",
+				"manual_visibility",
+				"locked",
+				"lock_password_encrypted",
 			]);
 		} finally {
 			migratedDb.close();

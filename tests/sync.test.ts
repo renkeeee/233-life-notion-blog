@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import worker from "../workers/app";
 import { handleAdminApi } from "../workers/api/admin";
-import { hashPassword, generateEncryptionKey } from "../workers/crypto";
+import { encryptString, hashPassword, generateEncryptionKey } from "../workers/crypto";
 import schemaSql from "../workers/db/schema.sql?raw";
 import type { NotionBlock } from "../workers/notion/blocks";
 import {
@@ -572,6 +572,63 @@ describe("runSync", () => {
 		}
 	});
 
+	it("skips admin-deleted posts unless the sync is forced", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			db.exec(
+				`INSERT INTO deleted_posts (
+					notion_page_id, post_id, slug, title, deleted_at
+				)
+				VALUES (
+					'notion-page-1', 'old-post', 'deleted-post', 'Deleted Post',
+					'2026-05-18T11:00:00.000Z'
+				)`,
+			);
+
+			await runSync(
+				envWithDb(db),
+				{ triggerType: "manual", force: false },
+				syncDependencies([syncPage()]),
+			);
+
+			expect(db.rows("SELECT * FROM posts")).toHaveLength(0);
+			expect(
+				db.row<{ skipped_count: number; created_count: number }>(
+					"SELECT skipped_count, created_count FROM sync_runs WHERE id = ?",
+					"run-1",
+				),
+			).toEqual({ skipped_count: 1, created_count: 0 });
+
+			await runSync(
+				envWithDb(db),
+				{ triggerType: "manual", force: true },
+				{
+					...syncDependencies([syncPage()]),
+					id: (() => {
+						let index = 0;
+						return () => {
+							index += 1;
+							return index === 1 ? "run-2" : `run-2-item-${index - 1}`;
+						};
+					})(),
+				},
+			);
+
+			expect(
+				db.rows("SELECT * FROM deleted_posts WHERE notion_page_id = 'notion-page-1'"),
+			).toHaveLength(0);
+			expect(
+				db.row<{ slug: string }>(
+					"SELECT slug FROM posts WHERE notion_page_id = ?",
+					"notion-page-1",
+				),
+			).toEqual({ slug: "hello-notion" });
+		} finally {
+			db.close();
+		}
+	});
+
 	it("extracts a compact plain text excerpt from Markdown", () => {
 		expect(
 			excerptFromMarkdown(
@@ -1055,7 +1112,7 @@ describe("admin manual sync API", () => {
 });
 
 describe("admin posts API", () => {
-	it("lists synced posts including hidden entries for authenticated admins", async () => {
+	it("lists synced posts with pagination, title/status filters, sorting, and management state", async () => {
 		const db = new SqliteD1Database();
 		try {
 			await seedChangedPassword(db);
@@ -1070,7 +1127,24 @@ describe("admin posts API", () => {
 					NULL, '', 'hidden', NULL, '2026-05-19T03:43:00.000Z',
 					'content-hash', NULL,
 					'2026-05-19T03:40:00.000Z', '2026-05-19T03:50:24.214Z'
+				), (
+					'post-2', 'notion-page-2', 'published-post', 'Published Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-19T03:44:00.000Z', 'content-hash-2', NULL,
+					'2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z'
+				), (
+					'post-3', 'notion-page-3', 'draft-post', 'Draft Post',
+					NULL, 'Draft', 'hidden', NULL, '2026-05-19T03:45:00.000Z',
+					'content-hash-3', NULL,
+					'2026-05-19T03:42:00.000Z', '2026-05-19T03:52:24.214Z'
 				)`,
+			);
+			db.exec(
+				`UPDATE posts
+				 SET manual_visibility = 'hidden',
+					 locked = 1,
+					 lock_password_encrypted = '${await encryptString("row-secret", rootKey)}'
+				 WHERE id = 'post-2'`,
 			);
 			const env = envWithDb(db);
 			const session = await loginSession(env);
@@ -1080,10 +1154,13 @@ describe("admin posts API", () => {
 				env,
 			);
 			const response = await handleAdminApi(
-				adminRequest("/api/admin/posts", {
+				adminRequest(
+					"/api/admin/posts?page=1&limit=1&q=post&status=Published&sortBy=updatedAt&sortDirection=asc",
+					{
 					headers: { cookie: session.cookie },
 					method: "GET",
-				}),
+					},
+				),
 				env,
 			);
 
@@ -1092,19 +1169,122 @@ describe("admin posts API", () => {
 			await expect(response.json()).resolves.toEqual({
 				items: [
 					{
-						id: "post-1",
-						title: "Untitled",
-						slug: "untitled",
-						status: "",
-						visibility: "hidden",
-						publishedAt: null,
-						notionLastEditedTime: "2026-05-19T03:43:00.000Z",
-						updatedAt: "2026-05-19T03:50:24.214Z",
+						id: "post-2",
+						title: "Published Post",
+						slug: "published-post",
+						status: "Published",
+						visibility: "published",
+						manualVisibility: "hidden",
+						locked: true,
+						lockPassword: "row-secret",
+						publishedAt: "2026-05-19T02:00:00.000Z",
+						notionLastEditedTime: "2026-05-19T03:44:00.000Z",
+						updatedAt: "2026-05-19T03:51:24.214Z",
 						lastSyncError: null,
 					},
 				],
 				total: 1,
+				page: 1,
+				limit: 1,
 			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("hides, restores, locks, unlocks, and deletes posts for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'managed-post', 'Managed Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-19T03:44:00.000Z', 'content-hash', NULL,
+					'2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z'
+				)`,
+			);
+			db.exec(
+				`INSERT INTO post_content (
+					post_id, markdown, block_snapshot_hash, content_hash,
+					resource_refs_json, created_at, updated_at
+				)
+				VALUES (
+					'post-1', '# Managed', 'block-hash', 'content-hash',
+					'[]', '2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z'
+				)`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const headers = {
+				cookie: session.cookie,
+				"content-type": "application/json",
+				"x-csrf-token": session.csrfToken,
+			};
+
+			const hide = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/hide", {
+					method: "POST",
+					headers,
+				}),
+				env,
+			);
+			const restore = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/restore", {
+					method: "POST",
+					headers,
+				}),
+				env,
+			);
+			const lock = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/lock", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({ password: "post-secret" }),
+				}),
+				env,
+			);
+			const unlock = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/unlock", {
+					method: "POST",
+					headers,
+				}),
+				env,
+			);
+			const remove = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/delete", {
+					method: "POST",
+					headers,
+				}),
+				env,
+			);
+
+			expect(hide.status).toBe(200);
+			expect(restore.status).toBe(200);
+			expect(lock.status).toBe(200);
+			expect(unlock.status).toBe(200);
+			expect(remove.status).toBe(200);
+			expect(
+				db.rows("SELECT * FROM posts WHERE id = 'post-1'"),
+			).toHaveLength(0);
+			expect(
+				db.rows("SELECT * FROM post_content WHERE post_id = 'post-1'"),
+			).toHaveLength(0);
+			expect(
+				db.rows("SELECT notion_page_id, post_id, slug, title FROM deleted_posts"),
+			).toEqual([
+				{
+					notion_page_id: "notion-page-1",
+					post_id: "post-1",
+					slug: "managed-post",
+					title: "Managed Post",
+				},
+			]);
 		} finally {
 			db.close();
 		}

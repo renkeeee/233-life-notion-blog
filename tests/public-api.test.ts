@@ -10,6 +10,7 @@ import {
 	postDetailResponse,
 	sitemapXmlResponse,
 } from "../workers/api/public";
+import { encryptString, generateEncryptionKey } from "../workers/crypto";
 import { PostContentRepository, PostsRepository } from "../workers/db/d1";
 import schemaSql from "../workers/db/schema.sql?raw";
 import type { AppEnv, PublicPostRecord } from "../workers/types";
@@ -181,6 +182,10 @@ class SqliteD1Database {
 			.run(postId, tag, sortOrder, now, now);
 	}
 
+	exec(sql: string): void {
+		this.db.exec(sql);
+	}
+
 	asD1(): D1Database {
 		return this as unknown as D1Database;
 	}
@@ -191,6 +196,7 @@ class SqliteD1Database {
 }
 
 const now = "2026-05-01T00:00:00.000Z";
+const rootKey = generateEncryptionKey();
 
 const publishedPost: PublicPostRecord = {
 	id: "post-1",
@@ -214,7 +220,7 @@ function envWithDb(db: D1Database): AppEnv {
 	return {
 		DB: db,
 		BLOG_ASSETS: {} as R2Bucket,
-		CONFIG_ENCRYPTION_KEY: "test-encryption-key",
+		CONFIG_ENCRYPTION_KEY: rootKey,
 	};
 }
 
@@ -430,6 +436,51 @@ describe("PostsRepository", () => {
 				"%SQL%",
 				"%SQL%",
 			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("excludes manually hidden and locked posts from public listings", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "visible-life",
+					title: "Visible Life",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "manual-hidden",
+					title: "Manual hidden",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-3",
+					notion_page_id: "notion-3",
+					slug: "locked-life",
+					title: "Locked Life",
+				}),
+			);
+			db.exec("UPDATE posts SET manual_visibility = 'hidden' WHERE id = 'post-2'");
+			db.exec("UPDATE posts SET locked = 1 WHERE id = 'post-3'");
+
+			const result = await new PostsRepository(db.asD1()).listPublished({
+				page: 1,
+				limit: 20,
+				q: "Life",
+			});
+
+			expect(result).toEqual({
+				items: [expect.objectContaining({ slug: "visible-life" })],
+				total: 1,
+			});
 		} finally {
 			db.close();
 		}
@@ -919,6 +970,90 @@ describe("handlePublicApi", () => {
 				call.sql.includes("SELECT markdown FROM post_content"),
 			),
 		).toBe(false);
+	});
+
+	it("returns a locked marker and unlocks post detail with the configured password", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-locked",
+					notion_page_id: "notion-locked",
+					slug: "locked-post",
+					title: "Locked post",
+				}),
+			);
+			db.insertContent("post-locked", "# Locked body");
+			db.exec(
+				`UPDATE posts
+				 SET locked = 1,
+					 lock_password_encrypted = '${await encryptString("open-sesame", rootKey)}'
+				 WHERE id = 'post-locked'`,
+			);
+
+			const lockedResponse = await handlePublicApi(
+				publicRequest("/api/posts/locked-post"),
+				envWithDb(db.asD1()),
+			);
+			const badUnlockResponse = await handlePublicApi(
+				new Request("https://example.test/api/posts/locked-post/unlock", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ password: "wrong" }),
+				}),
+				envWithDb(db.asD1()),
+			);
+			const unlockResponse = await handlePublicApi(
+				new Request("https://example.test/api/posts/locked-post/unlock", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ password: "open-sesame" }),
+				}),
+				envWithDb(db.asD1()),
+			);
+
+			expect(lockedResponse.status).toBe(200);
+			await expect(lockedResponse.json()).resolves.toEqual({
+				locked: true,
+				slug: "locked-post",
+				title: "Locked post",
+			});
+			expect(badUnlockResponse.status).toBe(401);
+			expect(unlockResponse.status).toBe(200);
+			await expect(unlockResponse.json()).resolves.toEqual(
+				expect.objectContaining({
+					slug: "locked-post",
+					markdown: "# Locked body",
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("treats manually hidden posts as unavailable by slug", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-hidden",
+					notion_page_id: "notion-hidden",
+					slug: "manual-hidden-post",
+					title: "Manual hidden post",
+				}),
+			);
+			db.insertContent("post-hidden", "# Hidden body");
+			db.exec("UPDATE posts SET manual_visibility = 'hidden' WHERE id = 'post-hidden'");
+
+			const response = await handlePublicApi(
+				publicRequest("/api/posts/manual-hidden-post"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(404);
+		} finally {
+			db.close();
+		}
 	});
 
 	it("returns structured 404 when post markdown content is missing", async () => {

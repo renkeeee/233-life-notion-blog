@@ -779,13 +779,14 @@ describe("handlePublicApi", () => {
 					slug: "life-post",
 					coverUrl:
 						"https://assets.233.life/assets/3c/original-cover.jpg",
+					coverThumbnailUrl:
+						"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/3c/original-cover.jpg",
 				}),
 			],
 			total: 1,
 			page: 1,
 			limit: 1,
 		});
-		expect(body.items[0]).not.toHaveProperty("coverThumbnailUrl");
 	});
 
 	it("returns 304 for matching public API entity tags", async () => {

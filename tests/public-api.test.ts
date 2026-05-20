@@ -748,7 +748,14 @@ describe("handlePublicApi", () => {
 				return [{ total: 1 }];
 			}
 			if (sql.includes("SELECT DISTINCT")) {
-				return [postRow({ id: "post-1", slug: "life-post" })];
+				return [
+					postRow({
+						id: "post-1",
+						slug: "life-post",
+						cover_url:
+							"https://assets.233.life/assets/3c/original-cover.jpg",
+					}),
+				];
 			}
 			return [];
 		});
@@ -763,17 +770,22 @@ describe("handlePublicApi", () => {
 			"public, max-age=60, stale-while-revalidate=300",
 		);
 		expect(response.headers.get("etag")).toMatch(/^W\/"/);
-		await expect(response.json()).resolves.toEqual({
+		const body = await response.json() as {
+			items: Array<Record<string, unknown>>;
+		};
+		expect(body).toEqual({
 			items: [
 				expect.objectContaining({
 					slug: "life-post",
-					coverUrl: "https://cdn.example.com/cover.jpg",
+					coverUrl:
+						"https://assets.233.life/assets/3c/original-cover.jpg",
 				}),
 			],
 			total: 1,
 			page: 1,
 			limit: 1,
 		});
+		expect(body.items[0]).not.toHaveProperty("coverThumbnailUrl");
 	});
 
 	it("returns 304 for matching public API entity tags", async () => {

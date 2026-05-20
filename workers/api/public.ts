@@ -8,7 +8,6 @@ type PublicPostSummary = {
 	title: string;
 	excerpt: string;
 	coverUrl: string | null;
-	coverThumbnailUrl?: string;
 	category: string | null;
 	tags: string[];
 	publishedAt: string | null;
@@ -47,15 +46,12 @@ function isPublished(post: PublicPostRecord): boolean {
 }
 
 function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
-	const coverThumbnailUrl = thumbnailUrlForCover(post.coverUrl);
-
 	return {
 		id: post.id,
 		slug: post.slug,
 		title: post.title,
 		excerpt: post.excerpt,
 		coverUrl: post.coverUrl,
-		...(coverThumbnailUrl ? { coverThumbnailUrl } : {}),
 		category: post.category,
 		tags: post.tags,
 		publishedAt: post.publishedAt,
@@ -91,23 +87,6 @@ export function postDetailResponse(
 		...toPublicSummary(post),
 		markdown,
 	};
-}
-
-function thumbnailUrlForCover(coverUrl: string | null): string | null {
-	if (!coverUrl) {
-		return null;
-	}
-
-	try {
-		const url = new URL(coverUrl);
-		if (url.hostname !== "assets.233.life" || !url.pathname.startsWith("/assets/")) {
-			return null;
-		}
-
-		return `${url.origin}/cdn-cgi/image/width=440,quality=82,format=auto${url.pathname}${url.search}`;
-	} catch {
-		return null;
-	}
 }
 
 function weakEtag(value: string): string {

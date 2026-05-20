@@ -834,7 +834,7 @@ describe("handlePublicApi", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("cache-control")).toBe(
-			"public, max-age=60, stale-while-revalidate=300",
+			"public, no-cache",
 		);
 		expect(response.headers.get("etag")).toMatch(/^W\/"/);
 		const body = await response.json() as {
@@ -967,7 +967,7 @@ describe("handlePublicApi", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("cache-control")).toBe(
-			"public, max-age=300, stale-while-revalidate=86400",
+			"public, no-cache",
 		);
 		await expect(response.json()).resolves.toEqual({
 			id: "post-1",
@@ -1029,6 +1029,9 @@ describe("handlePublicApi", () => {
 			);
 
 			expect(lockedResponse.status).toBe(200);
+			expect(lockedResponse.headers.get("cache-control")).toBe(
+				"public, no-cache",
+			);
 			await expect(lockedResponse.json()).resolves.toEqual({
 				locked: true,
 				slug: "locked-post",
@@ -1138,7 +1141,7 @@ describe("handlePublicApi", () => {
 
 			expect(response.status).toBe(200);
 			expect(response.headers.get("cache-control")).toBe(
-				"public, max-age=300, stale-while-revalidate=86400",
+				"public, no-cache",
 			);
 			await expect(response.json()).resolves.toEqual({
 				items: [
@@ -1171,7 +1174,7 @@ describe("handlePublicApi", () => {
 
 			expect(response.status).toBe(200);
 			expect(response.headers.get("cache-control")).toBe(
-				"public, max-age=300, stale-while-revalidate=86400",
+				"public, no-cache",
 			);
 			await expect(response.json()).resolves.toEqual({
 				items: [
@@ -1208,7 +1211,7 @@ describe("handlePublicApi", () => {
 
 		expect(searchResponse.status).toBe(200);
 		expect(searchResponse.headers.get("cache-control")).toBe(
-			"public, max-age=60, stale-while-revalidate=300",
+			"public, no-cache",
 		);
 		await expect(searchResponse.json()).resolves.toEqual({
 			items: [expect.objectContaining({ slug: "api-post", title: "API post" })],
@@ -1217,7 +1220,7 @@ describe("handlePublicApi", () => {
 		});
 		expect(emptyResponse.status).toBe(200);
 		expect(emptyResponse.headers.get("cache-control")).toBe(
-			"public, max-age=60, stale-while-revalidate=300",
+			"public, no-cache",
 		);
 		await expect(emptyResponse.json()).resolves.toEqual({
 			items: [],

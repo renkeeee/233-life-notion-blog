@@ -41,8 +41,7 @@ type ListPostsResponseOptions = ListOptions & {
 const defaultPage = 1;
 const defaultLimit = 20;
 const maxLimit = 100;
-const listCacheControl = "public, max-age=60, stale-while-revalidate=300";
-const detailCacheControl = "public, max-age=300, stale-while-revalidate=86400";
+const publicApiCacheControl = "public, no-cache";
 
 function isPublished(post: PublicPostRecord): boolean {
 	return post.visibility === "published";
@@ -329,7 +328,7 @@ export async function handlePublicApi(
 		return cacheableJson(
 			request,
 			listPostsResponse(result, { ...pagination, tag, category, categories }),
-			listCacheControl,
+			publicApiCacheControl,
 		);
 	}
 
@@ -337,7 +336,7 @@ export async function handlePublicApi(
 		return cacheableJson(
 			request,
 			{ items: await posts.listTags() },
-			detailCacheControl,
+			publicApiCacheControl,
 		);
 	}
 
@@ -345,7 +344,7 @@ export async function handlePublicApi(
 		return cacheableJson(
 			request,
 			{ items: await posts.listCategories() },
-			detailCacheControl,
+			publicApiCacheControl,
 		);
 	}
 
@@ -392,7 +391,7 @@ export async function handlePublicApi(
 			return cacheableJson(
 				request,
 				postDetailResponse(detail.post, detail.markdown),
-				detailCacheControl,
+				publicApiCacheControl,
 			);
 		}
 
@@ -401,7 +400,7 @@ export async function handlePublicApi(
 			return cacheableJson(
 				request,
 				{ locked: true, slug: locked.slug, title: locked.title },
-				detailCacheControl,
+				publicApiCacheControl,
 			);
 		}
 
@@ -419,7 +418,7 @@ export async function handlePublicApi(
 			return cacheableJson(
 				request,
 				{ items: [], total: 0, q: "" },
-				listCacheControl,
+				publicApiCacheControl,
 			);
 		}
 
@@ -431,7 +430,7 @@ export async function handlePublicApi(
 				total: records.length,
 				q,
 			},
-			listCacheControl,
+			publicApiCacheControl,
 		);
 	}
 

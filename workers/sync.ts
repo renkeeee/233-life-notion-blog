@@ -533,10 +533,16 @@ async function syncPage(
 			existingContent.block_snapshot_hash === blockSnapshotHash
 		) {
 			const excerpt = excerptFromMarkdown(existingContent.markdown);
+			const coverUrl = await cacheCoverAsset(
+				env,
+				settings,
+				metadata.coverUrl,
+				deps,
+			);
 			await executeBatch(env.DB, [
 				prepareUpsertPost(
 					env.DB,
-					{ ...metadata, id: postId, excerpt },
+					{ ...metadata, id: postId, excerpt, coverUrl },
 					existingContent.content_hash,
 					deps,
 					commentsDefaultEnabled,
@@ -561,9 +567,7 @@ async function syncPage(
 		const markdown = blocksToMarkdown(blocks, { assetUrlMap: assetResult.urlMap });
 		const excerpt = excerptFromMarkdown(markdown);
 		const contentHash = await sha256Hex(markdown);
-		const coverUrl = metadata.coverUrl
-			? (await cacheAsset(env, settings, metadata.coverUrl, deps)).cdnUrl
-			: null;
+		const coverUrl = await cacheCoverAsset(env, settings, metadata.coverUrl, deps);
 
 		await executeBatch(env.DB, [
 			prepareUpsertPost(
@@ -831,6 +835,15 @@ async function cacheAsset(
 		mimeType,
 		size: bytes.byteLength,
 	};
+}
+
+async function cacheCoverAsset(
+	env: AppEnv,
+	settings: SiteSettings,
+	coverUrl: string | null,
+	deps: ResolvedSyncDependencies,
+): Promise<string | null> {
+	return coverUrl ? (await cacheAsset(env, settings, coverUrl, deps)).cdnUrl : null;
 }
 
 function sourceFingerprint(sourceUrl: string): Promise<string> {

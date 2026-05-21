@@ -6,7 +6,7 @@ import worker from "../workers/app";
 import { handleAdminApi } from "../workers/api/admin";
 import { encryptString, hashPassword, generateEncryptionKey } from "../workers/crypto";
 import schemaSql from "../workers/db/schema.sql?raw";
-import type { NotionBlock } from "../workers/notion/blocks";
+import { normalizedBlocksHash, type NotionBlock } from "../workers/notion/blocks";
 import {
 	excerptFromMarkdown,
 	mapNotionPageToPostMetadata,
@@ -806,6 +806,69 @@ describe("runSync", () => {
 				unpublished_count: 0,
 				failed_count: 0,
 			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("caches updated page covers when content blocks are unchanged", async () => {
+		const db = new SqliteD1Database();
+		const bucket = new FakeAssetBucket();
+		try {
+			await seedSettings(db);
+			const blocks = pageBlocks();
+			const blockHash = await normalizedBlocksHash(blocks);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'existing-post', 'notion-page-1', 'hello-notion', 'Hello Notion',
+					'https://cdn.example.com/old-cover.png', 'Published', 'published',
+					'2026-05-17T00:00:00.000Z', '2026-05-18T01:30:00.000Z',
+					'old-content-hash', NULL,
+					'2026-05-17T00:00:00.000Z', '2026-05-17T00:00:00.000Z'
+				)`,
+			);
+			db.exec(
+				`INSERT INTO post_content (
+					post_id, markdown, block_snapshot_hash, content_hash,
+					resource_refs_json, created_at, updated_at
+				)
+				VALUES (
+					'existing-post', 'Hello body', '${blockHash}', 'old-content-hash',
+					'[]', '2026-05-17T00:00:00.000Z', '2026-05-17T00:00:00.000Z'
+				)`,
+			);
+
+			await runSync(
+				envWithDb(db, bucket),
+				{ triggerType: "manual", force: false },
+				syncDependencies(
+					[
+						syncPage({
+							cover: {
+								type: "external",
+								external: {
+									url: "https://notion-assets.example.com/new-cover.png",
+								},
+							},
+						}),
+					],
+					blocks,
+				),
+			);
+
+			const post = db.row<{ cover_url: string | null }>(
+				"SELECT cover_url FROM posts WHERE id = ?",
+				"existing-post",
+			);
+			expect(post.cover_url).toMatch(/^https:\/\/cdn\.example\.com\/assets\//);
+			expect(post.cover_url).not.toBe(
+				"https://notion-assets.example.com/new-cover.png",
+			);
 		} finally {
 			db.close();
 		}

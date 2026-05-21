@@ -981,7 +981,7 @@ body {
 .post-back-button {
 	align-items: center;
 	background: transparent;
-	border: 0;
+	border: 1px solid var(--border);
 	border-radius: 6px;
 	color: var(--muted);
 	cursor: pointer;

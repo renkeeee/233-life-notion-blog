@@ -84,6 +84,12 @@ describe("public brand", () => {
 		expect(appCss).toContain("--page-bg: #12110f");
 	});
 
+	it("gives the post detail back button a subtle outline", () => {
+		expect(cssRule(".post-back-button")).toContain(
+			"border: 1px solid var(--border)",
+		);
+	});
+
 	it("keeps the category switcher on one line while it expands", () => {
 		const categoryListRule = cssRule(".category-list");
 

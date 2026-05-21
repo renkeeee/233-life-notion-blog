@@ -524,6 +524,19 @@ describe("runSync", () => {
 				"SELECT tag, sort_order FROM post_tags WHERE post_id = ? ORDER BY sort_order",
 				"notion-page-1",
 			);
+			const media = db.rows<{
+				post_id: string;
+				block_id: string | null;
+				kind: string;
+				url: string;
+				caption: string;
+				r2_key: string | null;
+				content_hash: string | null;
+				sort_order: number;
+			}>(
+				"SELECT post_id, block_id, kind, url, caption, r2_key, content_hash, sort_order FROM post_media WHERE post_id = ?",
+				"notion-page-1",
+			);
 
 			expect(result).toEqual({ runId: "run-1" });
 			expect(run).toMatchObject({
@@ -558,6 +571,18 @@ describe("runSync", () => {
 					cdnUrl: asset.cdn_url,
 					blockType: "image",
 				}),
+			]);
+			expect(media).toEqual([
+				{
+					post_id: "notion-page-1",
+					block_id: "block-image",
+					kind: "image",
+					url: asset.cdn_url,
+					caption: "Cover image",
+					r2_key: expect.stringMatching(/^assets\/[0-9a-f]{2}\/[0-9a-f]{64}\.png$/),
+					content_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+					sort_order: 0,
+				},
 			]);
 			expect(asset.mime_type).toBe("image/png");
 			expect(bucket.puts).toHaveLength(1);

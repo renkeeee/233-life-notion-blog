@@ -105,6 +105,27 @@ CREATE TABLE IF NOT EXISTS post_content (
 	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS post_media (
+	id TEXT PRIMARY KEY,
+	post_id TEXT NOT NULL,
+	block_id TEXT,
+	kind TEXT NOT NULL CHECK (kind IN ('image', 'video', 'audio', 'pdf', 'file')),
+	url TEXT NOT NULL,
+	caption TEXT NOT NULL DEFAULT '',
+	r2_key TEXT,
+	content_hash TEXT,
+	sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_media_post_id
+	ON post_media (post_id, sort_order);
+
+CREATE INDEX IF NOT EXISTS idx_post_media_kind
+	ON post_media (kind);
+
 CREATE TABLE IF NOT EXISTS assets (
 	id TEXT PRIMARY KEY,
 	source_fingerprint TEXT NOT NULL UNIQUE,

@@ -248,6 +248,14 @@ export function PublicHeader({
 				>
 					Archived
 				</Link>
+				<Link
+					className={`album-entry-button${
+						currentPath === "/album" ? " active" : ""
+					}`}
+					to="/album"
+				>
+					Album
+				</Link>
 				<form
 					className={`search-form expandable capsule${searchOpen ? " expanded" : ""}`}
 					onBlur={collapseSearchIfEmpty}

@@ -22,6 +22,7 @@ import {
 	type ApiErrorCode,
 	type AppEnv,
 	type FieldMapping,
+	type PublicAlbumMediaKind,
 	type PostVisibility,
 	type SiteSettings,
 } from "./types";
@@ -582,6 +583,12 @@ async function syncPage(
 				assetResult.resourceRefs,
 				deps,
 			),
+			...prepareReplacePostMedia(
+				env.DB,
+				postId,
+				assetResult.resourceRefs,
+				deps,
+			),
 			prepareInsertSyncItem(env.DB, {
 				id: itemId,
 				runId,
@@ -980,6 +987,97 @@ function prepareUpsertPostContent(
 			now,
 			now,
 		);
+}
+
+function prepareReplacePostMedia(
+	db: D1Database,
+	postId: string,
+	resourceRefs: ResourceRefRecord[],
+	deps: ResolvedSyncDependencies,
+): D1PreparedStatement[] {
+	const now = deps.now();
+	const statements = [
+		db.prepare("DELETE FROM post_media WHERE post_id = ?").bind(postId),
+	];
+
+	for (const [index, ref] of resourceRefs.entries()) {
+		const kind = mediaKindForResource(ref.blockType, ref.cdnUrl || ref.sourceUrl);
+		if (!kind) {
+			continue;
+		}
+
+		const blockId =
+			typeof ref.blockId === "string" && ref.blockId.trim()
+				? ref.blockId.trim()
+				: null;
+		const stableIdPart = blockId || ref.contentHash || "resource";
+
+		statements.push(
+			db
+				.prepare(
+					`INSERT INTO post_media (
+						id, post_id, block_id, kind, url, caption, r2_key,
+						content_hash, sort_order, created_at, updated_at
+					)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				)
+				.bind(
+					`${postId}:${stableIdPart}:${index}`,
+					postId,
+					blockId,
+					kind,
+					ref.cdnUrl,
+					ref.caption,
+					ref.r2Key,
+					ref.contentHash,
+					index,
+					now,
+					now,
+				),
+		);
+	}
+
+	return statements;
+}
+
+function extensionFromUrl(value: string): string {
+	try {
+		const pathname = new URL(value).pathname.toLowerCase();
+		const match = pathname.match(/\.([a-z0-9]+)$/);
+		return match?.[1] ?? "";
+	} catch {
+		const match = value.toLowerCase().match(/\.([a-z0-9]+)(?:[?#]|$)/);
+		return match?.[1] ?? "";
+	}
+}
+
+function mediaKindForResource(
+	blockType: string,
+	url: string,
+): PublicAlbumMediaKind | null {
+	const type = blockType.toLowerCase();
+	if (type === "image" || type === "video" || type === "audio" || type === "pdf") {
+		return type;
+	}
+	if (type === "file") {
+		const extension = extensionFromUrl(url);
+		if (["jpg", "jpeg", "png", "gif", "webp", "avif", "svg"].includes(extension)) {
+			return "image";
+		}
+		if (["mp4", "webm", "mov", "m4v"].includes(extension)) {
+			return "video";
+		}
+		if (["mp3", "wav", "ogg", "m4a"].includes(extension)) {
+			return "audio";
+		}
+		if (extension === "pdf") {
+			return "pdf";
+		}
+
+		return "file";
+	}
+
+	return null;
 }
 
 function prepareReplacePostTags(

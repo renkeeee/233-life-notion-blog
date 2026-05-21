@@ -242,7 +242,7 @@ describe("home pagination", () => {
 		expect(searchForm).not.toHaveClass("expanded");
 	});
 
-	it("keeps the category, tag, archive, search, and theme controls in one header action row", async () => {
+	it("keeps the category, tag, archive, album, search, and theme controls in one header action row", async () => {
 		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [],
 			total: 0,
@@ -262,15 +262,18 @@ describe("home pagination", () => {
 		const categoryButton = screen.getByRole("button", { name: "Categories" });
 		const tagButton = screen.getByRole("button", { name: "Tags" });
 		const archiveLink = screen.getByRole("link", { name: "Archived" });
+		const albumLink = screen.getByRole("link", { name: "Album" });
 		const searchForm = screen.getByRole("search");
 		const themeButton = screen.getByRole("button", { name: "Theme mode: auto" });
 
 		expect(actions).toContainElement(categoryButton);
 		expect(actions).toContainElement(tagButton);
 		expect(actions).toContainElement(archiveLink);
+		expect(actions).toContainElement(albumLink);
 		expect(actions).toContainElement(searchForm);
 		expect(actions).toContainElement(themeButton);
 		expect(archiveLink).toHaveAttribute("href", "/archive");
+		expect(albumLink).toHaveAttribute("href", "/album");
 	});
 
 	it("cycles between automatic, light, and dark theme modes", async () => {

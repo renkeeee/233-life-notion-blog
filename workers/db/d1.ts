@@ -1,5 +1,6 @@
 import type { SettingRow } from "../settings";
 import type {
+	PublicAlbumMediaRecord,
 	PostVisibility,
 	PublicPostComment,
 	PublicPostRecord,
@@ -106,6 +107,13 @@ type CommentRow = {
 	reply_body: string | null;
 	reply_created_at: string | null;
 	created_at: string;
+};
+
+type AlbumMediaRow = PostRow & {
+	media_id: string;
+	media_kind: PublicAlbumMediaRecord["kind"];
+	media_url: string;
+	media_caption: string;
 };
 
 export type LockedPostRecord = {
@@ -529,6 +537,53 @@ export class PostsRepository {
 
 		const posts = await this.withTags(result.results.map(mapPostRow));
 		return posts.map(hideLockedPreview);
+	}
+
+	async listPublishedMediaForAlbum(
+		limit = 50000,
+	): Promise<PublicAlbumMediaRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT
+					${aliasedPublicPostColumns("p")},
+					pm.id AS media_id,
+					pm.kind AS media_kind,
+					pm.url AS media_url,
+					pm.caption AS media_caption
+				 FROM post_media pm
+				 JOIN posts p ON p.id = pm.post_id
+				 WHERE ${publicUnlockedClauses.join(" AND ")}
+				 ORDER BY p.published_at DESC, p.updated_at DESC, pm.sort_order ASC
+				 LIMIT ?`,
+			)
+			.bind(limit)
+			.all<AlbumMediaRow>();
+		const posts = await this.withTags(result.results.map(mapPostRow));
+		const postsById = new Map(posts.map((post) => [post.id, post]));
+		const items: PublicAlbumMediaRecord[] = [];
+
+		for (const row of result.results) {
+			const post = postsById.get(row.id);
+			if (!post) {
+				continue;
+			}
+
+			items.push({
+				id: row.media_id,
+				postId: post.id,
+				postSlug: post.slug,
+				postTitle: post.title,
+				category: post.category,
+				tags: post.tags,
+				kind: row.media_kind,
+				url: row.media_url,
+				caption: row.media_caption,
+				publishedAt: post.publishedAt,
+				updatedAt: post.updatedAt,
+			});
+		}
+
+		return items;
 	}
 
 	async listTags(): Promise<PublicTagRecord[]> {

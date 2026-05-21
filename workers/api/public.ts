@@ -613,6 +613,14 @@ async function handlePublicApiResponse(
 		);
 	}
 
+	if (url.pathname === "/api/album") {
+		return cacheableJson(
+			request,
+			{ items: await posts.listPublishedMediaForAlbum() },
+			publicApiCacheControl,
+		);
+	}
+
 	if (url.pathname.startsWith("/api/posts/")) {
 		if (request.method === "POST") {
 			if (commentSlug) {

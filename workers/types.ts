@@ -39,6 +39,22 @@ export interface PublicPostComment {
 	createdAt: string;
 }
 
+export type PublicAlbumMediaKind = "image" | "video" | "audio" | "pdf" | "file";
+
+export interface PublicAlbumMediaRecord {
+	id: string;
+	postId: string;
+	postSlug: string;
+	postTitle: string;
+	category: string | null;
+	tags: string[];
+	kind: PublicAlbumMediaKind;
+	url: string;
+	caption: string;
+	publishedAt: string | null;
+	updatedAt: string;
+}
+
 export type ApiErrorCode =
 	| "BAD_REQUEST"
 	| "UNAUTHORIZED"

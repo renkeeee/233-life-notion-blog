@@ -11,6 +11,7 @@ import addPostManagementMigrationSql from "../migrations/0006_add_post_managemen
 import addCommentsMigrationSql from "../migrations/0007_add_comments.sql?raw";
 import addCommentRateLimitsMigrationSql from "../migrations/0008_add_comment_rate_limits.sql?raw";
 import addCommentModerationAndRepliesMigrationSql from "../migrations/0009_add_comment_moderation_and_replies.sql?raw";
+import addPostMediaMigrationSql from "../migrations/0010_add_post_media.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -20,6 +21,7 @@ const requiredTables = [
 	"post_comments",
 	"comment_rate_limits",
 	"post_tags",
+	"post_media",
 	"post_content",
 	"assets",
 	"sync_runs",
@@ -31,6 +33,8 @@ const requiredIndexes = [
 	"idx_posts_notion_last_edited_time",
 	"idx_post_tags_tag",
 	"idx_post_tags_post_id",
+	"idx_post_media_post_id",
+	"idx_post_media_kind",
 	"idx_posts_category",
 	"idx_posts_management_visibility",
 	"idx_deleted_posts_deleted_at",
@@ -149,6 +153,7 @@ describe("D1 schema", () => {
 				"deleted_posts",
 				"post_comments",
 				"post_content",
+				"post_media",
 				"post_tags",
 				"posts",
 				"settings",
@@ -175,6 +180,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addCommentsMigrationSql);
 			migratedDb.exec(addCommentRateLimitsMigrationSql);
 			migratedDb.exec(addCommentModerationAndRepliesMigrationSql);
+			migratedDb.exec(addPostMediaMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -211,6 +217,19 @@ describe("D1 schema", () => {
 				"moderation_status",
 				"reply_body",
 				"reply_created_at",
+			]);
+			expect(tableColumns(currentDb, "post_media")).toEqual([
+				"id",
+				"post_id",
+				"block_id",
+				"kind",
+				"url",
+				"caption",
+				"r2_key",
+				"content_hash",
+				"sort_order",
+				"created_at",
+				"updated_at",
 			]);
 		} finally {
 			migratedDb.close();

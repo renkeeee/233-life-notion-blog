@@ -164,16 +164,67 @@ class SqliteD1Database {
 			);
 	}
 
-	insertContent(postId: string, markdown: string): void {
+	insertContent(
+		postId: string,
+		markdown: string,
+	): void {
 		this.db
 			.prepare(
 				`INSERT INTO post_content (
 					post_id, markdown, block_snapshot_hash, content_hash,
 					resource_refs_json, created_at, updated_at
 				)
-				VALUES (?, ?, ?, ?, '[]', ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			)
-			.run(postId, markdown, `blocks-${postId}`, `content-${postId}`, now, now);
+			.run(
+				postId,
+				markdown,
+				`blocks-${postId}`,
+				`content-${postId}`,
+				"[]",
+				now,
+				now,
+			);
+	}
+
+	insertMedia(
+		postId: string,
+		overrides: Record<string, unknown> = {},
+	): void {
+		const row = {
+			id: `${postId}:media-1`,
+			block_id: "media-1",
+			kind: "image",
+			url: "https://assets.233.life/assets/media.jpg",
+			caption: "",
+			r2_key: "assets/media.jpg",
+			content_hash: "hash-media",
+			sort_order: 0,
+			created_at: now,
+			updated_at: now,
+			...overrides,
+		};
+		this.db
+			.prepare(
+				`INSERT INTO post_media (
+					id, post_id, block_id, kind, url, caption, r2_key,
+					content_hash, sort_order, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				row.id as SqlInputValue,
+				postId,
+				row.block_id as SqlInputValue,
+				row.kind as SqlInputValue,
+				row.url as SqlInputValue,
+				row.caption as SqlInputValue,
+				row.r2_key as SqlInputValue,
+				row.content_hash as SqlInputValue,
+				row.sort_order as SqlInputValue,
+				row.created_at as SqlInputValue,
+				row.updated_at as SqlInputValue,
+			);
 	}
 
 	insertTag(postId: string, tag: string, sortOrder = 0): void {
@@ -973,6 +1024,102 @@ describe("PostsRepository", () => {
 						coverUrl: null,
 						locked: true,
 					}),
+				],
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists unlocked published media resources for the album", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "media-life",
+					title: "Media life",
+					category: "Journal",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertContent("post-1", "# Media");
+			db.insertMedia("post-1", {
+					id: "post-1:image-1:0",
+					blockId: "image-1",
+					block_id: "image-1",
+					kind: "image",
+					url: "https://assets.233.life/assets/aa/image.jpg",
+					r2_key: "assets/aa/image.jpg",
+					content_hash: "hash-image",
+					caption: "Window light",
+					sort_order: 0,
+				});
+			db.insertMedia("post-1", {
+					id: "post-1:video-1:1",
+					block_id: "video-1",
+					kind: "video",
+					url: "https://assets.233.life/assets/bb/video.mp4",
+					r2_key: "assets/bb/video.mp4",
+					content_hash: "hash-video",
+					caption: "",
+					sort_order: 1,
+				});
+			db.insertTag("post-1", "Life");
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "locked-media",
+					title: "Locked media",
+				}),
+			);
+			db.insertContent("post-2", "# Private");
+			db.insertMedia("post-2", {
+					id: "post-2:private-image:0",
+					block_id: "private-image",
+					kind: "image",
+					url: "https://assets.233.life/assets/private.jpg",
+					caption: "Private",
+					sort_order: 0,
+				});
+			db.exec("UPDATE posts SET locked = 1 WHERE id = 'post-2'");
+
+			const response = await handlePublicApi(
+				publicRequest("/api/album"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				items: [
+					{
+						id: "post-1:image-1:0",
+						postId: "post-1",
+						postSlug: "media-life",
+						postTitle: "Media life",
+						category: "Journal",
+						tags: ["Life"],
+						kind: "image",
+						url: "https://assets.233.life/assets/aa/image.jpg",
+						caption: "Window light",
+						publishedAt: "2026-05-03T00:00:00.000Z",
+						updatedAt: "2026-05-02T00:00:00.000Z",
+					},
+					{
+						id: "post-1:video-1:1",
+						postId: "post-1",
+						postSlug: "media-life",
+						postTitle: "Media life",
+						category: "Journal",
+						tags: ["Life"],
+						kind: "video",
+						url: "https://assets.233.life/assets/bb/video.mp4",
+						caption: "",
+						publishedAt: "2026-05-03T00:00:00.000Z",
+						updatedAt: "2026-05-02T00:00:00.000Z",
+					},
 				],
 			});
 		} finally {

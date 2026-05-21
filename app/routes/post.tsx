@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { PostDetail, type PublicPostDetail } from "../components/public/PostDetail";
 import { ThemeModeButton } from "../components/public/ThemeModeButton";
 import { apiGet, apiPost } from "../lib/api-client";
@@ -63,8 +63,16 @@ function BackIcon() {
 }
 
 function PostToolbar() {
+	const location = useLocation();
+	const navigate = useNavigate();
+
 	function goBack() {
-		window.history.back();
+		if (location.key && location.key !== "default") {
+			navigate(-1);
+			return;
+		}
+
+		navigate("/");
 	}
 
 	return (

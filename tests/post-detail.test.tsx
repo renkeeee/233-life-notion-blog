@@ -154,13 +154,11 @@ describe("PostDetail", () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
 			.mockReturnValue(new Promise(() => {}));
-		const historyBack = vi
-			.spyOn(window.history, "back")
-			.mockImplementation(() => {});
 		try {
 			render(
 				<MemoryRouter initialEntries={["/post/hello-world"]}>
 					<Routes>
+						<Route path="/" element={<p>Home fallback</p>} />
 						<Route path="/post/:slug" element={<Post />} />
 					</Routes>
 				</MemoryRouter>,
@@ -180,11 +178,10 @@ describe("PostDetail", () => {
 					.querySelectorAll("path"),
 			).toHaveLength(1);
 			fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-			expect(historyBack).toHaveBeenCalledTimes(1);
+			expect(screen.getByText("Home fallback")).toBeTruthy();
 			expect(screen.queryByText("Loading post...")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
-			historyBack.mockRestore();
 		}
 	});
 

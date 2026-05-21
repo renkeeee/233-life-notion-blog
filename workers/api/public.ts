@@ -6,6 +6,7 @@ import {
 } from "../comments";
 import { constantTimeEqual, decryptString, randomToken } from "../crypto";
 import { errorJson, json, readJsonObject } from "../http";
+import { handleRobots, withNoIndexHeaders } from "../seo";
 import type { AppEnv, PublicPostRecord } from "../types";
 import {
 	handleTurnstileAccess,
@@ -61,6 +62,8 @@ const maxLimit = 100;
 const publicApiCacheControl = "public, no-cache";
 const defaultFeedTitle = "233.life";
 const defaultFeedDescription = "Life, written in quiet moments.";
+
+export { handleRobots };
 
 function isPublished(post: PublicPostRecord): boolean {
 	return post.visibility === "published";
@@ -370,6 +373,7 @@ export function sitemapXmlResponse(
 	posts: PublicPostRecord[],
 	origin: string,
 ): string {
+	void posts;
 	const siteOrigin = normalizedOrigin(origin);
 	const entries = [
 		[
@@ -377,14 +381,6 @@ export function sitemapXmlResponse(
 			`\t\t<loc>${xmlEscape(`${siteOrigin}/`)}</loc>`,
 			"\t</url>",
 		].join("\n"),
-		...posts.map((post) =>
-			[
-				"\t<url>",
-				`\t\t<loc>${xmlEscape(publicPostUrl(siteOrigin, post.slug))}</loc>`,
-				`\t\t<lastmod>${xmlEscape(post.updatedAt)}</lastmod>`,
-				"\t</url>",
-			].join("\n"),
-		),
 	];
 
 	return [
@@ -404,15 +400,16 @@ export async function handleSitemap(
 		return new Response("Not found", { status: 404 });
 	}
 
-	const posts = await new PostsRepository(env.DB).listPublishedForSitemap();
-	const xml = sitemapXmlResponse(posts, new URL(request.url).origin);
+	const xml = sitemapXmlResponse([], new URL(request.url).origin);
 
-	return new Response(request.method === "HEAD" ? null : xml, {
-		headers: {
-			"content-type": "application/xml; charset=utf-8",
-			"cache-control": "public, max-age=300",
-		},
-	});
+	return withNoIndexHeaders(
+		new Response(request.method === "HEAD" ? null : xml, {
+			headers: {
+				"content-type": "application/xml; charset=utf-8",
+				"cache-control": "public, max-age=300",
+			},
+		}),
+	);
 }
 
 type RssXmlOptions = {
@@ -506,15 +503,17 @@ export async function handleRss(
 		feedPath: "/rss.xml",
 	});
 
-	return new Response(request.method === "HEAD" ? null : xml, {
-		headers: {
-			"content-type": "application/rss+xml; charset=utf-8",
-			"cache-control": "public, max-age=300",
-		},
-	});
+	return withNoIndexHeaders(
+		new Response(request.method === "HEAD" ? null : xml, {
+			headers: {
+				"content-type": "application/rss+xml; charset=utf-8",
+				"cache-control": "public, max-age=300",
+			},
+		}),
+	);
 }
 
-export async function handlePublicApi(
+async function handlePublicApiResponse(
 	request: Request,
 	env: AppEnv,
 ): Promise<Response> {
@@ -713,4 +712,11 @@ export async function handlePublicApi(
 	}
 
 	return errorJson("NOT_FOUND", "Route not found", 404);
+}
+
+export async function handlePublicApi(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	return withNoIndexHeaders(await handlePublicApiResponse(request, env));
 }

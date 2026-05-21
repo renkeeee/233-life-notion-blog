@@ -1,5 +1,8 @@
 export interface AppEnv {
 	DB: D1Database;
+	ASSETS?: {
+		fetch(request: Request | URL | string): Promise<Response>;
+	};
 	BLOG_ASSETS: R2Bucket;
 	CONFIG_ENCRYPTION_KEY: string;
 	TURNSTILE_SITE_KEY?: string;

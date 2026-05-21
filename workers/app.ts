@@ -1,9 +1,17 @@
 import { handleAdminApi } from "./api/admin";
-import { handlePublicApi, handleRss, handleSitemap } from "./api/public";
+import {
+	handlePublicApi,
+	handleRobots,
+	handleRss,
+	handleSitemap,
+} from "./api/public";
+import { handleAppRequest } from "./seo";
 import { runSync } from "./sync";
 import type { AppEnv } from "./types";
 
-export function routeKind(request: Request): "api" | "sitemap" | "rss" | "app" {
+export function routeKind(
+	request: Request,
+): "api" | "sitemap" | "rss" | "robots" | "app" {
 	const { pathname } = new URL(request.url);
 
 	if (pathname === "/sitemap.xml") {
@@ -12,6 +20,10 @@ export function routeKind(request: Request): "api" | "sitemap" | "rss" | "app" {
 
 	if (pathname === "/rss.xml" || pathname === "/feed.xml") {
 		return "rss";
+	}
+
+	if (pathname === "/robots.txt") {
+		return "robots";
 	}
 
 	return pathname === "/api" || pathname.startsWith("/api/") ? "api" : "app";
@@ -58,6 +70,10 @@ export default {
 			return handleRss(request, env);
 		}
 
+		if (kind === "robots") {
+			return handleRobots(request);
+		}
+
 		if (kind === "api") {
 			if (isAdminApiPath(url.pathname)) {
 				return handleAdminApi(request, env);
@@ -66,7 +82,7 @@ export default {
 			return handlePublicApi(request, env);
 		}
 
-		return new Response("Not found", { status: 404 });
+		return handleAppRequest(request, env);
 	},
 	scheduled(_controller, env, ctx) {
 		ctx.waitUntil(runSync(env, { triggerType: "cron", force: false }));

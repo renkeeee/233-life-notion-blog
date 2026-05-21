@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../workers/app";
 import {
 	handleRss,
+	handleRobots,
 	handleSitemap,
 	handlePublicApi,
 	listPostsResponse,
@@ -253,6 +254,27 @@ function envWithDb(db: D1Database): AppEnv {
 	};
 }
 
+function envWithDbAndAssets(db: D1Database): AppEnv {
+	return {
+		...envWithDb(db),
+		ASSETS: {
+			async fetch() {
+				return new Response(
+					`<!doctype html>
+					<html lang="en">
+						<head>
+							<meta name="description" content="A Notion-backed personal blog." />
+							<title>233.life</title>
+						</head>
+						<body><div id="root"></div></body>
+					</html>`,
+					{ headers: { "content-type": "text/html; charset=utf-8" } },
+				);
+			},
+		},
+	};
+}
+
 function envWithTurnstile(db: D1Database): AppEnv {
 	return {
 		...envWithDb(db),
@@ -328,7 +350,7 @@ describe("public response helpers", () => {
 		});
 	});
 
-	it("renders XML sitemap entries for the homepage and published posts", () => {
+	it("renders an anti-index XML sitemap with only the homepage", () => {
 		const xml = sitemapXmlResponse(
 			[
 				{
@@ -348,10 +370,8 @@ describe("public response helpers", () => {
 
 		expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
 		expect(xml).toContain("<loc>https://example.test/</loc>");
-		expect(xml).toContain("<loc>https://example.test/post/hello%20world</loc>");
-		expect(xml).toContain("<loc>https://example.test/post/c%26c%20notes</loc>");
-		expect(xml).toContain("<lastmod>2026-05-02T00:00:00.000Z</lastmod>");
-		expect(xml).toContain("<lastmod>2026-05-03T00:00:00.000Z</lastmod>");
+		expect(xml).not.toContain("<loc>https://example.test/post/");
+		expect(xml).not.toContain("<lastmod>");
 	});
 
 	it("renders an RSS feed for published posts", () => {
@@ -1750,6 +1770,49 @@ describe("handlePublicApi", () => {
 		);
 	});
 
+	it("injects post sharing metadata while keeping posts noindex", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "quiet notes",
+					title: "Quiet & Bright",
+					excerpt: "Life <in> quiet moments.",
+					cover_url: "https://assets.233.life/assets/cover.jpg",
+				}),
+			);
+
+			const response = await worker.fetch(
+				publicRequest("/post/quiet%20notes") as WorkerRequest,
+				envWithDbAndAssets(db.asD1()),
+				{} as ExecutionContext,
+			);
+			const html = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("x-robots-tag")).toBe(
+				"noindex, nofollow, noarchive, nosnippet, noimageindex",
+			);
+			expect(html).toContain("<title>Quiet &amp; Bright | 233.life</title>");
+			expect(html).toContain(
+				'<meta property="og:title" content="Quiet &amp; Bright | 233.life" />',
+			);
+			expect(html).toContain(
+				'<meta property="og:description" content="Life &lt;in&gt; quiet moments." />',
+			);
+			expect(html).toContain(
+				'<meta property="og:image" content="https://assets.233.life/assets/cover.jpg" />',
+			);
+			expect(html).toContain(
+				'<meta name="robots" content="noindex,nofollow,noarchive,nosnippet,noimageindex" />',
+			);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("returns a sitemap XML document through the worker app", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1781,7 +1844,10 @@ describe("handlePublicApi", () => {
 				"application/xml; charset=utf-8",
 			);
 			expect(xml).toContain("<loc>https://example.test/</loc>");
-			expect(xml).toContain("<loc>https://example.test/post/life%20post</loc>");
+			expect(response.headers.get("x-robots-tag")).toBe(
+				"noindex, nofollow, noarchive, nosnippet, noimageindex",
+			);
+			expect(xml).not.toContain("<loc>https://example.test/post/life%20post</loc>");
 			expect(xml).not.toContain("hidden post");
 		} finally {
 			db.close();
@@ -1822,6 +1888,9 @@ describe("handlePublicApi", () => {
 			expect(response.headers.get("content-type")).toBe(
 				"application/rss+xml; charset=utf-8",
 			);
+			expect(response.headers.get("x-robots-tag")).toBe(
+				"noindex, nofollow, noarchive, nosnippet, noimageindex",
+			);
 			expect(xml).toContain("<title>233.life custom</title>");
 			expect(xml).toContain("<link>https://example.test/post/life%20post</link>");
 			expect(xml).not.toContain("hidden post");
@@ -1845,12 +1914,30 @@ describe("handlePublicApi", () => {
 			expect(response.headers.get("cache-control")).toBe(
 				"public, max-age=300",
 			);
-			expect(xml).toContain(
+			expect(response.headers.get("x-robots-tag")).toBe(
+				"noindex, nofollow, noarchive, nosnippet, noimageindex",
+			);
+			expect(xml).toContain("<loc>https://example.test/</loc>");
+			expect(xml).not.toContain(
 				"<loc>https://example.test/post/direct%20sitemap</loc>",
 			);
 		} finally {
 			db.close();
 		}
+	});
+
+	it("returns robots.txt for anti-index discovery", async () => {
+		const response = await handleRobots(publicRequest("/robots.txt"));
+		const body = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("public, max-age=300");
+		expect(response.headers.get("x-robots-tag")).toBe(
+			"noindex, nofollow, noarchive, nosnippet, noimageindex",
+		);
+		expect(body).toContain("Allow: /");
+		expect(body).toContain("Disallow: /admin");
+		expect(body).not.toContain("Sitemap:");
 	});
 
 	it("returns an RSS XML document from the public RSS handler", async () => {
@@ -1867,6 +1954,9 @@ describe("handlePublicApi", () => {
 			expect(response.status).toBe(200);
 			expect(response.headers.get("cache-control")).toBe(
 				"public, max-age=300",
+			);
+			expect(response.headers.get("x-robots-tag")).toBe(
+				"noindex, nofollow, noarchive, nosnippet, noimageindex",
 			);
 			expect(xml).toContain(
 				"<link>https://example.test/post/direct%20rss</link>",

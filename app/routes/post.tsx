@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams } from "react-router";
 import { PostDetail, type PublicPostDetail } from "../components/public/PostDetail";
-import { PublicHeader } from "../components/public/PublicHeader";
+import { ThemeModeButton } from "../components/public/ThemeModeButton";
 import { apiGet, apiPost } from "../lib/api-client";
 
 type LockedPostDetail = {
@@ -51,6 +51,36 @@ function PostDetailSkeleton() {
 				<div className="skeleton-line skeleton-copy-line short" />
 			</div>
 		</article>
+	);
+}
+
+function BackIcon() {
+	return (
+		<svg aria-hidden="true" viewBox="0 0 24 24">
+			<path d="M15 5 8 12l7 7" />
+			<path d="M9 12h11" />
+		</svg>
+	);
+}
+
+function PostToolbar() {
+	function goBack() {
+		window.history.back();
+	}
+
+	return (
+		<div className="post-page-toolbar">
+			<button
+				type="button"
+				className="post-back-button"
+				aria-label="Go back"
+				title="Go back"
+				onClick={goBack}
+			>
+				<BackIcon />
+			</button>
+			<ThemeModeButton />
+		</div>
 	);
 }
 
@@ -127,7 +157,7 @@ export default function Post() {
 
 	return (
 		<main className="public-shell">
-			<PublicHeader />
+			<PostToolbar />
 			<div className="public-content narrow">
 				{state.status === "loading" ? <PostDetailSkeleton /> : null}
 				{state.status === "error" ? (
@@ -139,9 +169,6 @@ export default function Post() {
 				{state.status === "locked" ? (
 					<article className="post-detail">
 						<header className="post-detail-header">
-							<Link className="back-link" to="/">
-								All posts
-							</Link>
 							<p className="post-meta">Private post</p>
 							<h1>{state.post.title}</h1>
 						</header>
@@ -170,7 +197,9 @@ export default function Post() {
 						</form>
 					</article>
 				) : null}
-				{state.status === "success" ? <PostDetail post={state.post} /> : null}
+				{state.status === "success" ? (
+					<PostDetail post={state.post} showBackLink={false} />
+				) : null}
 			</div>
 		</main>
 	);

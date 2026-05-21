@@ -572,6 +572,57 @@ describe("runSync", () => {
 		}
 	});
 
+	it("retrieves a single Notion page when a targeted resync is requested", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			const env = envWithDb(db);
+			const result = await runSync(
+				env,
+				{
+					triggerType: "manual",
+					force: true,
+					notionPageId: "notion-page-1",
+				},
+				{
+					...syncDependencies([], pageBlocks()),
+					notionSource: {
+						async listPages() {
+							throw new Error("listPages should not be used for targeted resync");
+						},
+						async retrievePage(_settings: SiteSettings, pageId: string) {
+							expect(pageId).toBe("notion-page-1");
+							return syncPage();
+						},
+						async listBlocks(_settings, pageId) {
+							expect(pageId).toBe("notion-page-1");
+							return pageBlocks();
+						},
+					} as SyncDependencies["notionSource"],
+				},
+			);
+
+			expect(result).toEqual({ runId: "run-1" });
+			expect(
+				db.row<{ status: string; created_count: number }>(
+					"SELECT status, created_count FROM sync_runs WHERE id = ?",
+					"run-1",
+				),
+			).toEqual({ status: "success", created_count: 1 });
+			expect(
+				db.row<{ notion_page_id: string; title: string }>(
+					"SELECT notion_page_id, title FROM posts WHERE id = ?",
+					"notion-page-1",
+				),
+			).toEqual({
+				notion_page_id: "notion-page-1",
+				title: "Hello Notion",
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("skips admin-deleted posts unless the sync is forced", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1112,6 +1163,116 @@ describe("admin manual sync API", () => {
 });
 
 describe("admin posts API", () => {
+	it("returns overview dashboard metrics for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'published-post', 'Published Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-19T03:44:00.000Z', 'content-hash', NULL,
+					'2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z'
+				), (
+					'post-2', 'notion-page-2', 'broken-post', 'Broken Post',
+					NULL, 'Draft', 'hidden', NULL, '2026-05-19T03:45:00.000Z',
+					'content-hash-2', 'Asset download failed',
+					'2026-05-19T03:42:00.000Z', '2026-05-19T03:52:24.214Z'
+				), (
+					'post-3', 'notion-page-3', 'manual-hidden', 'Manual Hidden',
+					NULL, 'Published', 'published', '2026-05-19T03:00:00.000Z',
+					'2026-05-19T03:46:00.000Z', 'content-hash-3', NULL,
+					'2026-05-19T03:43:00.000Z', '2026-05-19T03:53:24.214Z'
+				)`,
+			);
+			db.exec(
+				`UPDATE posts
+				 SET manual_visibility = 'hidden', locked = 1
+				 WHERE id = 'post-3'`,
+			);
+			db.exec(
+				`INSERT INTO post_comments (id, post_id, nickname, body, created_at)
+				 VALUES (
+					'comment-1', 'post-1', 'Ada', 'A small hello.',
+					'2026-05-20T10:00:00.000Z'
+				 )`,
+			);
+			db.exec(
+				`INSERT INTO sync_runs (
+					id, trigger_type, started_at, finished_at, status,
+					range_start, range_end, force, failed_count, error_message
+				)
+				VALUES (
+					'run-1', 'cron', '2026-05-20T18:00:00.000Z',
+					'2026-05-20T18:02:00.000Z', 'partial',
+					NULL, NULL, 0, 2, 'Some pages failed'
+				)`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+
+			const unauthenticated = await handleAdminApi(
+				adminRequest("/api/admin/overview", { method: "GET" }),
+				env,
+			);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/overview", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+
+			expect(unauthenticated.status).toBe(401);
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				counts: {
+					totalPosts: 3,
+					publishedPosts: 1,
+					hiddenPosts: 2,
+					lockedPosts: 1,
+					comments: 1,
+				},
+				latestSyncRun: {
+					id: "run-1",
+					triggerType: "cron",
+					status: "partial",
+					startedAt: "2026-05-20T18:00:00.000Z",
+					finishedAt: "2026-05-20T18:02:00.000Z",
+					failedCount: 2,
+					errorMessage: "Some pages failed",
+				},
+				failedPosts: [
+					{
+						id: "post-2",
+						title: "Broken Post",
+						slug: "broken-post",
+						lastSyncError: "Asset download failed",
+						updatedAt: "2026-05-19T03:52:24.214Z",
+					},
+				],
+				recentComments: [
+					{
+						id: "comment-1",
+						nickname: "Ada",
+						body: "A small hello.",
+						createdAt: "2026-05-20T10:00:00.000Z",
+						postId: "post-1",
+						postTitle: "Published Post",
+						postSlug: "published-post",
+					},
+				],
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("lists synced posts with pagination, title/status filters, sorting, and management state", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1438,6 +1599,60 @@ describe("admin posts API", () => {
 					title: "Managed Post",
 				},
 			]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("queues a targeted post resync for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'managed-post', 'Managed Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-19T03:44:00.000Z', 'content-hash', NULL,
+					'2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z'
+				)`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/resync", {
+					body: JSON.stringify({}),
+					headers: {
+						cookie: session.cookie,
+						"content-type": "application/json",
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+				{
+					runSync: async (_env, input) => {
+						expect(input).toEqual({
+							triggerType: "manual",
+							rangeStart: null,
+							rangeEnd: null,
+							force: true,
+							notionPageId: "notion-page-1",
+						});
+						return { runId: "resync-run-1" };
+					},
+				},
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				runId: "resync-run-1",
+			});
 		} finally {
 			db.close();
 		}

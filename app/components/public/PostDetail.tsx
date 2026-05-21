@@ -190,10 +190,12 @@ export function PostDetail({
 	post,
 	backHref = "/",
 	backLabel = "All posts",
+	showBackLink = true,
 }: {
 	post: PublicPostDetail;
 	backHref?: string;
 	backLabel?: string;
+	showBackLink?: boolean;
 }) {
 	const tags = post.tags ?? [];
 	const category = post.category?.trim() ?? "";
@@ -201,9 +203,11 @@ export function PostDetail({
 	return (
 		<article className="post-detail">
 			<header className="post-detail-header">
-				<Link className="back-link" to={backHref}>
-					{backLabel}
-				</Link>
+				{showBackLink ? (
+					<Link className="back-link" to={backHref}>
+						{backLabel}
+					</Link>
+				) : null}
 				<p className="post-meta">
 					<time dateTime={post.publishedAt ?? post.updatedAt}>
 						{formatDate(post.publishedAt ?? post.updatedAt)}

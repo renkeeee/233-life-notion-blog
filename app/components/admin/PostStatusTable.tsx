@@ -39,7 +39,8 @@ type AdminPostAction =
 	| "restore"
 	| "lock"
 	| "unlock"
-	| "delete";
+	| "delete"
+	| "resync";
 
 type CommentSettingsResponse = {
 	defaultEnabled: boolean;
@@ -114,6 +115,7 @@ const actionLabels: Record<AdminPostAction, string> = {
 	lock: "locked",
 	unlock: "unlocked",
 	delete: "deleted",
+	resync: "resync queued",
 };
 
 function responseItems(response: PostsResponse): AdminPostRecord[] {
@@ -500,13 +502,20 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		setError(null);
 
 		try {
-			await apiPost(
+			const actionResponse = await apiPost<{ runId?: string }>(
 				`/api/admin/posts/${encodeURIComponent(post.id)}/${action}`,
 				action === "lock" ? { password } : {},
 				csrfToken,
 			);
 			if (action === "hide" || action === "restore") {
 				setToast(`${title} ${actionLabels[action]}.`);
+			}
+			if (action === "resync") {
+				setToast(
+					`${title} resync queued${
+						actionResponse.runId ? `: ${actionResponse.runId}` : ""
+					}.`,
+				);
 			}
 			if (action === "lock") {
 				setLockPassword("");
@@ -705,6 +714,13 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 													onClick={() => openCommentsDialog(post)}
 												>
 													Comments
+												</button>
+												<button
+													type="button"
+													disabled={pendingAction("resync")}
+													onClick={() => runAction(post, "resync")}
+												>
+													Resync
 												</button>
 												<button
 													type="button"

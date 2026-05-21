@@ -103,7 +103,8 @@ type AdminPostAction =
 	| "unlock"
 	| "comments-on"
 	| "comments-off"
-	| "delete";
+	| "delete"
+	| "resync";
 
 type AdminPostIdentityRow = {
 	id: string;
@@ -123,6 +124,32 @@ type AdminPostCommentRow = {
 	nickname: string;
 	body: string;
 	created_at: string;
+};
+
+type AdminOverviewCountsRow = {
+	total_posts: number;
+	published_posts: number;
+	hidden_posts: number;
+	locked_posts: number;
+	comments: number;
+};
+
+type AdminOverviewFailedPostRow = {
+	id: string;
+	title: string;
+	slug: string;
+	last_sync_error: string;
+	updated_at: string;
+};
+
+type AdminOverviewCommentRow = {
+	id: string;
+	nickname: string;
+	body: string;
+	created_at: string;
+	post_id: string;
+	post_title: string;
+	post_slug: string;
 };
 
 type NotionSchemaBody = {
@@ -1098,6 +1125,123 @@ async function handleListSyncRuns(
 	}
 }
 
+async function handleOverview(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	try {
+		const counts = await env.DB.prepare(
+			`SELECT
+				COUNT(*) AS total_posts,
+				COALESCE(SUM(
+					CASE
+						WHEN visibility = 'published' AND manual_visibility = 'visible'
+						THEN 1 ELSE 0
+					END
+				), 0) AS published_posts,
+				COALESCE(SUM(
+					CASE
+						WHEN visibility <> 'published' OR manual_visibility = 'hidden'
+						THEN 1 ELSE 0
+					END
+				), 0) AS hidden_posts,
+				COALESCE(SUM(CASE WHEN locked = 1 THEN 1 ELSE 0 END), 0) AS locked_posts,
+				(SELECT COUNT(*) FROM post_comments) AS comments
+			 FROM posts`,
+		).first<AdminOverviewCountsRow>();
+		const latestSyncRun = await env.DB.prepare(
+			`SELECT
+				id,
+				trigger_type,
+				started_at,
+				finished_at,
+				status,
+				range_start,
+				range_end,
+				force,
+				created_count,
+				updated_count,
+				metadata_only_count,
+				skipped_count,
+				unpublished_count,
+				archived_count,
+				failed_count,
+				error_code,
+				error_message
+			 FROM sync_runs
+			 ORDER BY started_at DESC
+			 LIMIT 1`,
+		).first<SyncRunRow>();
+		const failedPosts = await env.DB.prepare(
+			`SELECT id, title, slug, last_sync_error, updated_at
+			 FROM posts
+			 WHERE last_sync_error IS NOT NULL
+			 AND TRIM(last_sync_error) <> ''
+			 ORDER BY updated_at DESC
+			 LIMIT 5`,
+		).all<AdminOverviewFailedPostRow>();
+		const recentComments = await env.DB.prepare(
+			`SELECT
+				pc.id,
+				pc.nickname,
+				pc.body,
+				pc.created_at,
+				p.id AS post_id,
+				p.title AS post_title,
+				p.slug AS post_slug
+			 FROM post_comments pc
+			 JOIN posts p ON p.id = pc.post_id
+			 ORDER BY pc.created_at DESC
+			 LIMIT 5`,
+		).all<AdminOverviewCommentRow>();
+
+		return json({
+			counts: {
+				totalPosts: Number(counts?.total_posts ?? 0),
+				publishedPosts: Number(counts?.published_posts ?? 0),
+				hiddenPosts: Number(counts?.hidden_posts ?? 0),
+				lockedPosts: Number(counts?.locked_posts ?? 0),
+				comments: Number(counts?.comments ?? 0),
+			},
+			latestSyncRun: latestSyncRun
+				? {
+						id: latestSyncRun.id,
+						triggerType: latestSyncRun.trigger_type,
+						status: latestSyncRun.status,
+						startedAt: latestSyncRun.started_at,
+						finishedAt: latestSyncRun.finished_at,
+						failedCount: latestSyncRun.failed_count,
+						errorMessage: latestSyncRun.error_message,
+					}
+				: null,
+			failedPosts: failedPosts.results.map((post) => ({
+				id: post.id,
+				title: post.title,
+				slug: post.slug,
+				lastSyncError: post.last_sync_error,
+				updatedAt: post.updated_at,
+			})),
+			recentComments: recentComments.results.map((comment) => ({
+				id: comment.id,
+				nickname: comment.nickname,
+				body: comment.body,
+				createdAt: comment.created_at,
+				postId: comment.post_id,
+				postTitle: comment.post_title,
+				postSlug: comment.post_slug,
+			})),
+		});
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Overview could not be loaded", 500);
+	}
+}
+
 async function handleGetPostCommentSettings(
 	request: Request,
 	env: AppEnv,
@@ -1352,7 +1496,7 @@ function adminPostActionFromPath(
 	pathname: string,
 ): { postId: string; action: AdminPostAction } | null {
 	const match =
-		/^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|comments-on|comments-off|delete)$/.exec(
+		/^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|comments-on|comments-off|delete|resync)$/.exec(
 			pathname,
 		);
 	if (!match) {
@@ -1528,6 +1672,7 @@ async function handleAdminPostAction(
 	env: AppEnv,
 	postId: string,
 	action: AdminPostAction,
+	options: AdminApiOptions = {},
 ): Promise<Response> {
 	const session = await requireUsableAdminSession(request, env);
 
@@ -1553,6 +1698,19 @@ async function handleAdminPostAction(
 
 	if (!post) {
 		return errorJson("NOT_FOUND", "Post not found", 404);
+	}
+
+	if (action === "resync") {
+		const syncRunner = options.runSync ?? defaultRunSync;
+		const result = await syncRunner(env, {
+			triggerType: "manual",
+			rangeStart: null,
+			rangeEnd: null,
+			force: true,
+			notionPageId: post.notion_page_id,
+		});
+
+		return json(result);
 	}
 
 	if (action === "hide" || action === "restore") {
@@ -1661,6 +1819,10 @@ export async function handleAdminApi(
 		return handlePasswordChange(request, env);
 	}
 
+	if (url.pathname === "/api/admin/overview" && request.method === "GET") {
+		return handleOverview(request, env);
+	}
+
 	if (url.pathname === "/api/admin/settings" && request.method === "GET") {
 		return handleGetSettings(request, env);
 	}
@@ -1725,6 +1887,7 @@ export async function handleAdminApi(
 			env,
 			postAction.postId,
 			postAction.action,
+			options,
 		);
 	}
 

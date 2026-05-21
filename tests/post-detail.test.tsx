@@ -105,6 +105,9 @@ describe("PostDetail", () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
 			.mockReturnValue(new Promise(() => {}));
+		const historyBack = vi
+			.spyOn(window.history, "back")
+			.mockImplementation(() => {});
 		try {
 			render(
 				<MemoryRouter initialEntries={["/post/hello-world"]}>
@@ -117,14 +120,17 @@ describe("PostDetail", () => {
 			expect(screen.getByLabelText("Loading post")).toHaveClass(
 				"post-detail-skeleton",
 			);
-			expect(screen.getByRole("heading", { name: "233.life" })).toBeTruthy();
-			expect(screen.getByRole("link", { name: "Archived" })).toHaveAttribute(
-				"href",
-				"/archive",
-			);
+			expect(screen.queryByRole("heading", { name: "233.life" })).toBeNull();
+			expect(screen.queryByRole("link", { name: "Archived" })).toBeNull();
+			expect(
+				screen.getByRole("button", { name: "Theme mode: auto" }),
+			).toBeTruthy();
+			fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+			expect(historyBack).toHaveBeenCalledTimes(1);
 			expect(screen.queryByText("Loading post...")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
+			historyBack.mockRestore();
 		}
 	});
 
@@ -157,6 +163,7 @@ describe("PostDetail", () => {
 			);
 
 			await screen.findByRole("heading", { name: "Locked post" });
+			expect(screen.queryByText("All posts")).toBeNull();
 			expect(screen.getByLabelText("Post password")).toBeTruthy();
 			fireEvent.change(screen.getByLabelText("Post password"), {
 				target: { value: "open-sesame" },
@@ -170,6 +177,7 @@ describe("PostDetail", () => {
 				),
 			);
 			await screen.findByText("Private body");
+			expect(screen.queryByText("All posts")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
 			apiPost.mockRestore();

@@ -17,8 +17,63 @@ type SessionState =
 	| { status: "guest"; error?: string | null }
 	| { status: "admin"; csrfToken: string; mustChangePassword: boolean };
 
+type AdminOverviewResponse = {
+	counts: {
+		totalPosts: number;
+		publishedPosts: number;
+		hiddenPosts: number;
+		lockedPosts: number;
+		comments: number;
+	};
+	latestSyncRun: {
+		id: string;
+		triggerType: string;
+		status: string;
+		startedAt: string;
+		finishedAt: string | null;
+		failedCount: number;
+		errorMessage: string | null;
+	} | null;
+	failedPosts: Array<{
+		id: string;
+		title: string;
+		slug: string;
+		lastSyncError: string;
+		updatedAt: string;
+	}>;
+	recentComments: Array<{
+		id: string;
+		nickname: string;
+		body: string;
+		createdAt: string;
+		postId: string;
+		postTitle: string;
+		postSlug: string;
+	}>;
+};
+
+type OverviewState =
+	| { status: "locked" }
+	| { status: "loading" }
+	| { status: "error"; message: string }
+	| { status: "success"; data: AdminOverviewResponse };
+
 function errorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
+}
+
+function formatAdminDate(value: string | null): string {
+	if (!value) {
+		return "-";
+	}
+
+	return new Intl.DateTimeFormat("en", {
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(new Date(value));
 }
 
 export function PasswordChangePanel({
@@ -120,6 +175,46 @@ function Overview({
 }: {
 	mustChangePassword: boolean;
 }) {
+	const [state, setState] = useState<OverviewState>(
+		mustChangePassword ? { status: "locked" } : { status: "loading" },
+	);
+
+	useEffect(() => {
+		if (mustChangePassword) {
+			setState({ status: "locked" });
+			return;
+		}
+
+		let cancelled = false;
+		setState({ status: "loading" });
+		apiGet<AdminOverviewResponse>("/api/admin/overview")
+			.then((data) => {
+				if (!cancelled) {
+					setState({ status: "success", data });
+				}
+			})
+			.catch((error: unknown) => {
+				if (!cancelled) {
+					setState({
+						status: "error",
+						message: errorMessage(error, "Overview could not be loaded."),
+					});
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [mustChangePassword]);
+
+	const data = state.status === "success" ? state.data : null;
+	const latestSync = data?.latestSyncRun ?? null;
+	const needsAttention =
+		latestSync?.status === "failed" ||
+		latestSync?.status === "partial" ||
+		(latestSync?.failedCount ?? 0) > 0 ||
+		(data?.failedPosts.length ?? 0) > 0;
+
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
@@ -128,20 +223,98 @@ function Overview({
 					{mustChangePassword ? "Password required" : "Ready"}
 				</span>
 			</div>
+			{state.status === "locked" ? (
+				<p className="admin-warning">
+					Change the initial password before loading operational metrics.
+				</p>
+			) : null}
+			{state.status === "loading" ? (
+				<p className="admin-note">Loading overview...</p>
+			) : null}
+			{state.status === "error" ? (
+				<p className="admin-error">{state.message}</p>
+			) : null}
+			{data && needsAttention ? (
+				<section className="admin-module admin-warning-module">
+					<div className="admin-section-heading compact">
+						<h3>Sync attention</h3>
+						<span className="admin-badge warning">Review</span>
+					</div>
+					{latestSync ? (
+						<p className="admin-note">
+							Latest sync: {latestSync.status}
+							{latestSync.failedCount
+								? `, ${latestSync.failedCount} failed item${
+										latestSync.failedCount === 1 ? "" : "s"
+									}`
+								: ""}
+							{latestSync.errorMessage ? ` (${latestSync.errorMessage})` : ""}
+						</p>
+					) : null}
+					{data.failedPosts.length > 0 ? (
+						<ul className="admin-compact-list">
+							{data.failedPosts.map((post) => (
+								<li key={post.id}>
+									<strong>{post.title}</strong>
+									<span>{post.lastSyncError}</span>
+								</li>
+							))}
+						</ul>
+					) : null}
+				</section>
+			) : null}
 			<div className="admin-overview-grid">
 				<div>
-					<strong>Data source</strong>
-					<span>Configure the Notion database, token, field mapping, and CDN URL.</span>
+					<strong>Total posts</strong>
+					<span>{data ? data.counts.totalPosts : "-"}</span>
 				</div>
 				<div>
-					<strong>Refresh</strong>
-					<span>Run manual syncs with optional date ranges and force refresh.</span>
+					<strong>Published</strong>
+					<span>{data ? data.counts.publishedPosts : "-"}</span>
 				</div>
 				<div>
-					<strong>Status</strong>
-					<span>Review synced posts and backend sync history as endpoints land.</span>
+					<strong>Hidden</strong>
+					<span>{data ? data.counts.hiddenPosts : "-"}</span>
+				</div>
+				<div>
+					<strong>Locked</strong>
+					<span>{data ? data.counts.lockedPosts : "-"}</span>
+				</div>
+				<div>
+					<strong>Comments</strong>
+					<span>{data ? data.counts.comments : "-"}</span>
+				</div>
+				<div>
+					<strong>Last sync</strong>
+					<span>
+						{latestSync
+							? `${latestSync.status} / ${formatAdminDate(latestSync.startedAt)}`
+							: "No sync runs"}
+					</span>
 				</div>
 			</div>
+			{data ? (
+				<section className="admin-module">
+					<div className="admin-section-heading compact">
+						<h3>Recent comments</h3>
+						<span className="admin-badge">{data.recentComments.length}</span>
+					</div>
+					{data.recentComments.length > 0 ? (
+						<ul className="admin-compact-list">
+							{data.recentComments.map((comment) => (
+								<li key={comment.id}>
+									<strong>
+										{comment.nickname || "Anonymous"} on {comment.postTitle}
+									</strong>
+									<span>{comment.body}</span>
+								</li>
+							))}
+						</ul>
+					) : (
+						<p className="admin-note">No comments yet.</p>
+					)}
+				</section>
+			) : null}
 		</div>
 	);
 }

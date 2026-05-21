@@ -87,6 +87,10 @@ export class NotionClient {
 		return this.request<NotionDataSource>(`/data_sources/${dataSourceId}`);
 	}
 
+	retrievePage<T = Record<string, unknown>>(pageId: string): Promise<T> {
+		return this.request<T>(`/pages/${pageId}`);
+	}
+
 	async schemaForDatabase(
 		databaseId: string,
 		options: SchemaForDatabaseOptions = {},

@@ -31,6 +31,7 @@ export interface RunSyncInput {
 	rangeStart?: string | null;
 	rangeEnd?: string | null;
 	force?: boolean;
+	notionPageId?: string;
 }
 
 export interface SyncWindowInput {
@@ -61,6 +62,10 @@ export interface NotionSyncSource {
 		settings: SiteSettings,
 		window: SyncWindow,
 	): Promise<NotionSyncPage[]>;
+	retrievePage?(
+		settings: SiteSettings,
+		pageId: string,
+	): Promise<NotionSyncPage>;
 	listBlocks(settings: SiteSettings, pageId: string): Promise<NotionBlock[]>;
 }
 
@@ -263,7 +268,9 @@ export async function runSync(
 	try {
 		const settings = await loadSettings(env);
 		const commentsDefaultEnabled = await loadCommentsDefaultEnabled(env.DB);
-		const pages = await deps.notionSource.listPages(settings, window);
+		const pages = input.notionPageId
+			? [await retrieveTargetPage(deps.notionSource, settings, input.notionPageId)]
+			: await deps.notionSource.listPages(settings, window);
 
 		for (const page of pages) {
 			const action = await syncPage(
@@ -294,6 +301,21 @@ export async function runSync(
 	}
 }
 
+async function retrieveTargetPage(
+	source: NotionSyncSource,
+	settings: SiteSettings,
+	pageId: string,
+): Promise<NotionSyncPage> {
+	if (!source.retrievePage) {
+		throw new SyncError(
+			"INTERNAL_ERROR",
+			"Targeted sync source does not support retrieving a single Notion page",
+		);
+	}
+
+	return source.retrievePage(settings, pageId);
+}
+
 function resolveDependencies(
 	overrides: SyncDependencies,
 ): ResolvedSyncDependencies {
@@ -315,6 +337,10 @@ function defaultNotionSource(fetcher: NotionFetcher): NotionSyncSource {
 				settings.notionDatabaseId,
 				notionQueryBodyForWindow(window),
 			);
+		},
+		async retrievePage(settings, pageId) {
+			const client = new NotionClient(settings.notionToken, { fetcher });
+			return client.retrievePage<NotionSyncPage>(pageId);
 		},
 		async listBlocks(settings, pageId) {
 			const client = new NotionClient(settings.notionToken, { fetcher });

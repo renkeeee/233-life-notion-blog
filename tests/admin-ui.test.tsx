@@ -464,6 +464,51 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("queues a single post resync from row actions", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "post-1",
+					title: "Hello World",
+					slug: "hello-world",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue({ runId: "resync-run-1" });
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("link", { name: "Hello World" });
+			fireEvent.click(screen.getByRole("button", { name: "Resync" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/resync",
+					{},
+					"csrf-token",
+				),
+			);
+			await screen.findByText("Hello World resync queued: resync-run-1.");
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("opens post comments in a modal, saves the toggle, and deletes comments", async () => {
 		const postsResponse = {
 			items: [
@@ -778,6 +823,76 @@ describe("SyncPanel", () => {
 });
 
 describe("Admin", () => {
+	it("loads overview dashboard metrics and recent sync warnings", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+
+				if (path === "/api/admin/overview") {
+					return {
+						counts: {
+							totalPosts: 3,
+							publishedPosts: 1,
+							hiddenPosts: 2,
+							lockedPosts: 1,
+							comments: 4,
+						},
+						latestSyncRun: {
+							id: "run-1",
+							triggerType: "cron",
+							status: "partial",
+							startedAt: "2026-05-20T18:00:00.000Z",
+							finishedAt: "2026-05-20T18:02:00.000Z",
+							failedCount: 2,
+							errorMessage: "Some pages failed",
+						},
+						failedPosts: [
+							{
+								id: "post-2",
+								title: "Broken Post",
+								slug: "broken-post",
+								lastSyncError: "Asset download failed",
+								updatedAt: "2026-05-19T03:52:24.214Z",
+							},
+						],
+						recentComments: [
+							{
+								id: "comment-1",
+								nickname: "Ada",
+								body: "A small hello.",
+								createdAt: "2026-05-20T10:00:00.000Z",
+								postId: "post-1",
+								postTitle: "Published Post",
+								postSlug: "published-post",
+							},
+						],
+					};
+				}
+
+				throw new Error(`Unexpected GET ${path}`);
+			});
+
+		try {
+			render(<Admin />);
+
+			await screen.findByText("Overview");
+			await screen.findByText("Asset download failed");
+			expect(screen.getByText("Total posts")).toBeTruthy();
+			expect(screen.getByText("3")).toBeTruthy();
+			expect(screen.getByText(/Latest sync:\s*partial/)).toBeTruthy();
+			expect(screen.getByText("A small hello.")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
 	it("shows password change in settings instead of overview", async () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
@@ -787,6 +902,21 @@ describe("Admin", () => {
 						authenticated: true,
 						csrfToken: "csrf-token",
 						mustChangePassword: false,
+					};
+				}
+
+				if (path === "/api/admin/overview") {
+					return {
+						counts: {
+							totalPosts: 0,
+							publishedPosts: 0,
+							hiddenPosts: 0,
+							lockedPosts: 0,
+							comments: 0,
+						},
+						latestSyncRun: null,
+						failedPosts: [],
+						recentComments: [],
 					};
 				}
 

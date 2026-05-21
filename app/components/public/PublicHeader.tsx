@@ -3,7 +3,7 @@ import type { FocusEvent, FormEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { apiGet } from "../../lib/api-client";
 import { SearchIcon } from "./SearchIcon";
-import { ThemeIcon } from "./ThemeIcon";
+import { ThemeModeButton } from "./ThemeModeButton";
 
 export type CountSummary = {
 	name: string;
@@ -25,8 +25,6 @@ type PublicHeaderProps = {
 	selectedTag?: string | null;
 };
 
-type ThemeMode = "auto" | "light" | "dark";
-
 type TagsResponse = {
 	items: CountSummary[];
 };
@@ -35,39 +33,8 @@ type CategoriesResponse = {
 	items: CountSummary[];
 };
 
-const themeModes: ThemeMode[] = ["auto", "light", "dark"];
-const themeStorageKey = "233-life-theme";
-
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : "Unable to load options";
-}
-
-function storedThemeMode(): ThemeMode {
-	if (
-		typeof window === "undefined" ||
-		typeof window.localStorage?.getItem !== "function"
-	) {
-		return "auto";
-	}
-
-	let stored: string | null = null;
-	try {
-		stored = window.localStorage.getItem(themeStorageKey);
-	} catch {
-		stored = null;
-	}
-
-	return stored === "light" || stored === "dark" || stored === "auto"
-		? stored
-		: "auto";
-}
-
-function applyThemeMode(mode: ThemeMode) {
-	if (typeof document === "undefined") {
-		return;
-	}
-
-	document.documentElement.dataset.theme = mode;
 }
 
 export function PublicHeader({
@@ -88,26 +55,11 @@ export function PublicHeader({
 		useState<CountState>({ status: "idle" });
 	const [tagsState, setTagsState] = useState<CountState>({ status: "idle" });
 	const [tagPickerOpen, setTagPickerOpen] = useState(false);
-	const [themeMode, setThemeMode] = useState<ThemeMode>(storedThemeMode);
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const categoriesRequestRef = useRef(false);
 
 	const effectiveCategoriesState = categoriesState ?? internalCategoriesState;
 	const currentPath = location.pathname;
-
-	useEffect(() => {
-		applyThemeMode(themeMode);
-		if (
-			typeof window !== "undefined" &&
-			typeof window.localStorage?.setItem === "function"
-		) {
-			try {
-				window.localStorage.setItem(themeStorageKey, themeMode);
-			} catch {
-				// Theme still applies for the current page even if storage is blocked.
-			}
-		}
-	}, [themeMode]);
 
 	useEffect(() => {
 		setQuery(searchParams.get("q")?.trim() ?? "");
@@ -227,13 +179,6 @@ export function PublicHeader({
 		setSearchOpen(false);
 	}
 
-	function cycleThemeMode() {
-		setThemeMode((current) => {
-			const currentIndex = themeModes.indexOf(current);
-			return themeModes[(currentIndex + 1) % themeModes.length] ?? "auto";
-		});
-	}
-
 	return (
 		<header className="public-header">
 			<div>
@@ -329,15 +274,7 @@ export function PublicHeader({
 						</button>
 					</div>
 				</form>
-				<button
-					className="theme-mode-button"
-					type="button"
-					aria-label={`Theme mode: ${themeMode}`}
-					title={`Theme: ${themeMode}`}
-					onClick={cycleThemeMode}
-				>
-					<ThemeIcon mode={themeMode} />
-				</button>
+				<ThemeModeButton />
 			</div>
 			{tagPickerOpen ? (
 				<div className="tag-dialog-backdrop">

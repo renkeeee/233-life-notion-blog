@@ -18,8 +18,10 @@ import { SettingsRepository } from "../db/d1";
 import {
 	loadCommentsDefaultEnabled,
 	loadCommentsGlobalEnabled,
+	loadCommentsModerationEnabled,
 	saveCommentsDefaultEnabled,
 	saveCommentsGlobalEnabled,
+	saveCommentsModerationEnabled,
 } from "../comments";
 import {
 	parseSettingsFromRows,
@@ -58,6 +60,12 @@ type CommentsEnabledBody = {
 type CommentSettingsBody = {
 	defaultEnabled?: boolean;
 	globalEnabled?: boolean;
+	moderationEnabled?: boolean;
+};
+
+type CommentModerationBody = {
+	moderationStatus?: "pending" | "approved";
+	replyBody?: string | null;
 };
 
 type SyncRunRow = {
@@ -123,6 +131,9 @@ type AdminPostCommentRow = {
 	id: string;
 	nickname: string;
 	body: string;
+	moderation_status: "pending" | "approved";
+	reply_body: string | null;
+	reply_created_at: string | null;
 	created_at: string;
 };
 
@@ -298,6 +309,13 @@ function validateCommentSettingsBody(
 		throw new Error("globalEnabled must be a boolean");
 	}
 
+	if (
+		body.moderationEnabled !== undefined &&
+		typeof body.moderationEnabled !== "boolean"
+	) {
+		throw new Error("moderationEnabled must be a boolean");
+	}
+
 	const defaultEnabled =
 		typeof body.defaultEnabled === "boolean"
 			? body.defaultEnabled
@@ -306,14 +324,62 @@ function validateCommentSettingsBody(
 				: undefined;
 	const globalEnabled =
 		typeof body.globalEnabled === "boolean" ? body.globalEnabled : undefined;
+	const moderationEnabled =
+		typeof body.moderationEnabled === "boolean"
+			? body.moderationEnabled
+			: undefined;
 
-	if (defaultEnabled === undefined && globalEnabled === undefined) {
+	if (
+		defaultEnabled === undefined &&
+		globalEnabled === undefined &&
+		moderationEnabled === undefined
+	) {
 		throw new Error("At least one comment setting is required");
 	}
 
 	return {
 		...(defaultEnabled !== undefined ? { defaultEnabled } : {}),
 		...(globalEnabled !== undefined ? { globalEnabled } : {}),
+		...(moderationEnabled !== undefined ? { moderationEnabled } : {}),
+	};
+}
+
+function validateCommentModerationBody(
+	body: Record<string, unknown>,
+): CommentModerationBody {
+	const moderationStatus = body.moderationStatus;
+	const replyBody = body.replyBody;
+
+	if (
+		moderationStatus !== undefined &&
+		moderationStatus !== "pending" &&
+		moderationStatus !== "approved"
+	) {
+		throw new Error("moderationStatus must be pending or approved");
+	}
+
+	if (
+		replyBody !== undefined &&
+		replyBody !== null &&
+		typeof replyBody !== "string"
+	) {
+		throw new Error("replyBody must be a string or null");
+	}
+
+	const trimmedReply =
+		typeof replyBody === "string" ? replyBody.trim() : replyBody;
+
+	if (typeof trimmedReply === "string" && trimmedReply.length > 2000) {
+		throw new Error("replyBody must be at most 2000 characters");
+	}
+
+	if (moderationStatus === undefined && replyBody === undefined) {
+		throw new Error("At least one comment update is required");
+	}
+
+	return {
+		...(moderationStatus !== undefined ? { moderationStatus } : {}),
+		...(replyBody !== undefined ? { replyBody: trimmedReply } : {}),
 	};
 }
 
@@ -1256,6 +1322,7 @@ async function handleGetPostCommentSettings(
 		return json({
 			defaultEnabled: await loadCommentsDefaultEnabled(env.DB),
 			globalEnabled: await loadCommentsGlobalEnabled(env.DB),
+			moderationEnabled: await loadCommentsModerationEnabled(env.DB),
 		});
 	} catch {
 		return errorJson(
@@ -1296,8 +1363,12 @@ async function handlePutPostCommentSettings(
 	try {
 		const currentDefaultEnabled = await loadCommentsDefaultEnabled(env.DB);
 		const currentGlobalEnabled = await loadCommentsGlobalEnabled(env.DB);
+		const currentModerationEnabled =
+			await loadCommentsModerationEnabled(env.DB);
 		const defaultEnabled = body.defaultEnabled ?? currentDefaultEnabled;
 		const globalEnabled = body.globalEnabled ?? currentGlobalEnabled;
+		const moderationEnabled =
+			body.moderationEnabled ?? currentModerationEnabled;
 		const now = new Date().toISOString();
 
 		if (body.defaultEnabled !== undefined) {
@@ -1308,7 +1379,11 @@ async function handlePutPostCommentSettings(
 			await saveCommentsGlobalEnabled(env.DB, globalEnabled, now);
 		}
 
-		return json({ defaultEnabled, globalEnabled });
+		if (body.moderationEnabled !== undefined) {
+			await saveCommentsModerationEnabled(env.DB, moderationEnabled, now);
+		}
+
+		return json({ defaultEnabled, globalEnabled, moderationEnabled });
 	} catch {
 		return errorJson(
 			"INTERNAL_ERROR",
@@ -1372,6 +1447,9 @@ function adminPostCommentResponse(row: AdminPostCommentRow) {
 		id: row.id,
 		nickname: row.nickname,
 		body: row.body,
+		moderationStatus: row.moderation_status,
+		replyBody: row.reply_body,
+		replyCreatedAt: row.reply_created_at,
 		createdAt: row.created_at,
 	};
 }
@@ -1393,7 +1471,14 @@ async function handleGetAdminPostComments(
 	}
 
 	const comments = await env.DB.prepare(
-		`SELECT id, nickname, body, created_at
+		`SELECT
+			id,
+			nickname,
+			body,
+			moderation_status,
+			reply_body,
+			reply_created_at,
+			created_at
 		 FROM post_comments
 		 WHERE post_id = ?
 		 ORDER BY created_at DESC`,
@@ -1490,6 +1575,83 @@ async function handleDeleteAdminPostComment(
 		.run();
 
 	return json({ ok: true });
+}
+
+async function handlePutAdminPostComment(
+	request: Request,
+	env: AppEnv,
+	postId: string,
+	commentId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: CommentModerationBody;
+	try {
+		body = validateCommentModerationBody(await readJsonObject(request));
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : "Invalid request body";
+
+		return errorJson("BAD_REQUEST", message, 400);
+	}
+
+	const existing = await env.DB.prepare(
+		`SELECT
+			id,
+			nickname,
+			body,
+			moderation_status,
+			reply_body,
+			reply_created_at,
+			created_at
+		 FROM post_comments
+		 WHERE id = ?
+		 AND post_id = ?
+		 LIMIT 1`,
+	)
+		.bind(commentId, postId)
+		.first<AdminPostCommentRow>();
+
+	if (!existing) {
+		return errorJson("NOT_FOUND", "Comment not found", 404);
+	}
+
+	const replyBody =
+		body.replyBody !== undefined ? body.replyBody : existing.reply_body;
+	const replyCreatedAt =
+		body.replyBody !== undefined
+			? replyBody
+				? (existing.reply_created_at ?? new Date().toISOString())
+				: null
+			: existing.reply_created_at;
+	const moderationStatus = body.moderationStatus ?? existing.moderation_status;
+
+	await env.DB.prepare(
+		`UPDATE post_comments
+		 SET moderation_status = ?, reply_body = ?, reply_created_at = ?
+		 WHERE id = ?
+		 AND post_id = ?`,
+	)
+		.bind(moderationStatus, replyBody, replyCreatedAt, commentId, postId)
+		.run();
+
+	return json({
+		comment: adminPostCommentResponse({
+			...existing,
+			moderation_status: moderationStatus,
+			reply_body: replyBody,
+			reply_created_at: replyCreatedAt,
+		}),
+	});
 }
 
 function adminPostActionFromPath(
@@ -1862,6 +2024,15 @@ export async function handleAdminApi(
 	}
 
 	const postComment = adminPostCommentFromPath(url.pathname);
+	if (postComment && request.method === "PUT") {
+		return handlePutAdminPostComment(
+			request,
+			env,
+			postComment.postId,
+			postComment.commentId,
+		);
+	}
+
 	if (postComment && request.method === "DELETE") {
 		return handleDeleteAdminPostComment(
 			request,

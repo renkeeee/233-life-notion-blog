@@ -45,12 +45,16 @@ type AdminPostAction =
 type CommentSettingsResponse = {
 	defaultEnabled: boolean;
 	globalEnabled: boolean;
+	moderationEnabled?: boolean;
 };
 
 type AdminPostComment = {
 	id: string;
 	nickname: string;
 	body: string;
+	moderationStatus: "pending" | "approved";
+	replyBody: string | null;
+	replyCreatedAt: string | null;
 	createdAt: string;
 };
 
@@ -246,13 +250,21 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	const [lockPassword, setLockPassword] = useState("");
 	const [globalCommentsEnabled, setGlobalCommentsEnabled] = useState(true);
 	const [defaultCommentsEnabled, setDefaultCommentsEnabled] = useState(true);
+	const [moderationCommentsEnabled, setModerationCommentsEnabled] =
+		useState(false);
 	const [commentSettingsStatus, setCommentSettingsStatus] =
 		useState("Loading comment settings...");
 	const [commentSettingsPending, setCommentSettingsPending] = useState(false);
 	const [postComments, setPostComments] = useState<AdminPostComment[]>([]);
+	const [postCommentReplies, setPostCommentReplies] = useState<
+		Record<string, string>
+	>({});
 	const [postCommentsEnabled, setPostCommentsEnabled] = useState(true);
 	const [postCommentsLoading, setPostCommentsLoading] = useState(false);
 	const [postCommentsSaving, setPostCommentsSaving] = useState(false);
+	const [postCommentsUpdating, setPostCommentsUpdating] = useState<string | null>(
+		null,
+	);
 	const [postCommentsDeleting, setPostCommentsDeleting] = useState<string | null>(
 		null,
 	);
@@ -275,6 +287,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 
 				setGlobalCommentsEnabled(response.globalEnabled);
 				setDefaultCommentsEnabled(response.defaultEnabled);
+				setModerationCommentsEnabled(response.moderationEnabled === true);
 				setCommentSettingsStatus("Comment settings loaded.");
 			})
 			.catch((loadError: unknown) => {
@@ -364,11 +377,13 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				{
 					defaultEnabled: defaultCommentsEnabled,
 					globalEnabled: globalCommentsEnabled,
+					moderationEnabled: moderationCommentsEnabled,
 				},
 				csrfToken,
 			);
 			setGlobalCommentsEnabled(response.globalEnabled);
 			setDefaultCommentsEnabled(response.defaultEnabled);
+			setModerationCommentsEnabled(response.moderationEnabled === true);
 			setCommentSettingsStatus("Comment settings saved.");
 			setToast("Comment settings saved.");
 		} catch (error) {
@@ -406,6 +421,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	async function openCommentsDialog(post: AdminPostRecord) {
 		setCommentsDialogPost(post);
 		setPostComments([]);
+		setPostCommentReplies({});
 		setPostCommentsEnabled(post.commentsEnabled !== false);
 		setPostCommentsLoading(true);
 		setPostCommentsError(null);
@@ -415,6 +431,14 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				`/api/admin/posts/${encodeURIComponent(post.id)}/comments`,
 			);
 			setPostComments(response.comments);
+			setPostCommentReplies(
+				Object.fromEntries(
+					response.comments.map((comment) => [
+						comment.id,
+						comment.replyBody ?? "",
+					]),
+				),
+			);
 			setPostCommentsEnabled(response.post.commentsEnabled);
 			refreshPostInList(post.id, {
 				title: response.post.title,
@@ -483,6 +507,60 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		} finally {
 			setPostCommentsDeleting(null);
 		}
+	}
+
+	async function updatePostComment(
+		comment: AdminPostComment,
+		body: { moderationStatus?: "pending" | "approved"; replyBody?: string | null },
+		successMessage: string,
+	) {
+		if (!commentsDialogPost) {
+			return;
+		}
+
+		setPostCommentsUpdating(`${comment.id}:${Object.keys(body).join(",")}`);
+		setPostCommentsError(null);
+		try {
+			const response = await apiPut<{ comment: AdminPostComment }>(
+				`/api/admin/posts/${encodeURIComponent(
+					commentsDialogPost.id,
+				)}/comments/${encodeURIComponent(comment.id)}`,
+				body,
+				csrfToken,
+			);
+			setPostComments((current) =>
+				current.map((item) =>
+					item.id === comment.id ? response.comment : item,
+				),
+			);
+			setPostCommentReplies((current) => ({
+				...current,
+				[comment.id]: response.comment.replyBody ?? "",
+			}));
+			setToast(successMessage);
+		} catch (error) {
+			setPostCommentsError(
+				error instanceof Error ? error.message : "Comment could not be updated.",
+			);
+		} finally {
+			setPostCommentsUpdating(null);
+		}
+	}
+
+	function approvePostComment(comment: AdminPostComment) {
+		void updatePostComment(
+			comment,
+			{ moderationStatus: "approved" },
+			"Comment approved.",
+		);
+	}
+
+	function savePostCommentReply(comment: AdminPostComment) {
+		void updatePostComment(
+			comment,
+			{ replyBody: postCommentReplies[comment.id] ?? "" },
+			"Reply saved.",
+		);
 	}
 
 	async function runAction(
@@ -591,6 +669,16 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 						}
 					/>
 					Enable comments for newly synced posts
+				</label>
+				<label className="admin-checkbox-row">
+					<input
+						type="checkbox"
+						checked={moderationCommentsEnabled}
+						onChange={(event) =>
+							setModerationCommentsEnabled(event.currentTarget.checked)
+						}
+					/>
+					Review comments before publishing
 				</label>
 				<div className="admin-inline-actions">
 					<button
@@ -899,18 +987,68 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 													{formatCommentDate(comment.createdAt)}
 												</time>
 											</div>
-											<button
-												type="button"
-												className="danger-link"
-												disabled={postCommentsDeleting === comment.id}
-												onClick={() => deletePostComment(comment)}
-											>
-												{postCommentsDeleting === comment.id
-													? "Deleting..."
-													: "Delete"}
-											</button>
+											<div className="admin-comment-actions">
+												<span
+													className={`admin-comment-status ${comment.moderationStatus}`}
+												>
+													{comment.moderationStatus === "approved"
+														? "Approved"
+														: "Pending"}
+												</span>
+												{comment.moderationStatus === "pending" ? (
+													<button
+														type="button"
+														disabled={postCommentsUpdating?.startsWith(
+															`${comment.id}:`,
+														)}
+														onClick={() => approvePostComment(comment)}
+													>
+														Approve
+													</button>
+												) : null}
+												<button
+													type="button"
+													className="danger-link"
+													disabled={postCommentsDeleting === comment.id}
+													onClick={() => deletePostComment(comment)}
+												>
+													{postCommentsDeleting === comment.id
+														? "Deleting..."
+														: "Delete"}
+												</button>
+											</div>
 										</header>
 										<p>{comment.body}</p>
+										<label className="admin-comment-reply">
+											Reply to {comment.nickname || "Anonymous"}
+											<textarea
+												value={postCommentReplies[comment.id] ?? ""}
+												rows={3}
+												maxLength={2000}
+												onChange={(event) =>
+													setPostCommentReplies((current) => ({
+														...current,
+														[comment.id]: event.currentTarget.value,
+													}))
+												}
+											/>
+										</label>
+										<div className="admin-comment-reply-actions">
+											<button
+												type="button"
+												disabled={postCommentsUpdating?.startsWith(
+													`${comment.id}:`,
+												)}
+												onClick={() => savePostCommentReply(comment)}
+											>
+												Save reply
+											</button>
+											{comment.replyCreatedAt ? (
+												<time dateTime={comment.replyCreatedAt}>
+													Replied {formatCommentDate(comment.replyCreatedAt)}
+												</time>
+											) : null}
+										</div>
 									</li>
 								))}
 							</ol>
@@ -924,6 +1062,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 								onClick={() => {
 									setCommentsDialogPost(null);
 									setPostComments([]);
+									setPostCommentReplies({});
 									setPostCommentsError(null);
 								}}
 							>

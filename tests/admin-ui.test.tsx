@@ -538,6 +538,7 @@ describe("PostStatusTable", () => {
 					return Promise.resolve({
 						defaultEnabled: false,
 						globalEnabled: false,
+						moderationEnabled: true,
 					});
 				}
 				if (path === "/api/admin/posts/post-1/comments") {
@@ -552,6 +553,9 @@ describe("PostStatusTable", () => {
 								id: "comment-1",
 								nickname: "Ada",
 								body: "A small hello.",
+								moderationStatus: "pending",
+								replyBody: null,
+								replyCreatedAt: null,
 								createdAt: "2026-05-20T10:00:00.000Z",
 							},
 						],
@@ -572,10 +576,24 @@ describe("PostStatusTable", () => {
 						},
 					});
 				}
+				if (path === "/api/admin/posts/post-1/comments/comment-1") {
+					return Promise.resolve({
+						comment: {
+							id: "comment-1",
+							nickname: "Ada",
+							body: "A small hello.",
+							moderationStatus: "approved",
+							replyBody: "Thanks for the note.",
+							replyCreatedAt: "2026-05-20T11:00:00.000Z",
+							createdAt: "2026-05-20T10:00:00.000Z",
+						},
+					});
+				}
 
 				return Promise.resolve({
 					defaultEnabled: true,
 					globalEnabled: true,
+					moderationEnabled: true,
 				});
 			});
 		const apiDelete = vi
@@ -595,12 +613,19 @@ describe("PostStatusTable", () => {
 			);
 			expect(defaultToggle).not.toBeChecked();
 			fireEvent.click(defaultToggle);
+			expect(
+				screen.getByLabelText("Review comments before publishing"),
+			).toBeChecked();
 			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(
 					"/api/admin/posts/comment-settings",
-					{ defaultEnabled: true, globalEnabled: true },
+					{
+						defaultEnabled: true,
+						globalEnabled: true,
+						moderationEnabled: true,
+					},
 					"csrf-token",
 				),
 			);
@@ -619,6 +644,7 @@ describe("PostStatusTable", () => {
 				name: "Post comments",
 			});
 			expect(within(dialog).getByText("A small hello.")).toBeTruthy();
+			expect(within(dialog).getByText("Pending")).toBeTruthy();
 			const postToggle = within(dialog).getByLabelText(
 				"Enable comments for this post",
 			);
@@ -633,6 +659,28 @@ describe("PostStatusTable", () => {
 					"csrf-token",
 				),
 			);
+			fireEvent.click(within(dialog).getByRole("button", { name: "Approve" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-1",
+					{ moderationStatus: "approved" },
+					"csrf-token",
+				),
+			);
+			fireEvent.change(within(dialog).getByLabelText("Reply to Ada"), {
+				target: { value: "Thanks for the note." },
+			});
+			fireEvent.click(within(dialog).getByRole("button", { name: "Save reply" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-1",
+					{ replyBody: "Thanks for the note." },
+					"csrf-token",
+				),
+			);
+			expect(within(dialog).getByText("Approved")).toBeTruthy();
 			fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
 			await waitFor(() =>

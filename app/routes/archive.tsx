@@ -139,10 +139,6 @@ export default function Archive() {
 		<main className="public-shell">
 			<PublicHeader />
 			<section className="archive-page">
-				<header className="archive-heading">
-					<h2>Archive</h2>
-				</header>
-
 				{state.status === "loading" ? (
 					<div className="archive-skeleton" aria-label="Loading archive" role="status">
 						<div className="skeleton-line skeleton-title-line" />

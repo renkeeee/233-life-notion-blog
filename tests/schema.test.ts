@@ -10,6 +10,7 @@ import addPostCategoryMigrationSql from "../migrations/0005_add_post_category.sq
 import addPostManagementMigrationSql from "../migrations/0006_add_post_management.sql?raw";
 import addCommentsMigrationSql from "../migrations/0007_add_comments.sql?raw";
 import addCommentRateLimitsMigrationSql from "../migrations/0008_add_comment_rate_limits.sql?raw";
+import addCommentModerationAndRepliesMigrationSql from "../migrations/0009_add_comment_moderation_and_replies.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -34,6 +35,7 @@ const requiredIndexes = [
 	"idx_posts_management_visibility",
 	"idx_deleted_posts_deleted_at",
 	"idx_post_comments_post_created_at",
+	"idx_post_comments_status_created_at",
 	"idx_comment_rate_limits_reset_at",
 	"idx_assets_content_hash",
 	"idx_sync_runs_started_at",
@@ -67,6 +69,12 @@ function tableNames(db: DatabaseSync): string[] {
 	).map((row) => row.name);
 }
 
+function tableColumns(db: DatabaseSync, table: string): string[] {
+	return (
+		db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+	).map((row) => row.name);
+}
+
 describe("D1 schema", () => {
 	it("keeps only the post metadata columns used by the simplified blog", () => {
 		expect(normalizedSchemaSql).not.toContain("summary TEXT");
@@ -83,6 +91,11 @@ describe("D1 schema", () => {
 		expect(normalizedSchemaSql).toContain(
 			"comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1))",
 		);
+		expect(normalizedSchemaSql).toContain(
+			"moderation_status TEXT NOT NULL DEFAULT 'approved' CHECK (moderation_status IN ('pending', 'approved'))",
+		);
+		expect(normalizedSchemaSql).toContain("reply_body TEXT");
+		expect(normalizedSchemaSql).toContain("reply_created_at TEXT");
 		expect(normalizedSchemaSql).not.toContain("tags_json TEXT");
 	});
 
@@ -161,6 +174,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addPostManagementMigrationSql);
 			migratedDb.exec(addCommentsMigrationSql);
 			migratedDb.exec(addCommentRateLimitsMigrationSql);
+			migratedDb.exec(addCommentModerationAndRepliesMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -187,6 +201,16 @@ describe("D1 schema", () => {
 				"locked",
 				"lock_password_encrypted",
 				"comments_enabled",
+			]);
+			expect(tableColumns(currentDb, "post_comments")).toEqual([
+				"id",
+				"post_id",
+				"nickname",
+				"body",
+				"created_at",
+				"moderation_status",
+				"reply_body",
+				"reply_created_at",
 			]);
 		} finally {
 			migratedDb.close();

@@ -3,6 +3,7 @@ import { sha256Hex } from "./crypto";
 
 export const commentsDefaultEnabledKey = "commentsDefaultEnabled";
 export const commentsGlobalEnabledKey = "commentsGlobalEnabled";
+export const commentsModerationEnabledKey = "commentsModerationEnabled";
 export const commentRateLimitMessage =
 	"Too many comments. Please wait before posting again.";
 
@@ -63,6 +64,27 @@ export async function saveCommentsGlobalEnabled(
 ): Promise<void> {
 	await new SettingsRepository(db).put({
 		key: commentsGlobalEnabledKey,
+		value: enabled ? "true" : "false",
+		encrypted: 0,
+		updated_at: now,
+	});
+}
+
+export async function loadCommentsModerationEnabled(
+	db: D1Database,
+): Promise<boolean> {
+	const row = await new SettingsRepository(db).get(commentsModerationEnabledKey);
+
+	return row?.value === "true";
+}
+
+export async function saveCommentsModerationEnabled(
+	db: D1Database,
+	enabled: boolean,
+	now = new Date().toISOString(),
+): Promise<void> {
+	await new SettingsRepository(db).put({
+		key: commentsModerationEnabledKey,
 		value: enabled ? "true" : "false",
 		encrypted: 0,
 		updated_at: now,

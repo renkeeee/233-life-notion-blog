@@ -67,6 +67,8 @@ describe("PostDetail", () => {
 									id: "comment-1",
 									nickname: "Renke",
 									body: "First note.",
+									replyBody: "Thanks for leaving this here.",
+									replyCreatedAt: "2026-05-19T09:00:00.000Z",
 									createdAt: "2026-05-19T08:00:00.000Z",
 								},
 							],
@@ -77,6 +79,7 @@ describe("PostDetail", () => {
 
 			expect(screen.getByRole("heading", { name: "Comments" })).toBeTruthy();
 			expect(screen.getByText("First note.")).toBeTruthy();
+			expect(screen.getByText("Thanks for leaving this here.")).toBeTruthy();
 			expect(screen.queryByLabelText("Comment")).toBeNull();
 			fireEvent.click(screen.getByRole("button", { name: "Comment" }));
 			fireEvent.change(screen.getByLabelText("Comment"), {
@@ -96,6 +99,52 @@ describe("PostDetail", () => {
 			);
 			await screen.findByText("Anonymous");
 			expect(screen.getByText("A quiet reply.")).toBeTruthy();
+		} finally {
+			apiPost.mockRestore();
+		}
+	});
+
+	it("does not append comments immediately when moderation is pending", async () => {
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
+			pending: true,
+			comment: {
+				id: "comment-2",
+				nickname: "Anonymous",
+				body: "A quiet reply.",
+				createdAt: "2026-05-20T10:00:00.000Z",
+			},
+		});
+
+		try {
+			render(
+				<MemoryRouter>
+					<PostDetail
+						post={{
+							id: "post-1",
+							slug: "hello-world",
+							title: "Hello World",
+							excerpt: "Opening body text.",
+							coverUrl: null,
+							category: null,
+							tags: [],
+							publishedAt: "2026-05-19T00:00:00.000Z",
+							updatedAt: "2026-05-19T00:00:00.000Z",
+							markdown: "Body copy",
+							commentsEnabled: true,
+							comments: [],
+						}}
+					/>
+				</MemoryRouter>,
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+			fireEvent.change(screen.getByLabelText("Comment"), {
+				target: { value: "A quiet reply." },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+
+			await screen.findByText("Comment submitted for review.");
+			expect(screen.queryByText("A quiet reply.")).toBeNull();
 		} finally {
 			apiPost.mockRestore();
 		}

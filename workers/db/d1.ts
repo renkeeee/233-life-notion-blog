@@ -103,6 +103,8 @@ type CommentRow = {
 	id: string;
 	nickname: string;
 	body: string;
+	reply_body: string | null;
+	reply_created_at: string | null;
 	created_at: string;
 };
 
@@ -165,6 +167,8 @@ function mapCommentRow(row: CommentRow): PublicPostComment {
 		id: row.id,
 		nickname: row.nickname,
 		body: row.body,
+		...(row.reply_body ? { replyBody: row.reply_body } : {}),
+		...(row.reply_created_at ? { replyCreatedAt: row.reply_created_at } : {}),
 		createdAt: row.created_at,
 	};
 }
@@ -377,9 +381,10 @@ export class PostsRepository {
 	async commentsForPost(postId: string): Promise<PublicPostComment[]> {
 		const result = await this.db
 			.prepare(
-				`SELECT id, nickname, body, created_at
+				`SELECT id, nickname, body, reply_body, reply_created_at, created_at
 				 FROM post_comments
 				 WHERE post_id = ?
+				 AND moderation_status = 'approved'
 				 ORDER BY created_at ASC`,
 			)
 			.bind(postId)
@@ -393,14 +398,25 @@ export class PostsRepository {
 		postId: string;
 		nickname: string;
 		body: string;
+		moderationStatus?: "pending" | "approved";
 		now: string;
 	}): Promise<PublicPostComment> {
+		const moderationStatus = input.moderationStatus ?? "approved";
 		await this.db
 			.prepare(
-				`INSERT INTO post_comments (id, post_id, nickname, body, created_at)
-				 VALUES (?, ?, ?, ?, ?)`,
+				`INSERT INTO post_comments (
+					id, post_id, nickname, body, moderation_status, created_at
+				 )
+				 VALUES (?, ?, ?, ?, ?, ?)`,
 			)
-			.bind(input.id, input.postId, input.nickname, input.body, input.now)
+			.bind(
+				input.id,
+				input.postId,
+				input.nickname,
+				input.body,
+				moderationStatus,
+				input.now,
+			)
 			.run();
 
 		return {

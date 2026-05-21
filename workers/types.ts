@@ -34,6 +34,8 @@ export interface PublicPostComment {
 	id: string;
 	nickname: string;
 	body: string;
+	replyBody?: string;
+	replyCreatedAt?: string;
 	createdAt: string;
 }
 

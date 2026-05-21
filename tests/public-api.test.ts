@@ -1227,6 +1227,51 @@ describe("handlePublicApi", () => {
 		}
 	});
 
+	it("only exposes approved comments and includes author replies", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+			db.exec(
+				`INSERT INTO post_comments (
+					id, post_id, nickname, body, moderation_status,
+					reply_body, reply_created_at, created_at
+				)
+				VALUES (
+					'comment-approved', 'post-1', 'Ada', 'A thoughtful note.',
+					'approved', 'Thanks for reading.', '2026-05-04T00:00:00.000Z',
+					'2026-05-03T00:00:00.000Z'
+				), (
+					'comment-pending', 'post-1', 'Grace', 'Waiting for review.',
+					'pending', NULL, NULL, '2026-05-04T00:00:00.000Z'
+				)`,
+			);
+
+			const response = await handlePublicApi(
+				publicRequest("/api/posts/commented-post"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual(
+				expect.objectContaining({
+					comments: [
+						{
+							id: "comment-approved",
+							nickname: "Ada",
+							body: "A thoughtful note.",
+							replyBody: "Thanks for reading.",
+							replyCreatedAt: "2026-05-04T00:00:00.000Z",
+							createdAt: "2026-05-03T00:00:00.000Z",
+						},
+					],
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("keeps existing comments visible but blocks new comments when site comments are disabled", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1329,6 +1374,55 @@ describe("handlePublicApi", () => {
 						response: "turnstile-token",
 						remoteip: "203.0.113.10",
 					}),
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("creates pending comments when moderation is enabled", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(postRow({ id: "post-1", slug: "commented-post" }));
+			db.insertContent("post-1", "# Commented");
+			db.exec(
+				`INSERT INTO settings (key, value, encrypted, updated_at)
+				 VALUES (
+					'commentsModerationEnabled', 'true', 0,
+					'2026-05-20T00:00:00.000Z'
+				 )`,
+			);
+
+			const create = await handlePublicApi(
+				new Request("https://example.test/api/posts/commented-post/comments", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						nickname: "Ada",
+						body: "Please review this.",
+						turnstileToken: "turnstile-token",
+					}),
+				}),
+				envWithDb(db.asD1()),
+			);
+			const detail = await handlePublicApi(
+				publicRequest("/api/posts/commented-post"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(create.status).toBe(200);
+			await expect(create.json()).resolves.toEqual({
+				pending: true,
+				comment: expect.objectContaining({
+					nickname: "Ada",
+					body: "Please review this.",
+				}),
+			});
+			expect(detail.status).toBe(200);
+			await expect(detail.json()).resolves.toEqual(
+				expect.objectContaining({
+					comments: [],
 				}),
 			);
 		} finally {

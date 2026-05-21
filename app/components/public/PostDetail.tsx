@@ -11,6 +11,8 @@ export type PublicPostComment = {
 	id: string;
 	nickname: string;
 	body: string;
+	replyBody?: string;
+	replyCreatedAt?: string;
 	createdAt: string;
 };
 
@@ -81,7 +83,10 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 		setSubmitting(true);
 		setMessage(null);
 		try {
-			const response = await apiPost<{ comment: PublicPostComment }>(
+			const response = await apiPost<{
+				comment: PublicPostComment;
+				pending?: boolean;
+			}>(
 				`/api/posts/${encodeURIComponent(post.slug)}/comments`,
 				{
 					nickname,
@@ -89,12 +94,16 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 					turnstileToken,
 				},
 			);
-			setComments((current) => [...current, response.comment]);
+			if (!response.pending) {
+				setComments((current) => [...current, response.comment]);
+			}
 			setNickname("");
 			setBody("");
 			setTurnstileToken("");
 			setResetSignal((current) => current + 1);
-			setMessage("Comment posted.");
+			setMessage(
+				response.pending ? "Comment submitted for review." : "Comment posted.",
+			);
 		} catch (error) {
 			setMessage(
 				error instanceof Error ? error.message : "Comment could not be posted.",
@@ -122,6 +131,19 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 								</time>
 							</header>
 							<p>{comment.body}</p>
+							{comment.replyBody ? (
+								<div className="post-comment-reply">
+									<header>
+										<strong>233.life</strong>
+										{comment.replyCreatedAt ? (
+											<time dateTime={comment.replyCreatedAt}>
+												{formatCommentDate(comment.replyCreatedAt)}
+											</time>
+										) : null}
+									</header>
+									<p>{comment.replyBody}</p>
+								</div>
+							) : null}
 						</li>
 					))}
 				</ol>
@@ -169,7 +191,12 @@ function PostComments({ post }: { post: PublicPostDetail }) {
 					) : null}
 					{message ? (
 						<p
-							className={`state-note${message === "Comment posted." ? "" : " state-error"}`}
+							className={`state-note${
+								message === "Comment posted." ||
+								message === "Comment submitted for review."
+									? ""
+									: " state-error"
+							}`}
 						>
 							{message}
 						</p>

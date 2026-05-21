@@ -1354,7 +1354,7 @@ describe("admin posts API", () => {
 		}
 	});
 
-	it("lists, updates, and deletes comments for authenticated admins", async () => {
+	it("lists, moderates, replies to, updates, and deletes comments for authenticated admins", async () => {
 		const db = new SqliteD1Database();
 		try {
 			await seedChangedPassword(db);
@@ -1372,9 +1372,13 @@ describe("admin posts API", () => {
 				)`,
 			);
 			db.exec(
-				`INSERT INTO post_comments (id, post_id, nickname, body, created_at)
+				`INSERT INTO post_comments (
+					id, post_id, nickname, body, moderation_status,
+					reply_body, reply_created_at, created_at
+				)
 				 VALUES (
-					'comment-1', 'post-1', 'Ada', 'A small hello.',
+					'comment-1', 'post-1', 'Ada', 'A small hello.', 'pending',
+					NULL, NULL,
 					'2026-05-20T10:00:00.000Z'
 				 )`,
 			);
@@ -1401,10 +1405,14 @@ describe("admin posts API", () => {
 				}),
 				env,
 			);
-			const remove = await handleAdminApi(
+			const moderate = await handleAdminApi(
 				adminRequest("/api/admin/posts/post-1/comments/comment-1", {
+					body: JSON.stringify({
+						moderationStatus: "approved",
+						replyBody: "Thanks for stopping by.",
+					}),
 					headers,
-					method: "DELETE",
+					method: "PUT",
 				}),
 				env,
 			);
@@ -1421,6 +1429,9 @@ describe("admin posts API", () => {
 						id: "comment-1",
 						nickname: "Ada",
 						body: "A small hello.",
+						moderationStatus: "pending",
+						replyBody: null,
+						replyCreatedAt: null,
 						createdAt: "2026-05-20T10:00:00.000Z",
 					},
 				],
@@ -1439,6 +1450,37 @@ describe("admin posts API", () => {
 					"post-1",
 				).comments_enabled,
 			).toBe(0);
+			expect(moderate.status).toBe(200);
+			await expect(moderate.json()).resolves.toEqual({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A small hello.",
+					moderationStatus: "approved",
+					replyBody: "Thanks for stopping by.",
+					replyCreatedAt: expect.any(String),
+					createdAt: "2026-05-20T10:00:00.000Z",
+				},
+			});
+			expect(
+				db.row<{
+					moderation_status: string;
+					reply_body: string;
+				}>(
+					"SELECT moderation_status, reply_body FROM post_comments WHERE id = ?",
+					"comment-1",
+				),
+			).toEqual({
+				moderation_status: "approved",
+				reply_body: "Thanks for stopping by.",
+			});
+			const remove = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/comments/comment-1", {
+					headers,
+					method: "DELETE",
+				}),
+				env,
+			);
 			expect(remove.status).toBe(200);
 			expect(
 				db.rows("SELECT * FROM post_comments WHERE post_id = 'post-1'"),
@@ -1472,6 +1514,7 @@ describe("admin posts API", () => {
 					body: JSON.stringify({
 						defaultEnabled: false,
 						globalEnabled: false,
+						moderationEnabled: true,
 					}),
 					headers,
 					method: "PUT",
@@ -1490,16 +1533,19 @@ describe("admin posts API", () => {
 			await expect(initial.json()).resolves.toEqual({
 				defaultEnabled: true,
 				globalEnabled: true,
+				moderationEnabled: false,
 			});
 			expect(update.status).toBe(200);
 			await expect(update.json()).resolves.toEqual({
 				defaultEnabled: false,
 				globalEnabled: false,
+				moderationEnabled: true,
 			});
 			expect(saved.status).toBe(200);
 			await expect(saved.json()).resolves.toEqual({
 				defaultEnabled: false,
 				globalEnabled: false,
+				moderationEnabled: true,
 			});
 		} finally {
 			db.close();

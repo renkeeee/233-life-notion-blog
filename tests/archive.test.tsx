@@ -40,9 +40,9 @@ describe("Archive", () => {
 				</MemoryRouter>,
 			);
 
-			expect(await screen.findByRole("heading", { name: "Archive" })).toBeTruthy();
+			expect(await screen.findByText("2026")).toBeTruthy();
+			expect(screen.queryByRole("heading", { name: "Archive" })).toBeNull();
 			expect(screen.getByRole("heading", { name: "233.life" })).toBeTruthy();
-			expect(screen.getByText("2026")).toBeTruthy();
 			expect(screen.getByText("2025")).toBeTruthy();
 			expect(screen.getByText("May")).toBeTruthy();
 			expect(screen.getByText("April")).toBeTruthy();

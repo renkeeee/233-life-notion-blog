@@ -56,11 +56,17 @@ CREATE TABLE IF NOT EXISTS post_comments (
 	nickname TEXT NOT NULL,
 	body TEXT NOT NULL,
 	created_at TEXT NOT NULL,
+	moderation_status TEXT NOT NULL DEFAULT 'approved' CHECK (moderation_status IN ('pending', 'approved')),
+	reply_body TEXT,
+	reply_created_at TEXT,
 	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_post_comments_post_created_at
 	ON post_comments (post_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_post_comments_status_created_at
+	ON post_comments (post_id, moderation_status, created_at);
 
 CREATE TABLE IF NOT EXISTS comment_rate_limits (
 	key TEXT PRIMARY KEY,

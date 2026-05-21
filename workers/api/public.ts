@@ -3,6 +3,7 @@ import {
 	checkCommentSubmissionRateLimit,
 	commentRateLimitMessage,
 	loadCommentsGlobalEnabled,
+	loadCommentsModerationEnabled,
 } from "../comments";
 import { constantTimeEqual, decryptString, randomToken } from "../crypto";
 import { errorJson, json, readJsonObject } from "../http";
@@ -32,6 +33,8 @@ type PublicPostComment = {
 	id: string;
 	nickname: string;
 	body: string;
+	replyBody?: string;
+	replyCreatedAt?: string;
 	createdAt: string;
 };
 
@@ -309,15 +312,20 @@ async function handleCreateComment(
 		);
 	}
 
+	const moderationEnabled = await loadCommentsModerationEnabled(env.DB);
 	const comment = await posts.createComment({
 		id: randomToken(12),
 		postId: post.id,
 		nickname,
 		body: content,
+		moderationStatus: moderationEnabled ? "pending" : "approved",
 		now: new Date().toISOString(),
 	});
 
-	return json({ comment });
+	return json({
+		comment,
+		...(moderationEnabled ? { pending: true } : {}),
+	});
 }
 
 async function passwordFromRequest(request: Request): Promise<string | null> {

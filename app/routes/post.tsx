@@ -58,7 +58,6 @@ function BackIcon() {
 	return (
 		<svg aria-hidden="true" viewBox="0 0 24 24">
 			<path d="M15 5 8 12l7 7" />
-			<path d="M9 12h11" />
 		</svg>
 	);
 }

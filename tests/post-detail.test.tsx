@@ -125,6 +125,11 @@ describe("PostDetail", () => {
 			expect(
 				screen.getByRole("button", { name: "Theme mode: auto" }),
 			).toBeTruthy();
+			expect(
+				screen
+					.getByRole("button", { name: "Go back" })
+					.querySelectorAll("path"),
+			).toHaveLength(1);
 			fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 			expect(historyBack).toHaveBeenCalledTimes(1);
 			expect(screen.queryByText("Loading post...")).toBeNull();

@@ -181,65 +181,80 @@ export function PublicHeader({
 
 	return (
 		<header className="public-header">
-			<div>
-				<p className="eyebrow">Life, written in quiet moments.</p>
-				<Link className="site-title-link" to="/">
-					<h1 className="site-title">233.life</h1>
-				</Link>
-			</div>
-			<div className="public-header-actions">
-				<div className={`category-switcher${categoriesOpen ? " expanded" : ""}`}>
-					{categoriesOpen ? (
-						<div className="category-list" aria-label="Categories">
-							<button
-								type="button"
-								aria-label="All categories"
-								className={`category-option${
-									selectedCategory === null ? " active" : ""
-								}`}
-								onClick={() => selectCategory(null)}
-							>
-								All
-							</button>
-							{effectiveCategoriesState.status === "error" ? (
+			<div className="public-header-brand-area">
+				<div className="public-header-title-block">
+					<p className="eyebrow">Life, written in quiet moments.</p>
+					<Link className="site-title-link" to="/">
+						<h1 className="site-title">233.life</h1>
+					</Link>
+				</div>
+				<div className="public-header-filters">
+					<div className={`category-switcher${categoriesOpen ? " expanded" : ""}`}>
+						{categoriesOpen ? (
+							<div className="category-list" aria-label="Categories">
 								<button
 									type="button"
-									className="category-option"
-									onClick={loadCategories}
+									aria-label="All categories"
+									className={`category-option${
+										selectedCategory === null ? " active" : ""
+									}`}
+									onClick={() => selectCategory(null)}
 								>
-									Retry
+									All
 								</button>
-							) : null}
-							{effectiveCategoriesState.status === "success"
-								? effectiveCategoriesState.items.map((category) => (
-										<button
-											type="button"
-											aria-label={`${category.name} ${category.count}`}
-											className={`category-option${
-												selectedCategory === category.name ? " active" : ""
-											}`}
-											key={category.name}
-											onClick={() => selectCategory(category.name)}
-										>
-											<span>{category.name}</span>
-											<span>{category.count}</span>
-										</button>
-									))
-								: null}
-						</div>
-					) : null}
+								{effectiveCategoriesState.status === "error" ? (
+									<button
+										type="button"
+										className="category-option"
+										onClick={loadCategories}
+									>
+										Retry
+									</button>
+								) : null}
+								{effectiveCategoriesState.status === "success"
+									? effectiveCategoriesState.items.map((category) => (
+											<button
+												type="button"
+												aria-label={`${category.name} ${category.count}`}
+												className={`category-option${
+													selectedCategory === category.name ? " active" : ""
+												}`}
+												key={category.name}
+												onClick={() => selectCategory(category.name)}
+											>
+												<span>{category.name}</span>
+												<span>{category.count}</span>
+											</button>
+										))
+									: null}
+							</div>
+						) : null}
+						<button
+							className="category-entry-button"
+							type="button"
+							aria-expanded={categoriesOpen}
+							onClick={toggleCategories}
+						>
+							Categories
+						</button>
+					</div>
 					<button
-						className="category-entry-button"
+						className="tag-entry-button"
 						type="button"
-						aria-expanded={categoriesOpen}
-						onClick={toggleCategories}
+						onClick={openTagPicker}
 					>
-						Categories
+						Tags
 					</button>
 				</div>
-				<button className="tag-entry-button" type="button" onClick={openTagPicker}>
-					Tags
-				</button>
+			</div>
+			<div className="public-header-spacer" aria-hidden="true" />
+			<div className="public-header-actions">
+				<Link
+					className={`home-entry-button${currentPath === "/" ? " active" : ""}`}
+					to="/"
+				>
+					Home
+				</Link>
 				<Link
 					className={`archive-entry-button${
 						currentPath === "/archive" ? " active" : ""

@@ -242,7 +242,7 @@ describe("home pagination", () => {
 		expect(searchForm).not.toHaveClass("expanded");
 	});
 
-	it("keeps the category, tag, archive, album, search, and theme controls in one header action row", async () => {
+	it("keeps filters beside the title and navigation controls on the right", async () => {
 		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [],
 			total: 0,
@@ -258,22 +258,36 @@ describe("home pagination", () => {
 
 		await screen.findByText("No posts have been published yet.");
 
+		const brandArea = container.querySelector(".public-header-brand-area");
+		const spacer = container.querySelector(".public-header-spacer");
 		const actions = container.querySelector(".public-header-actions");
+		const titleLink = screen.getByRole("link", { name: "233.life" });
 		const categoryButton = screen.getByRole("button", { name: "Categories" });
 		const tagButton = screen.getByRole("button", { name: "Tags" });
+		const homeLink = screen.getByRole("link", { name: "Home" });
 		const archiveLink = screen.getByRole("link", { name: "Archived" });
 		const albumLink = screen.getByRole("link", { name: "Album" });
 		const searchForm = screen.getByRole("search");
 		const themeButton = screen.getByRole("button", { name: "Theme mode: auto" });
 
-		expect(actions).toContainElement(categoryButton);
-		expect(actions).toContainElement(tagButton);
+		expect(brandArea).toContainElement(titleLink);
+		expect(brandArea).toContainElement(categoryButton);
+		expect(brandArea).toContainElement(tagButton);
+		expect(spacer).toBeTruthy();
+		expect(actions).not.toContainElement(categoryButton);
+		expect(actions).not.toContainElement(tagButton);
+		expect(actions).toContainElement(homeLink);
 		expect(actions).toContainElement(archiveLink);
 		expect(actions).toContainElement(albumLink);
 		expect(actions).toContainElement(searchForm);
 		expect(actions).toContainElement(themeButton);
+		expect(homeLink).toHaveAttribute("href", "/");
 		expect(archiveLink).toHaveAttribute("href", "/archive");
 		expect(albumLink).toHaveAttribute("href", "/album");
+		expect(
+			homeLink.compareDocumentPosition(archiveLink) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 	});
 
 	it("cycles between automatic, light, and dark theme modes", async () => {

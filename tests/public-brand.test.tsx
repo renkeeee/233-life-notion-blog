@@ -98,4 +98,21 @@ describe("public brand", () => {
 		expect(categoryListRule).toContain("overflow-y: hidden");
 		expect(categoryListRule).not.toContain("flex-wrap: wrap");
 	});
+
+	it("keeps archive and album date headings compact", () => {
+		expect(cssRule(".archive-year h3")).toContain(
+			"font-size: clamp(1.45rem, 3vw, 2rem)",
+		);
+		expect(cssRule(".archive-month-label")).toContain(
+			"font-size: clamp(1.05rem, 2vw, 1.25rem)",
+		);
+	});
+
+	it("uses a lighter split header layout", () => {
+		expect(cssRule(".public-header-brand-area")).toContain("display: flex");
+		expect(cssRule(".public-header-spacer")).toContain("flex: 1 1 auto");
+		expect(cssRule(".site-title")).toContain("font-weight: 600");
+		expect(appCss).toContain(".public-shell .home-entry-button");
+		expect(appCss).toContain("font-weight: 520");
+	});
 });

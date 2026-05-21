@@ -17,6 +17,8 @@ describe("Album", () => {
 					tags: ["Life"],
 					kind: "image",
 					url: "https://assets.233.life/assets/aa/window.jpg",
+					thumbnailUrl:
+						"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/aa/window.jpg",
 					caption: "Window light",
 					publishedAt: "2026-05-03T00:00:00.000Z",
 					updatedAt: "2026-05-03T00:00:00.000Z",
@@ -54,6 +56,10 @@ describe("Album", () => {
 			expect(screen.getByText("May note")).toBeTruthy();
 			expect(screen.getByText("Video")).toBeTruthy();
 			expect(apiGet).toHaveBeenCalledWith("/api/album");
+			expect(screen.getByRole("img", { name: "Window light" })).toHaveAttribute(
+				"src",
+				"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/aa/window.jpg",
+			);
 
 			fireEvent.click(
 				screen.getByRole("button", { name: "Preview Window light" }),

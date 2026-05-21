@@ -50,6 +50,7 @@ export interface PublicAlbumMediaRecord {
 	tags: string[];
 	kind: PublicAlbumMediaKind;
 	url: string;
+	thumbnailUrl?: string;
 	caption: string;
 	publishedAt: string | null;
 	updatedAt: string;

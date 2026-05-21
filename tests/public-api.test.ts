@@ -1103,6 +1103,8 @@ describe("PostsRepository", () => {
 						tags: ["Life"],
 						kind: "image",
 						url: "https://assets.233.life/assets/aa/image.jpg",
+						thumbnailUrl:
+							"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/aa/image.jpg",
 						caption: "Window light",
 						publishedAt: "2026-05-03T00:00:00.000Z",
 						updatedAt: "2026-05-02T00:00:00.000Z",

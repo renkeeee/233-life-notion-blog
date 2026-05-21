@@ -8,7 +8,7 @@ import {
 import { constantTimeEqual, decryptString, randomToken } from "../crypto";
 import { errorJson, json, readJsonObject } from "../http";
 import { handleRobots, withNoIndexHeaders } from "../seo";
-import type { AppEnv, PublicPostRecord } from "../types";
+import type { AppEnv, PublicAlbumMediaRecord, PublicPostRecord } from "../types";
 import {
 	handleTurnstileAccess,
 	requireTurnstileAccess,
@@ -87,6 +87,16 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 		...(post.locked === true ? { locked: true } : {}),
 		publishedAt: post.publishedAt,
 		updatedAt: post.updatedAt,
+	};
+}
+
+function toPublicAlbumMedia(item: PublicAlbumMediaRecord): PublicAlbumMediaRecord {
+	const thumbnailUrl =
+		item.kind === "image" ? thumbnailUrlForCover(item.url) : null;
+
+	return {
+		...item,
+		...(thumbnailUrl ? { thumbnailUrl } : {}),
 	};
 }
 
@@ -616,7 +626,7 @@ async function handlePublicApiResponse(
 	if (url.pathname === "/api/album") {
 		return cacheableJson(
 			request,
-			{ items: await posts.listPublishedMediaForAlbum() },
+			{ items: (await posts.listPublishedMediaForAlbum()).map(toPublicAlbumMedia) },
 			publicApiCacheControl,
 		);
 	}

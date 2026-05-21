@@ -14,6 +14,7 @@ type AlbumMediaItem = {
 	tags: string[];
 	kind: AlbumMediaKind;
 	url: string;
+	thumbnailUrl?: string;
 	caption: string;
 	publishedAt: string | null;
 	updatedAt: string;
@@ -133,7 +134,14 @@ function MediaThumbnail({ item }: { item: AlbumMediaItem }) {
 	const title = mediaTitle(item);
 
 	if (item.kind === "image") {
-		return <img src={item.url} alt={title} loading="lazy" decoding="async" />;
+		return (
+			<img
+				src={item.thumbnailUrl || item.url}
+				alt={title}
+				loading="lazy"
+				decoding="async"
+			/>
+		);
 	}
 
 	if (item.kind === "video") {

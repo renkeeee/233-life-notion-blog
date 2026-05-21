@@ -1025,12 +1025,13 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												value={postCommentReplies[comment.id] ?? ""}
 												rows={3}
 												maxLength={2000}
-												onChange={(event) =>
+												onChange={(event) => {
+													const nextReply = event.currentTarget.value;
 													setPostCommentReplies((current) => ({
 														...current,
-														[comment.id]: event.currentTarget.value,
-													}))
-												}
+														[comment.id]: nextReply,
+													}));
+												}}
 											/>
 										</label>
 										<div className="admin-comment-reply-actions">

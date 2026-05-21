@@ -115,4 +115,19 @@ describe("public brand", () => {
 		expect(appCss).toContain(".public-shell .home-entry-button");
 		expect(appCss).toContain("font-weight: 520");
 	});
+
+	it("differentiates the category and tag filter buttons from navigation", () => {
+		const filterButtonRule = cssRule(
+			".public-header-filters :is(.category-entry-button, .tag-entry-button)",
+		);
+		const filterHoverRule = cssRule(
+			".public-header-filters :is(.category-entry-button, .tag-entry-button):hover",
+		);
+
+		expect(filterButtonRule).toContain("font-style: italic");
+		expect(filterButtonRule).toContain("font-weight: 380");
+		expect(filterHoverRule).toContain("background: transparent");
+		expect(filterHoverRule).toContain("color: var(--heading)");
+		expect(filterHoverRule).toContain("font-weight: 620");
+	});
 });

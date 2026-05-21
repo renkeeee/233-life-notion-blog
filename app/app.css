@@ -494,6 +494,17 @@ body {
 	color: var(--text-soft);
 }
 
+.public-header-filters :is(.category-entry-button, .tag-entry-button) {
+	font-style: italic;
+	font-weight: 380;
+}
+
+.public-header-filters :is(.category-entry-button, .tag-entry-button):hover {
+	background: transparent;
+	color: var(--heading);
+	font-weight: 620;
+}
+
 .public-shell .theme-mode-button {
 	width: var(--home-control-height);
 	padding: 0;

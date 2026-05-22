@@ -285,7 +285,11 @@ describe("home pagination", () => {
 		expect(archiveLink).toHaveAttribute("href", "/archive");
 		expect(albumLink).toHaveAttribute("href", "/album");
 		expect(
-			homeLink.compareDocumentPosition(archiveLink) &
+			homeLink.compareDocumentPosition(albumLink) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			albumLink.compareDocumentPosition(archiveLink) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});

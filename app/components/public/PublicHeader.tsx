@@ -256,20 +256,20 @@ export function PublicHeader({
 					Home
 				</Link>
 				<Link
-					className={`archive-entry-button${
-						currentPath === "/archive" ? " active" : ""
-					}`}
-					to="/archive"
-				>
-					Archived
-				</Link>
-				<Link
 					className={`album-entry-button${
 						currentPath === "/album" ? " active" : ""
 					}`}
 					to="/album"
 				>
 					Album
+				</Link>
+				<Link
+					className={`archive-entry-button${
+						currentPath === "/archive" ? " active" : ""
+					}`}
+					to="/archive"
+				>
+					Archived
 				</Link>
 				<form
 					className={`search-form expandable capsule${searchOpen ? " expanded" : ""}`}

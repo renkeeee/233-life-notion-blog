@@ -242,10 +242,10 @@ describe("home pagination", () => {
 		expect(searchForm).not.toHaveClass("expanded");
 	});
 
-	it("keeps filters beside the title and navigation controls on the right", async () => {
+	it("keeps filters in the homepage toolbar and navigation controls on the right", async () => {
 		vi.spyOn(apiClient, "apiGet").mockResolvedValue({
-			items: [],
-			total: 0,
+			items: [post()],
+			total: 1,
 			page: 1,
 			limit: 20,
 		});
@@ -256,11 +256,12 @@ describe("home pagination", () => {
 			</MemoryRouter>,
 		);
 
-		await screen.findByText("No posts have been published yet.");
+		await screen.findByRole("heading", { name: "First post" });
 
 		const brandArea = container.querySelector(".public-header-brand-area");
 		const spacer = container.querySelector(".public-header-spacer");
 		const actions = container.querySelector(".public-header-actions");
+		const toolbar = container.querySelector(".home-content-toolbar");
 		const titleLink = screen.getByRole("link", { name: "233.life" });
 		const categoryButton = screen.getByRole("button", { name: "Categories" });
 		const tagButton = screen.getByRole("button", { name: "Tags" });
@@ -271,9 +272,11 @@ describe("home pagination", () => {
 		const themeButton = screen.getByRole("button", { name: "Theme mode: auto" });
 
 		expect(brandArea).toContainElement(titleLink);
-		expect(brandArea).toContainElement(categoryButton);
-		expect(brandArea).toContainElement(tagButton);
 		expect(spacer).toBeTruthy();
+		expect(toolbar).toContainElement(categoryButton);
+		expect(toolbar).toContainElement(tagButton);
+		expect(brandArea).not.toContainElement(categoryButton);
+		expect(brandArea).not.toContainElement(tagButton);
 		expect(actions).not.toContainElement(categoryButton);
 		expect(actions).not.toContainElement(tagButton);
 		expect(actions).toContainElement(homeLink);

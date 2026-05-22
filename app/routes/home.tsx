@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
-import {
-	PublicHeader,
-	type CountSummary,
-} from "../components/public/PublicHeader";
+import { PublicHeader } from "../components/public/PublicHeader";
 import { apiGet } from "../lib/api-client";
+
+type CountSummary = {
+	name: string;
+	count: number;
+};
 
 type PostsResponse = {
 	items: PublicPostSummary[];
@@ -16,6 +18,10 @@ type PostsResponse = {
 };
 
 type CategoriesResponse = {
+	items: CountSummary[];
+};
+
+type TagsResponse = {
 	items: CountSummary[];
 };
 
@@ -122,7 +128,10 @@ export default function Home() {
 	const [categoriesState, setCategoriesState] = useState<CategoriesState>({
 		status: "idle",
 	});
+	const [categoriesOpen, setCategoriesOpen] = useState(false);
 	const [selectedTag, setSelectedTag] = useState<string | null>(initialTag);
+	const [tagsState, setTagsState] = useState<CategoriesState>({ status: "idle" });
+	const [tagPickerOpen, setTagPickerOpen] = useState(false);
 	const [state, setState] = useState<LoadState>({ status: "loading" });
 	const loadMoreRef = useRef<HTMLDivElement | null>(null);
 	const activeRequestRef = useRef(0);
@@ -255,6 +264,37 @@ export default function Home() {
 		}
 	}, []);
 
+	async function loadTags() {
+		setTagsState({ status: "loading" });
+		try {
+			const response = await apiGet<TagsResponse>("/api/tags");
+			setTagsState({ status: "success", items: response.items });
+		} catch (error: unknown) {
+			setTagsState({
+				status: "error",
+				message: errorMessage(error),
+			});
+		}
+	}
+
+	function toggleCategories() {
+		setCategoriesOpen((current) => {
+			const next = !current;
+			if (next && categoriesState.status === "idle") {
+				void loadCategories();
+			}
+
+			return next;
+		});
+	}
+
+	function openTagPicker() {
+		setTagPickerOpen(true);
+		if (tagsState.status === "idle") {
+			void loadTags();
+		}
+	}
+
 	function selectCategory(category: string | null) {
 		setSelectedCategory(category);
 		const params = new URLSearchParams();
@@ -269,6 +309,7 @@ export default function Home() {
 
 	function selectTag(tag: string) {
 		setSelectedTag(tag);
+		setTagPickerOpen(false);
 		const params = new URLSearchParams();
 		if (selectedCategory) {
 			params.set("category", selectedCategory);
@@ -351,20 +392,78 @@ export default function Home() {
 		);
 	}
 
+	function filterControls() {
+		return (
+			<div className="home-filter-actions">
+				<div className={`category-switcher${categoriesOpen ? " expanded" : ""}`}>
+					{categoriesOpen ? (
+						<div className="category-list" aria-label="Categories">
+							<button
+								type="button"
+								aria-label="All categories"
+								className={`category-option${
+									selectedCategory === null ? " active" : ""
+								}`}
+								onClick={() => selectCategory(null)}
+							>
+								All
+							</button>
+							{categoriesState.status === "error" ? (
+								<button
+									type="button"
+									className="category-option"
+									onClick={() => void loadCategories()}
+								>
+									Retry
+								</button>
+							) : null}
+							{categoriesState.status === "success"
+								? categoriesState.items.map((category) => (
+										<button
+											type="button"
+											aria-label={`${category.name} ${category.count}`}
+											className={`category-option${
+												selectedCategory === category.name ? " active" : ""
+											}`}
+											key={category.name}
+											onClick={() => selectCategory(category.name)}
+										>
+											<span>{category.name}</span>
+											<span>{category.count}</span>
+										</button>
+									))
+								: null}
+						</div>
+					) : null}
+					<button
+						className="category-entry-button"
+						type="button"
+						aria-expanded={categoriesOpen}
+						onClick={toggleCategories}
+					>
+						Categories
+					</button>
+				</div>
+				<button className="tag-entry-button" type="button" onClick={openTagPicker}>
+					Tags
+				</button>
+			</div>
+		);
+	}
+
 	return (
 		<main className="public-shell">
-			<PublicHeader
-				categoriesState={categoriesState}
-				onLoadCategories={() => void loadCategories()}
-				onSelectCategory={selectCategory}
-				onSelectTag={selectTag}
-				selectedCategory={selectedCategory}
-				selectedTag={selectedTag}
-			/>
+			<PublicHeader />
 
 			{state.status === "loading" ? <PostListSkeleton /> : null}
 			{state.status === "error" ? (
 				<p className="state-note state-error">{state.message}</p>
+			) : null}
+			{state.status === "success" ? (
+				<div className="home-content-toolbar">
+					<p className="result-count">{state.total} posts</p>
+					{filterControls()}
+				</div>
 			) : null}
 			{state.status === "success" && selectedTag ? (
 				<p className="tag-filter-note">
@@ -385,12 +484,53 @@ export default function Home() {
 			) : null}
 			{state.status === "success" && state.posts.length > 0 ? (
 				<>
-					<p className="result-count">{state.total} posts</p>
 					<PostList posts={state.posts} />
 					<div className="load-more-panel" ref={loadMoreRef} aria-live="polite">
 						{loadMoreContent()}
 					</div>
 				</>
+			) : null}
+			{tagPickerOpen ? (
+				<div className="tag-dialog-backdrop">
+					<section className="tag-dialog compact" role="dialog" aria-label="Tags">
+						<div className="tag-dialog-heading">
+							<h2>Tags</h2>
+							<button type="button" onClick={() => setTagPickerOpen(false)}>
+								Close
+							</button>
+						</div>
+						{tagsState.status === "loading" ? (
+							<p className="state-note">Loading tags...</p>
+						) : null}
+						{tagsState.status === "error" ? (
+							<div className="state-panel">
+								<p className="state-note state-error">{tagsState.message}</p>
+								<button type="button" onClick={() => void loadTags()}>
+									Retry
+								</button>
+							</div>
+						) : null}
+						{tagsState.status === "success" && tagsState.items.length === 0 ? (
+							<p className="state-note">No tags have been synced yet.</p>
+						) : null}
+						{tagsState.status === "success" && tagsState.items.length > 0 ? (
+							<div className="tag-picker-list">
+								{tagsState.items.map((tag) => (
+									<button
+										type="button"
+										aria-label={`${tag.name} ${tag.count}`}
+										className={selectedTag === tag.name ? "active" : ""}
+										key={tag.name}
+										onClick={() => selectTag(tag.name)}
+									>
+										<span>{tag.name}</span>
+										<span>{tag.count}</span>
+									</button>
+								))}
+							</div>
+						) : null}
+					</section>
+				</div>
 			) : null}
 		</main>
 	);

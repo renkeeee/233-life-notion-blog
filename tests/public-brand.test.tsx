@@ -111,17 +111,19 @@ describe("public brand", () => {
 	it("uses a lighter split header layout", () => {
 		expect(cssRule(".public-header-brand-area")).toContain("display: flex");
 		expect(cssRule(".public-header-spacer")).toContain("flex: 1 1 auto");
+		expect(cssRule(".home-content-toolbar")).toContain("display: flex");
+		expect(cssRule(".home-filter-actions")).toContain("justify-content: flex-end");
 		expect(cssRule(".site-title")).toContain("font-weight: 600");
 		expect(appCss).toContain(".public-shell .home-entry-button");
 		expect(appCss).toContain("font-weight: 520");
 	});
 
-	it("differentiates the category and tag filter buttons from navigation", () => {
+	it("differentiates the homepage category and tag filter buttons from navigation", () => {
 		const filterButtonRule = cssRule(
-			".public-header-filters :is(.category-entry-button, .tag-entry-button)",
+			".home-filter-actions :is(.category-entry-button, .tag-entry-button)",
 		);
 		const filterHoverRule = cssRule(
-			".public-header-filters :is(.category-entry-button, .tag-entry-button):hover",
+			".home-filter-actions :is(.category-entry-button, .tag-entry-button):hover",
 		);
 
 		expect(filterButtonRule).toContain("font-style: italic");

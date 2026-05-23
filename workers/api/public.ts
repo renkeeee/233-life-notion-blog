@@ -8,7 +8,12 @@ import {
 import { constantTimeEqual, decryptString, randomToken } from "../crypto";
 import { errorJson, json, readJsonObject } from "../http";
 import { handleRobots, withNoIndexHeaders } from "../seo";
-import type { AppEnv, PublicAlbumMediaRecord, PublicPostRecord } from "../types";
+import type {
+	AppEnv,
+	PublicAlbumMediaKind,
+	PublicAlbumMediaRecord,
+	PublicPostRecord,
+} from "../types";
 import {
 	handleTurnstileAccess,
 	requireTurnstileAccess,
@@ -61,6 +66,7 @@ type ListPostsResponseOptions = ListOptions & {
 
 const defaultPage = 1;
 const defaultLimit = 20;
+const defaultAlbumLimit = 30;
 const maxLimit = 100;
 const publicApiCacheControl = "public, no-cache";
 const defaultFeedTitle = "233.life";
@@ -92,11 +98,14 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 
 function toPublicAlbumMedia(item: PublicAlbumMediaRecord): PublicAlbumMediaRecord {
 	const thumbnailUrl =
-		item.kind === "image" ? thumbnailUrlForCover(item.url) : null;
+		item.thumbnailUrl ??
+		(item.kind === "image" ? thumbnailUrlForCover(item.url) : null);
+	const largeUrl = item.largeUrl ?? item.url;
 
 	return {
 		...item,
 		...(thumbnailUrl ? { thumbnailUrl } : {}),
+		...(largeUrl ? { largeUrl } : {}),
 	};
 }
 
@@ -215,6 +224,71 @@ function paginationFromParams(params: URLSearchParams) {
 		page,
 		limit: Math.min(requestedLimit, maxLimit),
 	};
+}
+
+function albumPaginationFromParams(params: URLSearchParams) {
+	const page = parsePositiveInteger(params, "page", defaultPage);
+	const requestedLimit = parsePositiveInteger(
+		params,
+		"limit",
+		defaultAlbumLimit,
+	);
+
+	if (page === null || requestedLimit === null) {
+		return null;
+	}
+
+	return {
+		page,
+		limit: Math.min(requestedLimit, maxLimit),
+	};
+}
+
+const albumMediaKinds = new Set<PublicAlbumMediaKind>([
+	"image",
+	"video",
+	"audio",
+	"pdf",
+	"file",
+]);
+
+function albumKindFromParams(
+	params: URLSearchParams,
+): PublicAlbumMediaKind | undefined | null {
+	const rawValue = params.get("kind");
+	if (rawValue === null || rawValue.trim() === "") {
+		return undefined;
+	}
+
+	const value = rawValue.trim();
+	return albumMediaKinds.has(value as PublicAlbumMediaKind)
+		? (value as PublicAlbumMediaKind)
+		: null;
+}
+
+function optionalIntegerFromParams(
+	params: URLSearchParams,
+	name: "year" | "month",
+): number | undefined | null {
+	const rawValue = params.get(name);
+	if (rawValue === null || rawValue.trim() === "") {
+		return undefined;
+	}
+
+	if (!/^\d+$/.test(rawValue.trim())) {
+		return null;
+	}
+
+	return Number(rawValue);
+}
+
+function albumFeaturedFromParams(params: URLSearchParams): boolean | undefined {
+	const rawValue = params.get("featured");
+	if (rawValue === null || rawValue.trim() === "") {
+		return undefined;
+	}
+
+	return rawValue === "1" || rawValue.toLowerCase() === "true";
 }
 
 function postSlugFromPath(pathname: string): string | null {
@@ -623,10 +697,51 @@ async function handlePublicApiResponse(
 		);
 	}
 
-	if (url.pathname === "/api/album") {
+	if (url.pathname === "/api/album/collections") {
 		return cacheableJson(
 			request,
-			{ items: (await posts.listPublishedMediaForAlbum()).map(toPublicAlbumMedia) },
+			{ items: await posts.listPublicAlbumCollections() },
+			publicApiCacheControl,
+		);
+	}
+
+	if (url.pathname === "/api/album") {
+		const pagination = albumPaginationFromParams(url.searchParams);
+		const kind = albumKindFromParams(url.searchParams);
+		const year = optionalIntegerFromParams(url.searchParams, "year");
+		const month = optionalIntegerFromParams(url.searchParams, "month");
+
+		if (!pagination) {
+			return errorJson(
+				"BAD_REQUEST",
+				"Pagination values must be positive integers",
+				400,
+			);
+		}
+
+		if (kind === null) {
+			return errorJson("BAD_REQUEST", "Invalid album media kind", 400);
+		}
+
+		if (year === null || month === null || (month !== undefined && (month < 1 || month > 12))) {
+			return errorJson("BAD_REQUEST", "Invalid album date filter", 400);
+		}
+
+		const result = await posts.listPublicAlbum({
+			...pagination,
+			kind,
+			collection: (url.searchParams.get("collection") ?? "").trim() || undefined,
+			featured: albumFeaturedFromParams(url.searchParams),
+			year,
+			month,
+		});
+
+		return cacheableJson(
+			request,
+			{
+				...result,
+				items: result.items.map(toPublicAlbumMedia),
+			},
 			publicApiCacheControl,
 		);
 	}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import "react-datepicker/dist/react-datepicker.css";
+import { AlbumPanel } from "../components/admin/AlbumPanel";
 import { AdminLogin } from "../components/admin/AdminLogin";
 import { AdminShell, type AdminTab } from "../components/admin/AdminShell";
 import { PostStatusTable } from "../components/admin/PostStatusTable";
@@ -458,6 +459,10 @@ export default function Admin() {
 
 		if (activeTab === "posts") {
 			return <PostStatusTable csrfToken={session.csrfToken} />;
+		}
+
+		if (activeTab === "album") {
+			return <AlbumPanel csrfToken={session.csrfToken} />;
 		}
 
 		return <Overview mustChangePassword={session.mustChangePassword} />;

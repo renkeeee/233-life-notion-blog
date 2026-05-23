@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 
-export type AdminTab = "overview" | "settings" | "sync" | "posts";
+export type AdminTab = "overview" | "settings" | "sync" | "posts" | "album";
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
 	{ id: "overview", label: "Overview" },
 	{ id: "settings", label: "Settings" },
 	{ id: "sync", label: "Sync" },
 	{ id: "posts", label: "Posts" },
+	{ id: "album", label: "Album" },
 ];
 
 export function AdminShell({

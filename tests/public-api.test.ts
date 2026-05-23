@@ -227,6 +227,119 @@ class SqliteD1Database {
 			);
 	}
 
+	insertAlbumItem(overrides: Record<string, unknown> = {}): void {
+		const row = {
+			id: "album-item-1",
+			source_type: "manual",
+			source_id: null,
+			post_id: null,
+			kind: "image",
+			url: "https://assets.233.life/assets/manual.jpg",
+			thumbnail_url: null,
+			large_url: null,
+			r2_key: "assets/manual.jpg",
+			title: "Manual image",
+			description: "",
+			caption: "",
+			taken_at: "2026-05-04T00:00:00.000Z",
+			location_name: "",
+			latitude: null,
+			longitude: null,
+			visibility: "visible",
+			featured: 0,
+			sort_order: 0,
+			source_content_hash: null,
+			exif_json: null,
+			created_at: now,
+			updated_at: now,
+			...overrides,
+		};
+		this.db
+			.prepare(
+				`INSERT INTO album_items (
+					id, source_type, source_id, post_id, kind, url, thumbnail_url,
+					large_url, r2_key, title, description, caption, taken_at,
+					location_name, latitude, longitude, visibility, featured,
+					sort_order, source_content_hash, exif_json, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				row.id as SqlInputValue,
+				row.source_type as SqlInputValue,
+				row.source_id as SqlInputValue,
+				row.post_id as SqlInputValue,
+				row.kind as SqlInputValue,
+				row.url as SqlInputValue,
+				row.thumbnail_url as SqlInputValue,
+				row.large_url as SqlInputValue,
+				row.r2_key as SqlInputValue,
+				row.title as SqlInputValue,
+				row.description as SqlInputValue,
+				row.caption as SqlInputValue,
+				row.taken_at as SqlInputValue,
+				row.location_name as SqlInputValue,
+				row.latitude as SqlInputValue,
+				row.longitude as SqlInputValue,
+				row.visibility as SqlInputValue,
+				row.featured as SqlInputValue,
+				row.sort_order as SqlInputValue,
+				row.source_content_hash as SqlInputValue,
+				row.exif_json as SqlInputValue,
+				row.created_at as SqlInputValue,
+				row.updated_at as SqlInputValue,
+			);
+	}
+
+	insertAlbumCollection(overrides: Record<string, unknown> = {}): void {
+		const row = {
+			id: "collection-1",
+			slug: "quiet-days",
+			title: "Quiet days",
+			description: "",
+			cover_item_id: null,
+			visibility: "visible",
+			sort_order: 0,
+			created_at: now,
+			updated_at: now,
+			...overrides,
+		};
+		this.db
+			.prepare(
+				`INSERT INTO album_collections (
+					id, slug, title, description, cover_item_id, visibility,
+					sort_order, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				row.id as SqlInputValue,
+				row.slug as SqlInputValue,
+				row.title as SqlInputValue,
+				row.description as SqlInputValue,
+				row.cover_item_id as SqlInputValue,
+				row.visibility as SqlInputValue,
+				row.sort_order as SqlInputValue,
+				row.created_at as SqlInputValue,
+				row.updated_at as SqlInputValue,
+			);
+	}
+
+	linkAlbumItemToCollection(
+		itemId: string,
+		collectionId: string,
+		sortOrder = 0,
+	): void {
+		this.db
+			.prepare(
+				`INSERT INTO album_item_collections (
+					item_id, collection_id, sort_order
+				)
+				VALUES (?, ?, ?)`,
+			)
+			.run(itemId, collectionId, sortOrder);
+	}
+
 	insertTag(postId: string, tag: string, sortOrder = 0): void {
 		this.db
 			.prepare(
@@ -1056,6 +1169,20 @@ describe("PostsRepository", () => {
 					caption: "Window light",
 					sort_order: 0,
 				});
+			db.insertAlbumItem({
+				id: "post-1:image-1:0",
+				source_type: "post_media",
+				source_id: "post-1:image-1:0",
+				post_id: "post-1",
+				kind: "image",
+				url: "https://assets.233.life/assets/aa/image.jpg",
+				r2_key: "assets/aa/image.jpg",
+				title: "Window light",
+				caption: "Window light",
+				taken_at: "2026-05-03T00:00:00.000Z",
+				source_content_hash: "hash-image",
+				sort_order: 0,
+			});
 			db.insertMedia("post-1", {
 					id: "post-1:video-1:1",
 					block_id: "video-1",
@@ -1066,6 +1193,20 @@ describe("PostsRepository", () => {
 					caption: "",
 					sort_order: 1,
 				});
+			db.insertAlbumItem({
+				id: "post-1:video-1:1",
+				source_type: "post_media",
+				source_id: "post-1:video-1:1",
+				post_id: "post-1",
+				kind: "video",
+				url: "https://assets.233.life/assets/bb/video.mp4",
+				r2_key: "assets/bb/video.mp4",
+				title: "Media life",
+				caption: "",
+				taken_at: "2026-05-03T00:00:00.000Z",
+				source_content_hash: "hash-video",
+				sort_order: 1,
+			});
 			db.insertTag("post-1", "Life");
 			db.insertPost(
 				postRow({
@@ -1084,6 +1225,17 @@ describe("PostsRepository", () => {
 					caption: "Private",
 					sort_order: 0,
 				});
+			db.insertAlbumItem({
+				id: "post-2:private-image:0",
+				source_type: "post_media",
+				source_id: "post-2:private-image:0",
+				post_id: "post-2",
+				kind: "image",
+				url: "https://assets.233.life/assets/private.jpg",
+				title: "Private",
+				caption: "Private",
+				taken_at: "2026-05-01T00:00:00.000Z",
+			});
 			db.exec("UPDATE posts SET locked = 1 WHERE id = 'post-2'");
 
 			const response = await handlePublicApi(
@@ -1096,6 +1248,8 @@ describe("PostsRepository", () => {
 				items: [
 					{
 						id: "post-1:image-1:0",
+						title: "Window light",
+						description: "",
 						postId: "post-1",
 						postSlug: "media-life",
 						postTitle: "Media life",
@@ -1105,12 +1259,21 @@ describe("PostsRepository", () => {
 						url: "https://assets.233.life/assets/aa/image.jpg",
 						thumbnailUrl:
 							"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/aa/image.jpg",
+						largeUrl: "https://assets.233.life/assets/aa/image.jpg",
 						caption: "Window light",
+						takenAt: "2026-05-03T00:00:00.000Z",
+						locationName: "",
+						latitude: null,
+						longitude: null,
+						featured: false,
+						collectionSlugs: [],
 						publishedAt: "2026-05-03T00:00:00.000Z",
 						updatedAt: "2026-05-02T00:00:00.000Z",
 					},
 					{
 						id: "post-1:video-1:1",
+						title: "Media life",
+						description: "",
 						postId: "post-1",
 						postSlug: "media-life",
 						postTitle: "Media life",
@@ -1118,11 +1281,111 @@ describe("PostsRepository", () => {
 						tags: ["Life"],
 						kind: "video",
 						url: "https://assets.233.life/assets/bb/video.mp4",
+						largeUrl: "https://assets.233.life/assets/bb/video.mp4",
 						caption: "",
+						takenAt: "2026-05-03T00:00:00.000Z",
+						locationName: "",
+						latitude: null,
+						longitude: null,
+						featured: false,
+						collectionSlugs: [],
 						publishedAt: "2026-05-03T00:00:00.000Z",
 						updatedAt: "2026-05-02T00:00:00.000Z",
 					},
 				],
+				page: 1,
+				limit: 30,
+				hasMore: false,
+				collections: [],
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("paginates and filters album items by collection, kind, and featured state", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertAlbumCollection({
+				id: "collection-1",
+				slug: "quiet-days",
+				title: "Quiet days",
+				sort_order: 1,
+			});
+			db.insertAlbumItem({
+				id: "manual-1",
+				source_type: "manual",
+				kind: "image",
+				url: "https://assets.233.life/assets/manual-1.jpg",
+				title: "Manual one",
+				taken_at: "2026-05-04T00:00:00.000Z",
+				featured: 1,
+			});
+			db.insertAlbumItem({
+				id: "manual-2",
+				source_type: "manual",
+				kind: "video",
+				url: "https://assets.233.life/assets/manual-2.mp4",
+				title: "Manual two",
+				taken_at: "2026-05-03T00:00:00.000Z",
+				featured: 1,
+			});
+			db.insertAlbumItem({
+				id: "manual-3",
+				source_type: "manual",
+				kind: "image",
+				url: "https://assets.233.life/assets/manual-3.jpg",
+				title: "Manual three",
+				taken_at: "2026-05-02T00:00:00.000Z",
+				featured: 0,
+			});
+			db.linkAlbumItemToCollection("manual-1", "collection-1", 0);
+			db.linkAlbumItemToCollection("manual-2", "collection-1", 1);
+
+			const response = await handlePublicApi(
+				publicRequest(
+					"/api/album?page=1&limit=1&collection=quiet-days&featured=1",
+				),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toMatchObject({
+				page: 1,
+				limit: 1,
+				hasMore: true,
+				collections: [
+					{
+						id: "collection-1",
+						slug: "quiet-days",
+						title: "Quiet days",
+						description: "",
+					},
+				],
+				items: [
+					expect.objectContaining({
+						id: "manual-1",
+						title: "Manual one",
+						postId: null,
+						postSlug: null,
+						postTitle: null,
+						kind: "image",
+						featured: true,
+						collectionSlugs: ["quiet-days"],
+					}),
+				],
+			});
+
+			const imagesResponse = await handlePublicApi(
+				publicRequest("/api/album?kind=image"),
+				envWithDb(db.asD1()),
+			);
+			await expect(imagesResponse.json()).resolves.toMatchObject({
+				items: [
+					expect.objectContaining({ id: "manual-1" }),
+					expect.objectContaining({ id: "manual-3" }),
+				],
+				hasMore: false,
 			});
 		} finally {
 			db.close();

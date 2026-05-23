@@ -12,6 +12,7 @@ import addCommentsMigrationSql from "../migrations/0007_add_comments.sql?raw";
 import addCommentRateLimitsMigrationSql from "../migrations/0008_add_comment_rate_limits.sql?raw";
 import addCommentModerationAndRepliesMigrationSql from "../migrations/0009_add_comment_moderation_and_replies.sql?raw";
 import addPostMediaMigrationSql from "../migrations/0010_add_post_media.sql?raw";
+import addAlbumItemsMigrationSql from "../migrations/0011_album_items.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -22,6 +23,9 @@ const requiredTables = [
 	"comment_rate_limits",
 	"post_tags",
 	"post_media",
+	"album_items",
+	"album_collections",
+	"album_item_collections",
 	"post_content",
 	"assets",
 	"sync_runs",
@@ -35,6 +39,12 @@ const requiredIndexes = [
 	"idx_post_tags_post_id",
 	"idx_post_media_post_id",
 	"idx_post_media_kind",
+	"idx_album_items_visible_taken",
+	"idx_album_items_source",
+	"idx_album_items_kind",
+	"idx_album_items_featured",
+	"idx_album_collections_visible_order",
+	"idx_album_item_collections_collection",
 	"idx_posts_category",
 	"idx_posts_management_visibility",
 	"idx_deleted_posts_deleted_at",
@@ -148,6 +158,9 @@ describe("D1 schema", () => {
 				.all() as Array<{ name: string }>;
 
 			expect(tables.map(({ name }) => name)).toEqual([
+				"album_collections",
+				"album_item_collections",
+				"album_items",
 				"assets",
 				"comment_rate_limits",
 				"deleted_posts",
@@ -181,6 +194,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addCommentRateLimitsMigrationSql);
 			migratedDb.exec(addCommentModerationAndRepliesMigrationSql);
 			migratedDb.exec(addPostMediaMigrationSql);
+			migratedDb.exec(addAlbumItemsMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -230,6 +244,47 @@ describe("D1 schema", () => {
 				"sort_order",
 				"created_at",
 				"updated_at",
+			]);
+			expect(tableColumns(currentDb, "album_items")).toEqual([
+				"id",
+				"source_type",
+				"source_id",
+				"post_id",
+				"kind",
+				"url",
+				"thumbnail_url",
+				"large_url",
+				"r2_key",
+				"title",
+				"description",
+				"caption",
+				"taken_at",
+				"location_name",
+				"latitude",
+				"longitude",
+				"visibility",
+				"featured",
+				"sort_order",
+				"source_content_hash",
+				"exif_json",
+				"created_at",
+				"updated_at",
+			]);
+			expect(tableColumns(currentDb, "album_collections")).toEqual([
+				"id",
+				"slug",
+				"title",
+				"description",
+				"cover_item_id",
+				"visibility",
+				"sort_order",
+				"created_at",
+				"updated_at",
+			]);
+			expect(tableColumns(currentDb, "album_item_collections")).toEqual([
+				"item_id",
+				"collection_id",
+				"sort_order",
 			]);
 		} finally {
 			migratedDb.close();

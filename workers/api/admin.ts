@@ -1,5 +1,11 @@
 import { errorJson, json, readJsonObject } from "../http";
 import {
+	buildAssetKey,
+	cdnUrlForKey,
+	contentHashForBytes,
+	uploadAssetIfMissing,
+} from "../assets";
+import {
 	createSessionToken,
 	initialAdminPassword,
 	shouldBootstrapPassword,
@@ -30,7 +36,7 @@ import {
 	type SettingRow,
 } from "../settings";
 import { runSync as defaultRunSync, type RunSyncInput } from "../sync";
-import type { AppEnv, SiteSettings } from "../types";
+import type { AppEnv, PublicAlbumMediaKind, SiteSettings } from "../types";
 import { NotionApiError, NotionClient } from "../notion/client";
 import {
 	inferFieldMapping,
@@ -137,6 +143,74 @@ type AdminPostCommentRow = {
 	created_at: string;
 };
 
+type AdminAlbumItemRow = {
+	id: string;
+	source_type: "post_media" | "manual";
+	source_id: string | null;
+	post_id: string | null;
+	kind: PublicAlbumMediaKind;
+	url: string;
+	thumbnail_url: string | null;
+	large_url: string | null;
+	r2_key: string | null;
+	title: string;
+	description: string;
+	caption: string;
+	taken_at: string | null;
+	location_name: string;
+	latitude: number | null;
+	longitude: number | null;
+	visibility: "visible" | "hidden";
+	featured: number;
+	sort_order: number;
+	source_content_hash: string | null;
+	exif_json: string | null;
+	created_at: string;
+	updated_at: string;
+	post_slug: string | null;
+	post_title: string | null;
+};
+
+type AdminAlbumCollectionRow = {
+	id: string;
+	slug: string;
+	title: string;
+	description: string;
+	cover_item_id: string | null;
+	visibility: "visible" | "hidden";
+	sort_order: number;
+	created_at: string;
+	updated_at: string;
+};
+
+type AdminAlbumItemBody = {
+	title: string;
+	description: string;
+	caption: string;
+	takenAt: string | null;
+	locationName: string;
+	latitude: number | null;
+	longitude: number | null;
+	featured: boolean;
+	collectionIds: string[];
+};
+
+type AdminAlbumCollectionBody = {
+	slug: string;
+	title: string;
+	description: string;
+	coverItemId: string | null;
+	visibility: "visible" | "hidden";
+	sortOrder: number;
+};
+
+type AdminAlbumItemAction = "hide" | "restore" | "delete";
+
+type AdminAlbumBatchBody = {
+	itemIds: string[];
+	action: "hide" | "restore" | "delete" | "feature" | "unfeature";
+};
+
 type AdminOverviewCountsRow = {
 	total_posts: number;
 	published_posts: number;
@@ -191,6 +265,14 @@ const isoDateTimePattern =
 	/^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?)?$/;
 const minPasswordHashIterations = 100_000;
 const maxPasswordHashIterations = 1_000_000;
+const maxAlbumTextLength = 2000;
+const albumMediaKinds = new Set<PublicAlbumMediaKind>([
+	"image",
+	"video",
+	"audio",
+	"pdf",
+	"file",
+]);
 
 export function validateLoginBody(body: Record<string, unknown>): LoginBody {
 	if (typeof body.password !== "string" || body.password.length === 0) {
@@ -380,6 +462,189 @@ function validateCommentModerationBody(
 	return {
 		...(moderationStatus !== undefined ? { moderationStatus } : {}),
 		...(replyBody !== undefined ? { replyBody: trimmedReply } : {}),
+	};
+}
+
+function optionalText(
+	body: Record<string, unknown>,
+	key: string,
+	maxLength = maxAlbumTextLength,
+): string {
+	const value = body[key];
+	if (value === undefined || value === null) {
+		return "";
+	}
+
+	if (typeof value !== "string") {
+		throw new Error(`${key} must be a string`);
+	}
+
+	const trimmed = value.trim();
+	if (trimmed.length > maxLength) {
+		throw new Error(`${key} must be at most ${maxLength} characters`);
+	}
+
+	return trimmed;
+}
+
+function optionalNullableDate(
+	body: Record<string, unknown>,
+	key: string,
+): string | null {
+	const value = body[key];
+	if (value === undefined || value === null || value === "") {
+		return null;
+	}
+
+	if (typeof value !== "string" || !isValidIsoDateString(value)) {
+		throw new Error(`${key} must be an ISO date string or null`);
+	}
+
+	return value;
+}
+
+function optionalCoordinate(
+	body: Record<string, unknown>,
+	key: "latitude" | "longitude",
+): number | null {
+	const value = body[key];
+	if (value === undefined || value === null || value === "") {
+		return null;
+	}
+
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		throw new Error(`${key} must be a number or null`);
+	}
+
+	const min = key === "latitude" ? -90 : -180;
+	const max = key === "latitude" ? 90 : 180;
+	if (value < min || value > max) {
+		throw new Error(`${key} is out of range`);
+	}
+
+	return value;
+}
+
+function optionalCollectionIds(body: Record<string, unknown>): string[] {
+	const value = body.collectionIds;
+	if (value === undefined) {
+		return [];
+	}
+
+	if (!Array.isArray(value)) {
+		throw new Error("collectionIds must be an array");
+	}
+
+	return value.map((item) => {
+		if (typeof item !== "string" || item.trim().length === 0) {
+			throw new Error("collectionIds must contain non-empty strings");
+		}
+
+		return item.trim();
+	});
+}
+
+function validateAlbumItemBody(
+	body: Record<string, unknown>,
+): AdminAlbumItemBody {
+	const featured = body.featured;
+	if (featured !== undefined && typeof featured !== "boolean") {
+		throw new Error("featured must be a boolean");
+	}
+
+	return {
+		title: optionalText(body, "title", 240),
+		description: optionalText(body, "description"),
+		caption: optionalText(body, "caption"),
+		takenAt: optionalNullableDate(body, "takenAt"),
+		locationName: optionalText(body, "locationName", 240),
+		latitude: optionalCoordinate(body, "latitude"),
+		longitude: optionalCoordinate(body, "longitude"),
+		featured: featured === true,
+		collectionIds: optionalCollectionIds(body),
+	};
+}
+
+function slugifyAdminAlbum(value: string): string {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 80);
+}
+
+function validateAlbumCollectionBody(
+	body: Record<string, unknown>,
+): AdminAlbumCollectionBody {
+	const rawTitle = optionalText(body, "title", 120);
+	if (!rawTitle) {
+		throw new Error("title is required");
+	}
+
+	const rawSlug =
+		typeof body.slug === "string" && body.slug.trim()
+			? body.slug.trim()
+			: slugifyAdminAlbum(rawTitle);
+	const slug = slugifyAdminAlbum(rawSlug);
+	if (!slug) {
+		throw new Error("slug is required");
+	}
+
+	const visibility =
+		body.visibility === "hidden" || body.visibility === "visible"
+			? body.visibility
+			: "visible";
+	const sortOrder =
+		typeof body.sortOrder === "number" &&
+		Number.isInteger(body.sortOrder) &&
+		body.sortOrder >= 0
+			? body.sortOrder
+			: 0;
+	const coverItemId =
+		typeof body.coverItemId === "string" && body.coverItemId.trim()
+			? body.coverItemId.trim()
+			: null;
+
+	return {
+		slug,
+		title: rawTitle,
+		description: optionalText(body, "description"),
+		coverItemId,
+		visibility,
+		sortOrder,
+	};
+}
+
+function validateAlbumBatchBody(
+	body: Record<string, unknown>,
+): AdminAlbumBatchBody {
+	const itemIds = body.itemIds;
+	const action = body.action;
+
+	if (!Array.isArray(itemIds) || itemIds.length === 0) {
+		throw new Error("itemIds must be a non-empty array");
+	}
+
+	if (
+		action !== "hide" &&
+		action !== "restore" &&
+		action !== "delete" &&
+		action !== "feature" &&
+		action !== "unfeature"
+	) {
+		throw new Error("Invalid batch action");
+	}
+
+	return {
+		itemIds: itemIds.map((item) => {
+			if (typeof item !== "string" || item.trim().length === 0) {
+				throw new Error("itemIds must contain non-empty strings");
+			}
+
+			return item.trim();
+		}),
+		action,
 	};
 }
 
@@ -1958,6 +2223,927 @@ async function handleAdminPostAction(
 	return json({ ok: true });
 }
 
+function parseAdminAlbumPagination(params: URLSearchParams): {
+	page: number;
+	limit: number;
+} | null {
+	const page = params.get("page") ?? "1";
+	const limit = params.get("limit") ?? "30";
+
+	if (!/^[1-9]\d*$/.test(page) || !/^[1-9]\d*$/.test(limit)) {
+		return null;
+	}
+
+	return {
+		page: Number(page),
+		limit: Math.min(Number(limit), 100),
+	};
+}
+
+function adminAlbumFilters(params: URLSearchParams): {
+	where: string;
+	values: unknown[];
+} | Response {
+	const clauses: string[] = [];
+	const values: unknown[] = [];
+	const q = (params.get("q") ?? "").trim();
+	const kind = (params.get("kind") ?? "").trim();
+	const visibility = (params.get("visibility") ?? "").trim();
+	const featured = (params.get("featured") ?? "").trim();
+	const collection = (params.get("collection") ?? "").trim();
+
+	if (q) {
+		clauses.push(
+			`(
+				ai.title LIKE ? ESCAPE '\\'
+				OR ai.description LIKE ? ESCAPE '\\'
+				OR ai.caption LIKE ? ESCAPE '\\'
+				OR COALESCE(p.title, '') LIKE ? ESCAPE '\\'
+			)`,
+		);
+		const pattern = `%${q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+		values.push(pattern, pattern, pattern, pattern);
+	}
+
+	if (kind) {
+		if (!albumMediaKinds.has(kind as PublicAlbumMediaKind)) {
+			return errorJson("BAD_REQUEST", "Invalid album media kind", 400);
+		}
+		clauses.push("ai.kind = ?");
+		values.push(kind);
+	}
+
+	if (visibility) {
+		if (visibility !== "visible" && visibility !== "hidden") {
+			return errorJson("BAD_REQUEST", "Invalid album visibility", 400);
+		}
+		clauses.push("ai.visibility = ?");
+		values.push(visibility);
+	}
+
+	if (featured) {
+		clauses.push("ai.featured = ?");
+		values.push(featured === "1" || featured.toLowerCase() === "true" ? 1 : 0);
+	}
+
+	if (collection) {
+		clauses.push(
+			`EXISTS (
+				SELECT 1
+				FROM album_item_collections filter_aic
+				WHERE filter_aic.item_id = ai.id
+				AND filter_aic.collection_id = ?
+			)`,
+		);
+		values.push(collection);
+	}
+
+	return {
+		where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+		values,
+	};
+}
+
+async function albumCollectionIdsForItems(
+	env: AppEnv,
+	itemIds: string[],
+): Promise<Map<string, string[]>> {
+	if (itemIds.length === 0) {
+		return new Map();
+	}
+
+	const placeholders = itemIds.map(() => "?").join(", ");
+	const result = await env.DB.prepare(
+		`SELECT item_id, collection_id
+		 FROM album_item_collections
+		 WHERE item_id IN (${placeholders})
+		 ORDER BY item_id ASC, sort_order ASC, collection_id ASC`,
+	)
+		.bind(...itemIds)
+		.all<{ item_id: string; collection_id: string }>();
+	const idsByItem = new Map<string, string[]>();
+
+	for (const row of result.results) {
+		const ids = idsByItem.get(row.item_id) ?? [];
+		ids.push(row.collection_id);
+		idsByItem.set(row.item_id, ids);
+	}
+
+	return idsByItem;
+}
+
+function adminAlbumCollectionResponse(row: AdminAlbumCollectionRow) {
+	return {
+		id: row.id,
+		slug: row.slug,
+		title: row.title,
+		description: row.description,
+		coverItemId: row.cover_item_id,
+		visibility: row.visibility,
+		sortOrder: Number(row.sort_order),
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+function adminAlbumItemResponse(
+	row: AdminAlbumItemRow,
+	collectionIds: string[] = [],
+) {
+	return {
+		id: row.id,
+		sourceType: row.source_type,
+		sourceId: row.source_id,
+		kind: row.kind,
+		url: row.url,
+		thumbnailUrl: row.thumbnail_url,
+		largeUrl: row.large_url,
+		r2Key: row.r2_key,
+		title: row.title,
+		description: row.description,
+		caption: row.caption,
+		takenAt: row.taken_at,
+		locationName: row.location_name,
+		latitude: row.latitude,
+		longitude: row.longitude,
+		visibility: row.visibility,
+		featured: row.featured === 1,
+		sortOrder: Number(row.sort_order),
+		sourceContentHash: row.source_content_hash,
+		exifJson: row.exif_json,
+		collectionIds,
+		post: row.post_id
+			? {
+					id: row.post_id,
+					slug: row.post_slug,
+					title: row.post_title,
+				}
+			: null,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+async function listAdminAlbumCollections(
+	env: AppEnv,
+): Promise<AdminAlbumCollectionRow[]> {
+	const result = await env.DB.prepare(
+		`SELECT
+			id, slug, title, description, cover_item_id, visibility, sort_order,
+			created_at, updated_at
+		 FROM album_collections
+		 ORDER BY sort_order ASC, title ASC`,
+	).all<AdminAlbumCollectionRow>();
+
+	return result.results;
+}
+
+async function adminAlbumItemById(
+	env: AppEnv,
+	itemId: string,
+): Promise<AdminAlbumItemRow | null> {
+	return env.DB.prepare(
+		`SELECT
+			ai.id,
+			ai.source_type,
+			ai.source_id,
+			ai.post_id,
+			ai.kind,
+			ai.url,
+			ai.thumbnail_url,
+			ai.large_url,
+			ai.r2_key,
+			ai.title,
+			ai.description,
+			ai.caption,
+			ai.taken_at,
+			ai.location_name,
+			ai.latitude,
+			ai.longitude,
+			ai.visibility,
+			ai.featured,
+			ai.sort_order,
+			ai.source_content_hash,
+			ai.exif_json,
+			ai.created_at,
+			ai.updated_at,
+			p.slug AS post_slug,
+			p.title AS post_title
+		 FROM album_items ai
+		 LEFT JOIN posts p ON p.id = ai.post_id
+		 WHERE ai.id = ?
+		 LIMIT 1`,
+	)
+		.bind(itemId)
+		.first<AdminAlbumItemRow>();
+}
+
+async function replaceAlbumItemCollections(
+	env: AppEnv,
+	itemId: string,
+	collectionIds: string[],
+): Promise<void> {
+	await env.DB.prepare("DELETE FROM album_item_collections WHERE item_id = ?")
+		.bind(itemId)
+		.run();
+
+	for (const [index, collectionId] of collectionIds.entries()) {
+		await env.DB.prepare(
+			`INSERT INTO album_item_collections (item_id, collection_id, sort_order)
+			 VALUES (?, ?, ?)`,
+		)
+			.bind(itemId, collectionId, index)
+			.run();
+	}
+}
+
+async function handleListAdminAlbum(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const url = new URL(request.url);
+	const pagination = parseAdminAlbumPagination(url.searchParams);
+	if (!pagination) {
+		return errorJson("BAD_REQUEST", "Invalid pagination", 400);
+	}
+
+	const filters = adminAlbumFilters(url.searchParams);
+	if (filters instanceof Response) {
+		return filters;
+	}
+
+	const offset = (pagination.page - 1) * pagination.limit;
+	const result = await env.DB.prepare(
+		`SELECT
+			ai.id,
+			ai.source_type,
+			ai.source_id,
+			ai.post_id,
+			ai.kind,
+			ai.url,
+			ai.thumbnail_url,
+			ai.large_url,
+			ai.r2_key,
+			ai.title,
+			ai.description,
+			ai.caption,
+			ai.taken_at,
+			ai.location_name,
+			ai.latitude,
+			ai.longitude,
+			ai.visibility,
+			ai.featured,
+			ai.sort_order,
+			ai.source_content_hash,
+			ai.exif_json,
+			ai.created_at,
+			ai.updated_at,
+			p.slug AS post_slug,
+			p.title AS post_title
+		 FROM album_items ai
+		 LEFT JOIN posts p ON p.id = ai.post_id
+		 ${filters.where}
+		 ORDER BY COALESCE(ai.taken_at, ai.updated_at) DESC, ai.sort_order ASC, ai.id ASC
+		 LIMIT ? OFFSET ?`,
+	)
+		.bind(...filters.values, pagination.limit, offset)
+		.all<AdminAlbumItemRow>();
+	const countRow = await env.DB.prepare(
+		`SELECT COUNT(*) AS total
+		 FROM album_items ai
+		 LEFT JOIN posts p ON p.id = ai.post_id
+		 ${filters.where}`,
+	)
+		.bind(...filters.values)
+		.first<{ total: number }>();
+	const collectionIds = await albumCollectionIdsForItems(
+		env,
+		result.results.map((item) => item.id),
+	);
+	const collections = await listAdminAlbumCollections(env);
+
+	return json({
+		items: result.results.map((item) =>
+			adminAlbumItemResponse(item, collectionIds.get(item.id) ?? []),
+		),
+		total: Number(countRow?.total ?? 0),
+		page: pagination.page,
+		limit: pagination.limit,
+		collections: collections.map(adminAlbumCollectionResponse),
+	});
+}
+
+async function handleUpdateAdminAlbumItem(
+	request: Request,
+	env: AppEnv,
+	itemId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: AdminAlbumItemBody;
+	try {
+		body = validateAlbumItemBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const existing = await adminAlbumItemById(env, itemId);
+	if (!existing) {
+		return errorJson("NOT_FOUND", "Album item not found", 404);
+	}
+
+	const now = new Date().toISOString();
+	await env.DB.prepare(
+		`UPDATE album_items
+		 SET title = ?,
+			 description = ?,
+			 caption = ?,
+			 taken_at = ?,
+			 location_name = ?,
+			 latitude = ?,
+			 longitude = ?,
+			 featured = ?,
+			 updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(
+			body.title,
+			body.description,
+			body.caption,
+			body.takenAt,
+			body.locationName,
+			body.latitude,
+			body.longitude,
+			body.featured ? 1 : 0,
+			now,
+			itemId,
+		)
+		.run();
+	await replaceAlbumItemCollections(env, itemId, body.collectionIds);
+
+	const updated = await adminAlbumItemById(env, itemId);
+	const collectionIds = await albumCollectionIdsForItems(env, [itemId]);
+
+	return json({
+		item: updated
+			? adminAlbumItemResponse(updated, collectionIds.get(itemId) ?? [])
+			: null,
+	});
+}
+
+async function handleAdminAlbumItemAction(
+	request: Request,
+	env: AppEnv,
+	itemId: string,
+	action: AdminAlbumItemAction,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	const existing = await adminAlbumItemById(env, itemId);
+	if (!existing) {
+		return errorJson("NOT_FOUND", "Album item not found", 404);
+	}
+
+	if (action === "delete") {
+		await env.DB.prepare("DELETE FROM album_items WHERE id = ?").bind(itemId).run();
+		return json({ ok: true });
+	}
+
+	await env.DB.prepare(
+		`UPDATE album_items
+		 SET visibility = ?, updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(
+			action === "hide" ? "hidden" : "visible",
+			new Date().toISOString(),
+			itemId,
+		)
+		.run();
+
+	return json({ ok: true });
+}
+
+async function handleAdminAlbumBatch(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: AdminAlbumBatchBody;
+	try {
+		body = validateAlbumBatchBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const itemIds = Array.from(new Set(body.itemIds));
+	const placeholders = itemIds.map(() => "?").join(", ");
+
+	if (body.action === "delete") {
+		await env.DB.prepare(
+			`DELETE FROM album_items
+			 WHERE id IN (${placeholders})`,
+		)
+			.bind(...itemIds)
+			.run();
+
+		return json({ ok: true, updated: itemIds.length });
+	}
+
+	const now = new Date().toISOString();
+	if (body.action === "hide" || body.action === "restore") {
+		await env.DB.prepare(
+			`UPDATE album_items
+			 SET visibility = ?, updated_at = ?
+			 WHERE id IN (${placeholders})`,
+		)
+			.bind(body.action === "hide" ? "hidden" : "visible", now, ...itemIds)
+			.run();
+
+		return json({ ok: true, updated: itemIds.length });
+	}
+
+	await env.DB.prepare(
+		`UPDATE album_items
+		 SET featured = ?, updated_at = ?
+		 WHERE id IN (${placeholders})`,
+	)
+		.bind(body.action === "feature" ? 1 : 0, now, ...itemIds)
+		.run();
+
+	return json({ ok: true, updated: itemIds.length });
+}
+
+async function handleListAdminAlbumCollections(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const collections = await listAdminAlbumCollections(env);
+	return json({ items: collections.map(adminAlbumCollectionResponse) });
+}
+
+async function handleCreateAdminAlbumCollection(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: AdminAlbumCollectionBody;
+	try {
+		body = validateAlbumCollectionBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const now = new Date().toISOString();
+	const id = randomToken(12);
+	await env.DB.prepare(
+		`INSERT INTO album_collections (
+			id, slug, title, description, cover_item_id, visibility, sort_order,
+			created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+		.bind(
+			id,
+			body.slug,
+			body.title,
+			body.description,
+			body.coverItemId,
+			body.visibility,
+			body.sortOrder,
+			now,
+			now,
+		)
+		.run();
+
+	const collection = await env.DB.prepare(
+		`SELECT
+			id, slug, title, description, cover_item_id, visibility, sort_order,
+			created_at, updated_at
+		 FROM album_collections
+		 WHERE id = ?`,
+	)
+		.bind(id)
+		.first<AdminAlbumCollectionRow>();
+
+	return json({
+		collection: collection ? adminAlbumCollectionResponse(collection) : null,
+	});
+}
+
+async function handleUpdateAdminAlbumCollection(
+	request: Request,
+	env: AppEnv,
+	collectionId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: AdminAlbumCollectionBody;
+	try {
+		body = validateAlbumCollectionBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const now = new Date().toISOString();
+	const result = await env.DB.prepare(
+		`UPDATE album_collections
+		 SET slug = ?,
+			 title = ?,
+			 description = ?,
+			 cover_item_id = ?,
+			 visibility = ?,
+			 sort_order = ?,
+			 updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(
+			body.slug,
+			body.title,
+			body.description,
+			body.coverItemId,
+			body.visibility,
+			body.sortOrder,
+			now,
+			collectionId,
+		)
+		.run();
+
+	void result;
+	const collection = await env.DB.prepare(
+		`SELECT
+			id, slug, title, description, cover_item_id, visibility, sort_order,
+			created_at, updated_at
+		 FROM album_collections
+		 WHERE id = ?`,
+	)
+		.bind(collectionId)
+		.first<AdminAlbumCollectionRow>();
+
+	if (!collection) {
+		return errorJson("NOT_FOUND", "Album collection not found", 404);
+	}
+
+	return json({ collection: adminAlbumCollectionResponse(collection) });
+}
+
+async function handleDeleteAdminAlbumCollection(
+	request: Request,
+	env: AppEnv,
+	collectionId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	await env.DB.prepare("DELETE FROM album_collections WHERE id = ?")
+		.bind(collectionId)
+		.run();
+
+	return json({ ok: true });
+}
+
+function adminAlbumItemPath(pathname: string): { itemId: string } | null {
+	const match = /^\/api\/admin\/album\/items\/([^/]+)$/.exec(pathname);
+	const itemId = match ? decodePathSegment(match[1]) : null;
+
+	return itemId ? { itemId } : null;
+}
+
+function adminAlbumItemActionPath(
+	pathname: string,
+): { itemId: string; action: AdminAlbumItemAction } | null {
+	const match = /^\/api\/admin\/album\/items\/([^/]+)\/(hide|restore|delete)$/.exec(
+		pathname,
+	);
+	if (!match) {
+		return null;
+	}
+
+	const itemId = match ? decodePathSegment(match[1]) : null;
+
+	return itemId ? { itemId, action: match[2] as AdminAlbumItemAction } : null;
+}
+
+function adminAlbumCollectionPath(
+	pathname: string,
+): { collectionId: string } | null {
+	const match = /^\/api\/admin\/album\/collections\/([^/]+)$/.exec(pathname);
+	const collectionId = match ? decodePathSegment(match[1]) : null;
+
+	return collectionId ? { collectionId } : null;
+}
+
+async function cdnBaseUrlForUpload(env: AppEnv): Promise<string> {
+	const rows = await new SettingsRepository(env.DB).list();
+	const settings = await parseSettingsFromRows(
+		siteSettingRows(rows),
+		env.CONFIG_ENCRYPTION_KEY,
+	);
+
+	return settings.cdnBaseUrl;
+}
+
+function formString(formData: FormData, key: string): string {
+	const value = formData.get(key);
+	return typeof value === "string" ? value.trim() : "";
+}
+
+function albumKindForUpload(
+	fileName: string,
+	mimeType: string | null,
+): PublicAlbumMediaKind {
+	const normalizedMime = (mimeType ?? "").split(";")[0]?.trim().toLowerCase();
+	if (normalizedMime?.startsWith("image/")) {
+		return "image";
+	}
+	if (normalizedMime?.startsWith("video/")) {
+		return "video";
+	}
+	if (normalizedMime?.startsWith("audio/")) {
+		return "audio";
+	}
+	if (normalizedMime === "application/pdf") {
+		return "pdf";
+	}
+
+	const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+	if (["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(extension)) {
+		return "image";
+	}
+	if (["mp4", "webm", "mov"].includes(extension)) {
+		return "video";
+	}
+	if (["mp3", "m4a", "wav", "ogg"].includes(extension)) {
+		return "audio";
+	}
+	if (extension === "pdf") {
+		return "pdf";
+	}
+
+	return "file";
+}
+
+function isUploadFile(value: FormDataEntryValue | null): value is File {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function" &&
+		typeof (value as { name?: unknown }).name === "string"
+	);
+}
+
+type ManualAlbumUploadInput = {
+	bytes: ArrayBuffer;
+	fileName: string;
+	mimeType: string | null;
+	title: string;
+	description: string;
+	caption: string;
+	locationName: string;
+	takenAt: string | null;
+	featured: boolean;
+};
+
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+	const binary = atob(value);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) {
+		bytes[index] = binary.charCodeAt(index);
+	}
+
+	return bytes.buffer;
+}
+
+async function jsonManualAlbumUploadInput(
+	request: Request,
+): Promise<ManualAlbumUploadInput | Response> {
+	let body: Record<string, unknown>;
+	try {
+		body = await readJsonObject(request);
+	} catch {
+		return errorJson("BAD_REQUEST", "Invalid upload form data", 400);
+	}
+
+	if (
+		typeof body.fileName !== "string" ||
+		body.fileName.trim().length === 0 ||
+		typeof body.contentBase64 !== "string" ||
+		body.contentBase64.length === 0
+	) {
+		return errorJson("BAD_REQUEST", "file is required", 400);
+	}
+
+	return {
+		bytes: base64ToArrayBuffer(body.contentBase64),
+		fileName: body.fileName.trim(),
+		mimeType: typeof body.contentType === "string" ? body.contentType : null,
+		title: optionalText(body, "title", 240) || body.fileName.trim(),
+		description: optionalText(body, "description"),
+		caption: optionalText(body, "caption"),
+		locationName: optionalText(body, "locationName", 240),
+		takenAt: optionalNullableDate(body, "takenAt"),
+		featured: body.featured === true,
+	};
+}
+
+async function formManualAlbumUploadInput(
+	request: Request,
+): Promise<ManualAlbumUploadInput | Response> {
+	let formData: FormData;
+	try {
+		formData = await request.formData();
+	} catch {
+		return errorJson("BAD_REQUEST", "Invalid upload form data", 400);
+	}
+
+	const fileValue = formData.get("file");
+	if (!isUploadFile(fileValue)) {
+		return errorJson("BAD_REQUEST", "file is required", 400);
+	}
+
+	const takenAtValue = formString(formData, "takenAt");
+	const featuredValue = formString(formData, "featured").toLowerCase();
+
+	return {
+		bytes: await fileValue.arrayBuffer(),
+		fileName: fileValue.name,
+		mimeType: fileValue.type || null,
+		title: formString(formData, "title") || fileValue.name || "Untitled",
+		description: formString(formData, "description"),
+		caption: formString(formData, "caption"),
+		locationName: formString(formData, "locationName"),
+		takenAt:
+			takenAtValue && isValidIsoDateString(takenAtValue) ? takenAtValue : null,
+		featured: featuredValue === "1" || featuredValue === "true",
+	};
+}
+
+async function createManualAlbumItem(
+	env: AppEnv,
+	input: ManualAlbumUploadInput,
+) {
+	const contentHash = await contentHashForBytes(input.bytes);
+	const r2Key = buildAssetKey(contentHash, input.mimeType);
+	const cdnUrl = cdnUrlForKey(await cdnBaseUrlForUpload(env), r2Key);
+	const now = new Date().toISOString();
+	const itemId = randomToken(12);
+	const kind = albumKindForUpload(input.fileName, input.mimeType);
+
+	await uploadAssetIfMissing(env.BLOG_ASSETS, r2Key, input.bytes, {
+		contentType: input.mimeType ?? undefined,
+		cacheControl: "public, max-age=31536000, immutable",
+	});
+	await env.DB.prepare(
+		`INSERT INTO album_items (
+			id, source_type, source_id, post_id, kind, url, thumbnail_url, large_url,
+			r2_key, title, description, caption, taken_at, location_name, latitude,
+			longitude, visibility, featured, sort_order, source_content_hash,
+			exif_json, created_at, updated_at
+		)
+		VALUES (?, 'manual', NULL, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL,
+			NULL, 'visible', ?, 0, ?, ?, ?, ?)`,
+	)
+		.bind(
+			itemId,
+			kind,
+			cdnUrl,
+			cdnUrl,
+			r2Key,
+			input.title,
+			input.description,
+			input.caption,
+			input.takenAt,
+			input.locationName,
+			input.featured ? 1 : 0,
+			contentHash,
+			JSON.stringify({
+				fileName: input.fileName,
+				mimeType: input.mimeType,
+				size: input.bytes.byteLength,
+				contentHash,
+			}),
+			now,
+			now,
+		)
+		.run();
+
+	return adminAlbumItemById(env, itemId);
+}
+
+async function handleUploadAdminAlbumItem(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	const uploadInput =
+		request.headers.get("content-type")?.includes("application/json") === true
+			? await jsonManualAlbumUploadInput(request)
+			: await formManualAlbumUploadInput(request);
+
+	if (uploadInput instanceof Response) {
+		return uploadInput;
+	}
+
+	const item = await createManualAlbumItem(env, uploadInput);
+
+	return json({
+		item: item ? adminAlbumItemResponse(item) : null,
+	});
+}
+
 export async function handleAdminApi(
 	request: Request,
 	env: AppEnv,
@@ -2007,6 +3193,64 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/posts" && request.method === "GET") {
 		return handleListPosts(request, env);
+	}
+
+	if (url.pathname === "/api/admin/album" && request.method === "GET") {
+		return handleListAdminAlbum(request, env);
+	}
+
+	if (url.pathname === "/api/admin/album/batch" && request.method === "POST") {
+		return handleAdminAlbumBatch(request, env);
+	}
+
+	if (
+		url.pathname === "/api/admin/album/collections" &&
+		request.method === "GET"
+	) {
+		return handleListAdminAlbumCollections(request, env);
+	}
+
+	if (
+		url.pathname === "/api/admin/album/collections" &&
+		request.method === "POST"
+	) {
+		return handleCreateAdminAlbumCollection(request, env);
+	}
+
+	if (url.pathname === "/api/admin/album/upload" && request.method === "POST") {
+		return handleUploadAdminAlbumItem(request, env);
+	}
+
+	const albumCollection = adminAlbumCollectionPath(url.pathname);
+	if (albumCollection && request.method === "PUT") {
+		return handleUpdateAdminAlbumCollection(
+			request,
+			env,
+			albumCollection.collectionId,
+		);
+	}
+
+	if (albumCollection && request.method === "DELETE") {
+		return handleDeleteAdminAlbumCollection(
+			request,
+			env,
+			albumCollection.collectionId,
+		);
+	}
+
+	const albumItemAction = adminAlbumItemActionPath(url.pathname);
+	if (albumItemAction && request.method === "POST") {
+		return handleAdminAlbumItemAction(
+			request,
+			env,
+			albumItemAction.itemId,
+			albumItemAction.action,
+		);
+	}
+
+	const albumItem = adminAlbumItemPath(url.pathname);
+	if (albumItem && request.method === "PUT") {
+		return handleUpdateAdminAlbumItem(request, env, albumItem.itemId);
 	}
 
 	if (

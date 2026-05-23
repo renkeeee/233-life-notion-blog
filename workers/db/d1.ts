@@ -1,5 +1,7 @@
 import type { SettingRow } from "../settings";
 import type {
+	PublicAlbumCollectionRecord,
+	PublicAlbumList,
 	PublicAlbumMediaRecord,
 	PostVisibility,
 	PublicPostComment,
@@ -114,6 +116,48 @@ type AlbumMediaRow = PostRow & {
 	media_kind: PublicAlbumMediaRecord["kind"];
 	media_url: string;
 	media_caption: string;
+};
+
+type AlbumItemRow = {
+	album_id: string;
+	album_kind: PublicAlbumMediaRecord["kind"];
+	album_url: string;
+	album_thumbnail_url: string | null;
+	album_large_url: string | null;
+	album_title: string;
+	album_description: string;
+	album_caption: string;
+	album_taken_at: string | null;
+	album_location_name: string;
+	album_latitude: number | null;
+	album_longitude: number | null;
+	album_featured: number | boolean;
+	album_updated_at: string;
+	post_id: string | null;
+	post_slug: string | null;
+	post_title: string | null;
+	post_category: string | null;
+	post_published_at: string | null;
+	post_updated_at: string | null;
+};
+
+type AlbumCollectionRow = {
+	id: string;
+	slug: string;
+	title: string;
+	description: string;
+	cover_item_id: string | null;
+	sort_order: number;
+};
+
+type ListAlbumOptions = {
+	page: number;
+	limit: number;
+	kind?: PublicAlbumMediaRecord["kind"];
+	collection?: string;
+	featured?: boolean;
+	year?: number;
+	month?: number;
 };
 
 export type LockedPostRecord = {
@@ -539,6 +583,157 @@ export class PostsRepository {
 		return posts.map(hideLockedPreview);
 	}
 
+	async listPublicAlbum(
+		options: ListAlbumOptions = { page: 1, limit: 30 },
+	): Promise<PublicAlbumList> {
+		const offset = (options.page - 1) * options.limit;
+		const values: unknown[] = [];
+		const clauses = [
+			"ai.visibility = 'visible'",
+			`(
+				ai.post_id IS NULL
+				OR (
+					p.id IS NOT NULL
+					AND p.visibility = 'published'
+					AND p.manual_visibility = 'visible'
+					AND p.locked = 0
+				)
+			)`,
+		];
+
+		if (options.kind) {
+			clauses.push("ai.kind = ?");
+			values.push(options.kind);
+		}
+
+		if (options.featured === true) {
+			clauses.push("ai.featured = 1");
+		}
+
+		if (options.year) {
+			clauses.push("substr(COALESCE(ai.taken_at, ai.updated_at), 1, 4) = ?");
+			values.push(String(options.year));
+		}
+
+		if (options.month) {
+			clauses.push("substr(COALESCE(ai.taken_at, ai.updated_at), 6, 2) = ?");
+			values.push(String(options.month).padStart(2, "0"));
+		}
+
+		if (options.collection) {
+			clauses.push(
+				`EXISTS (
+					SELECT 1
+					FROM album_item_collections filter_aic
+					JOIN album_collections filter_ac
+						ON filter_ac.id = filter_aic.collection_id
+					WHERE filter_aic.item_id = ai.id
+					AND filter_ac.visibility = 'visible'
+					AND filter_ac.slug = ?
+				)`,
+			);
+			values.push(options.collection);
+		}
+
+		const result = await this.db
+			.prepare(
+				`SELECT
+					ai.id AS album_id,
+					ai.kind AS album_kind,
+					ai.url AS album_url,
+					ai.thumbnail_url AS album_thumbnail_url,
+					ai.large_url AS album_large_url,
+					ai.title AS album_title,
+					ai.description AS album_description,
+					ai.caption AS album_caption,
+					ai.taken_at AS album_taken_at,
+					ai.location_name AS album_location_name,
+					ai.latitude AS album_latitude,
+					ai.longitude AS album_longitude,
+					ai.featured AS album_featured,
+					ai.updated_at AS album_updated_at,
+					p.id AS post_id,
+					p.slug AS post_slug,
+					p.title AS post_title,
+					p.category AS post_category,
+					p.published_at AS post_published_at,
+					p.updated_at AS post_updated_at
+				 FROM album_items ai
+				 LEFT JOIN posts p ON p.id = ai.post_id
+				 WHERE ${clauses.join("\n\t\t\t\t\t AND ")}
+				 ORDER BY
+					COALESCE(ai.taken_at, ai.updated_at) DESC,
+					ai.sort_order ASC,
+					ai.id ASC
+				 LIMIT ? OFFSET ?`,
+			)
+			.bind(...values, options.limit + 1, offset)
+			.all<AlbumItemRow>();
+		const rows = result.results.slice(0, options.limit);
+		const postIds = rows
+			.map((row) => row.post_id)
+			.filter((postId): postId is string => typeof postId === "string");
+		const tagsByPostId = postIds.length
+			? await this.tagsForPostIds([...new Set(postIds)])
+			: new Map<string, string[]>();
+		const slugsByItemId = await this.collectionSlugsForAlbumItemIds(
+			rows.map((row) => row.album_id),
+		);
+
+		return {
+			items: rows.map((row) => ({
+				id: row.album_id,
+				title: row.album_title,
+				description: row.album_description,
+				postId: row.post_id,
+				postSlug: row.post_slug,
+				postTitle: row.post_title,
+				category: row.post_category,
+				tags: row.post_id ? (tagsByPostId.get(row.post_id) ?? []) : [],
+				kind: row.album_kind,
+				url: row.album_url,
+				...(row.album_thumbnail_url
+					? { thumbnailUrl: row.album_thumbnail_url }
+					: {}),
+				...(row.album_large_url ? { largeUrl: row.album_large_url } : {}),
+				caption: row.album_caption,
+				takenAt: row.album_taken_at,
+				locationName: row.album_location_name,
+				latitude: row.album_latitude,
+				longitude: row.album_longitude,
+				featured:
+					row.album_featured === 1 || row.album_featured === true,
+				collectionSlugs: slugsByItemId.get(row.album_id) ?? [],
+				publishedAt: row.post_published_at,
+				updatedAt: row.post_updated_at ?? row.album_updated_at,
+			})),
+			page: options.page,
+			limit: options.limit,
+			hasMore: result.results.length > options.limit,
+			collections: await this.listPublicAlbumCollections(),
+		};
+	}
+
+	async listPublicAlbumCollections(): Promise<PublicAlbumCollectionRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT id, slug, title, description, cover_item_id, sort_order
+				 FROM album_collections
+				 WHERE visibility = 'visible'
+				 ORDER BY sort_order ASC, title ASC`,
+			)
+			.all<AlbumCollectionRow>();
+
+		return result.results.map((row) => ({
+			id: row.id,
+			slug: row.slug,
+			title: row.title,
+			description: row.description,
+			coverItemId: row.cover_item_id,
+			sortOrder: Number(row.sort_order),
+		}));
+	}
+
 	async listPublishedMediaForAlbum(
 		limit = 50000,
 	): Promise<PublicAlbumMediaRecord[]> {
@@ -570,6 +765,8 @@ export class PostsRepository {
 
 			items.push({
 				id: row.media_id,
+				title: row.media_caption || post.title,
+				description: "",
 				postId: post.id,
 				postSlug: post.slug,
 				postTitle: post.title,
@@ -577,7 +774,14 @@ export class PostsRepository {
 				tags: post.tags,
 				kind: row.media_kind,
 				url: row.media_url,
+				largeUrl: row.media_url,
 				caption: row.media_caption,
+				takenAt: post.publishedAt ?? post.updatedAt,
+				locationName: "",
+				latitude: null,
+				longitude: null,
+				featured: false,
+				collectionSlugs: [],
 				publishedAt: post.publishedAt,
 				updatedAt: post.updatedAt,
 			});
@@ -662,6 +866,40 @@ export class PostsRepository {
 		}
 
 		return tagsByPostId;
+	}
+
+	private async collectionSlugsForAlbumItemIds(
+		itemIds: string[],
+	): Promise<Map<string, string[]>> {
+		if (itemIds.length === 0) {
+			return new Map();
+		}
+
+		const placeholders = itemIds.map(() => "?").join(", ");
+		const result = await this.db
+			.prepare(
+				`SELECT aic.item_id, ac.slug
+				 FROM album_item_collections aic
+				 JOIN album_collections ac ON ac.id = aic.collection_id
+				 WHERE aic.item_id IN (${placeholders})
+				 AND ac.visibility = 'visible'
+				 ORDER BY aic.item_id ASC, aic.sort_order ASC, ac.sort_order ASC, ac.slug ASC`,
+			)
+			.bind(...itemIds)
+			.all<{ item_id: string; slug: string }>();
+		const slugsByItemId = new Map<string, string[]>();
+
+		for (const row of result.results) {
+			if (typeof row.item_id !== "string" || typeof row.slug !== "string") {
+				continue;
+			}
+
+			const slugs = slugsByItemId.get(row.item_id) ?? [];
+			slugs.push(row.slug);
+			slugsByItemId.set(row.item_id, slugs);
+		}
+
+		return slugsByItemId;
 	}
 }
 

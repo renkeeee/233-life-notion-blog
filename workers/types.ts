@@ -43,17 +43,43 @@ export type PublicAlbumMediaKind = "image" | "video" | "audio" | "pdf" | "file";
 
 export interface PublicAlbumMediaRecord {
 	id: string;
-	postId: string;
-	postSlug: string;
-	postTitle: string;
+	title: string;
+	description: string;
+	postId: string | null;
+	postSlug: string | null;
+	postTitle: string | null;
 	category: string | null;
 	tags: string[];
 	kind: PublicAlbumMediaKind;
 	url: string;
 	thumbnailUrl?: string;
+	largeUrl?: string;
 	caption: string;
+	takenAt: string | null;
+	locationName: string;
+	latitude: number | null;
+	longitude: number | null;
+	featured: boolean;
+	collectionSlugs: string[];
 	publishedAt: string | null;
 	updatedAt: string;
+}
+
+export interface PublicAlbumCollectionRecord {
+	id: string;
+	slug: string;
+	title: string;
+	description: string;
+	coverItemId: string | null;
+	sortOrder: number;
+}
+
+export interface PublicAlbumList {
+	items: PublicAlbumMediaRecord[];
+	page: number;
+	limit: number;
+	hasMore: boolean;
+	collections: PublicAlbumCollectionRecord[];
 }
 
 export type ApiErrorCode =

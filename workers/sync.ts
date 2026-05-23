@@ -156,6 +156,17 @@ interface ResourceRefRecord extends BlockAssetRef {
 	contentHash: string;
 }
 
+interface SyncedMediaRecord {
+	id: string;
+	blockId: string | null;
+	kind: PublicAlbumMediaKind;
+	url: string;
+	caption: string;
+	r2Key: string;
+	contentHash: string;
+	sortOrder: number;
+}
+
 class SyncError extends Error {
 	constructor(
 		readonly code: ApiErrorCode,
@@ -593,6 +604,12 @@ async function syncPage(
 				assetResult.resourceRefs,
 				deps,
 			),
+			...prepareUpsertAlbumItems(
+				env.DB,
+				{ ...metadata, id: postId, excerpt, coverUrl },
+				assetResult.resourceRefs,
+				deps,
+			),
 			prepareInsertSyncItem(env.DB, {
 				id: itemId,
 				runId,
@@ -1013,6 +1030,135 @@ function prepareReplacePostMedia(
 		db.prepare("DELETE FROM post_media WHERE post_id = ?").bind(postId),
 	];
 
+	for (const media of syncedMediaRecords(postId, resourceRefs)) {
+		statements.push(
+			db
+				.prepare(
+					`INSERT INTO post_media (
+						id, post_id, block_id, kind, url, caption, r2_key,
+						content_hash, sort_order, created_at, updated_at
+					)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				)
+				.bind(
+					media.id,
+					postId,
+					media.blockId,
+					media.kind,
+					media.url,
+					media.caption,
+					media.r2Key,
+					media.contentHash,
+					media.sortOrder,
+					now,
+					now,
+				),
+		);
+	}
+
+	return statements;
+}
+
+function prepareUpsertAlbumItems(
+	db: D1Database,
+	post: PostMetadata,
+	resourceRefs: ResourceRefRecord[],
+	deps: ResolvedSyncDependencies,
+): D1PreparedStatement[] {
+	const now = deps.now();
+	const mediaRecords = syncedMediaRecords(post.id, resourceRefs);
+	const statements: D1PreparedStatement[] = [
+		prepareHideMissingAlbumItems(db, post.id, mediaRecords, deps),
+	];
+
+	for (const media of mediaRecords) {
+		const title = media.caption.trim() || post.title;
+		const takenAt = post.publishedAt ?? now;
+
+		statements.push(
+			db
+				.prepare(
+					`INSERT INTO album_items (
+						id, source_type, source_id, post_id, kind, url, thumbnail_url,
+						large_url, r2_key, title, description, caption, taken_at,
+						location_name, latitude, longitude, visibility, featured,
+						sort_order, source_content_hash, exif_json, created_at, updated_at
+					)
+					VALUES (?, 'post_media', ?, ?, ?, ?, NULL, ?, ?, ?, '', ?, ?, '', NULL, NULL,
+						'visible', 0, ?, ?, NULL, ?, ?)
+					ON CONFLICT(source_type, source_id) DO UPDATE SET
+						post_id = excluded.post_id,
+						kind = excluded.kind,
+						url = excluded.url,
+						large_url = excluded.large_url,
+						r2_key = excluded.r2_key,
+						title = CASE
+							WHEN TRIM(album_items.title) = '' THEN excluded.title
+							ELSE album_items.title
+						END,
+						caption = excluded.caption,
+						sort_order = excluded.sort_order,
+						source_content_hash = excluded.source_content_hash,
+						updated_at = excluded.updated_at`,
+				)
+				.bind(
+					media.id,
+					media.id,
+					post.id,
+					media.kind,
+					media.url,
+					media.url,
+					media.r2Key,
+					title,
+					media.caption,
+					takenAt,
+					media.sortOrder,
+					media.contentHash,
+					now,
+					now,
+				),
+		);
+	}
+
+	return statements;
+}
+
+function prepareHideMissingAlbumItems(
+	db: D1Database,
+	postId: string,
+	mediaRecords: SyncedMediaRecord[],
+	deps: ResolvedSyncDependencies,
+): D1PreparedStatement {
+	const now = deps.now();
+	if (mediaRecords.length === 0) {
+		return db
+			.prepare(
+				`UPDATE album_items
+				 SET visibility = 'hidden', updated_at = ?
+				 WHERE source_type = 'post_media'
+				 AND post_id = ?`,
+			)
+			.bind(now, postId);
+	}
+
+	const placeholders = mediaRecords.map(() => "?").join(", ");
+	return db
+		.prepare(
+			`UPDATE album_items
+			 SET visibility = 'hidden', updated_at = ?
+			 WHERE source_type = 'post_media'
+			 AND post_id = ?
+			 AND source_id NOT IN (${placeholders})`,
+		)
+		.bind(now, postId, ...mediaRecords.map((media) => media.id));
+}
+
+function syncedMediaRecords(
+	postId: string,
+	resourceRefs: ResourceRefRecord[],
+): SyncedMediaRecord[] {
+	const records: SyncedMediaRecord[] = [];
+
 	for (const [index, ref] of resourceRefs.entries()) {
 		const kind = mediaKindForResource(ref.blockType, ref.cdnUrl || ref.sourceUrl);
 		if (!kind) {
@@ -1025,32 +1171,19 @@ function prepareReplacePostMedia(
 				: null;
 		const stableIdPart = blockId || ref.contentHash || "resource";
 
-		statements.push(
-			db
-				.prepare(
-					`INSERT INTO post_media (
-						id, post_id, block_id, kind, url, caption, r2_key,
-						content_hash, sort_order, created_at, updated_at
-					)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				)
-				.bind(
-					`${postId}:${stableIdPart}:${index}`,
-					postId,
-					blockId,
-					kind,
-					ref.cdnUrl,
-					ref.caption,
-					ref.r2Key,
-					ref.contentHash,
-					index,
-					now,
-					now,
-				),
-		);
+		records.push({
+			id: `${postId}:${stableIdPart}:${index}`,
+			blockId,
+			kind,
+			url: ref.cdnUrl,
+			caption: ref.caption,
+			r2Key: ref.r2Key,
+			contentHash: ref.contentHash,
+			sortOrder: index,
+		});
 	}
 
-	return statements;
+	return records;
 }
 
 function extensionFromUrl(value: string): string {

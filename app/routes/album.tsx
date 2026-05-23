@@ -7,26 +7,48 @@ type AlbumMediaKind = "image" | "video" | "audio" | "pdf" | "file";
 
 type AlbumMediaItem = {
 	id: string;
-	postId: string;
-	postSlug: string;
-	postTitle: string;
+	title: string;
+	description: string;
+	postId: string | null;
+	postSlug: string | null;
+	postTitle: string | null;
 	category: string | null;
 	tags: string[];
 	kind: AlbumMediaKind;
 	url: string;
 	thumbnailUrl?: string;
+	largeUrl?: string;
 	caption: string;
+	takenAt: string | null;
+	locationName: string;
+	latitude: number | null;
+	longitude: number | null;
+	featured: boolean;
+	collectionSlugs: string[];
 	publishedAt: string | null;
 	updatedAt: string;
 };
 
+type AlbumCollection = {
+	id: string;
+	slug: string;
+	title: string;
+	description: string;
+	coverItemId: string | null;
+	sortOrder: number;
+};
+
 type AlbumResponse = {
 	items: AlbumMediaItem[];
+	page: number;
+	limit: number;
+	hasMore: boolean;
+	collections: AlbumCollection[];
 };
 
 type LoadState =
-	| { status: "loading" }
-	| { status: "error"; message: string }
+	| { status: "loading"; items: AlbumMediaItem[] }
+	| { status: "error"; message: string; items: AlbumMediaItem[] }
 	| { status: "success"; items: AlbumMediaItem[] };
 
 type AlbumMonth = {
@@ -41,8 +63,10 @@ type AlbumYear = {
 	months: AlbumMonth[];
 };
 
+const albumPageSize = 30;
+
 function mediaDate(item: AlbumMediaItem): Date | null {
-	const value = item.publishedAt ?? item.updatedAt;
+	const value = item.takenAt ?? item.publishedAt ?? item.updatedAt;
 	if (!value) {
 		return null;
 	}
@@ -127,7 +151,34 @@ function mediaLabel(kind: AlbumMediaKind): string {
 }
 
 function mediaTitle(item: AlbumMediaItem): string {
-	return item.caption || item.postTitle || mediaLabel(item.kind);
+	return item.title || item.caption || item.postTitle || mediaLabel(item.kind);
+}
+
+function buildAlbumPath({
+	page,
+	collection,
+	kind,
+	featured,
+}: {
+	page: number;
+	collection: string;
+	kind: string;
+	featured: boolean;
+}): string {
+	const params = new URLSearchParams();
+	params.set("page", String(page));
+	params.set("limit", String(albumPageSize));
+	if (collection) {
+		params.set("collection", collection);
+	}
+	if (kind) {
+		params.set("kind", kind);
+	}
+	if (featured) {
+		params.set("featured", "1");
+	}
+
+	return `/api/album?${params.toString()}`;
 }
 
 function MediaThumbnail({ item }: { item: AlbumMediaItem }) {
@@ -184,7 +235,12 @@ function MediaPreview({
 				}
 			}}
 		>
-			<section className="media-preview-dialog" role="dialog" aria-label="Media preview" aria-modal="true">
+			<section
+				className="media-preview-dialog"
+				role="dialog"
+				aria-label="Media preview"
+				aria-modal="true"
+			>
 				<div className="media-preview-toolbar">
 					<div>
 						<p>{mediaLabel(item.kind)}</p>
@@ -195,9 +251,11 @@ function MediaPreview({
 					</button>
 				</div>
 				<div className="media-preview-stage">
-					{item.kind === "image" ? <img src={item.url} alt={title} /> : null}
+					{item.kind === "image" ? (
+						<img src={item.largeUrl || item.url} alt={title} />
+					) : null}
 					{item.kind === "video" ? (
-						<video src={item.url} controls autoPlay playsInline />
+						<video src={item.largeUrl || item.url} controls autoPlay playsInline />
 					) : null}
 					{item.kind === "audio" ? <audio src={item.url} controls /> : null}
 					{item.kind === "pdf" ? (
@@ -212,50 +270,196 @@ function MediaPreview({
 					) : null}
 				</div>
 				<div className="media-preview-meta">
-					<Link to={`/post/${item.postSlug}`}>{item.postTitle}</Link>
-					<time dateTime={item.publishedAt ?? item.updatedAt}>
+					{item.postSlug ? (
+						<Link to={`/post/${item.postSlug}`}>
+							{item.postTitle || item.postSlug}
+						</Link>
+					) : null}
+					<time dateTime={item.takenAt ?? item.publishedAt ?? item.updatedAt}>
 						{formatDate(item)}
 					</time>
+					{item.locationName ? <span>{item.locationName}</span> : null}
 				</div>
 			</section>
 		</div>
 	);
 }
 
+function AlbumMap({ items }: { items: AlbumMediaItem[] }) {
+	const mappedItems = items.filter(
+		(item) => item.latitude !== null && item.longitude !== null,
+	);
+
+	return (
+		<section className="album-map-view" aria-label="Album map">
+			{mappedItems.length === 0 ? (
+				<p className="state-note">No mapped media in this view.</p>
+			) : (
+				mappedItems.map((item) => (
+					<div className="album-map-pin" key={item.id}>
+						<strong>{mediaTitle(item)}</strong>
+						<span>{item.locationName || `${item.latitude}, ${item.longitude}`}</span>
+					</div>
+				))
+			)}
+		</section>
+	);
+}
+
 export default function Album() {
-	const [state, setState] = useState<LoadState>({ status: "loading" });
+	const [state, setState] = useState<LoadState>({
+		status: "loading",
+		items: [],
+	});
 	const [previewItem, setPreviewItem] = useState<AlbumMediaItem | null>(null);
+	const [collections, setCollections] = useState<AlbumCollection[]>([]);
+	const [selectedCollection, setSelectedCollection] = useState("");
+	const [selectedKind, setSelectedKind] = useState("");
+	const [featuredOnly, setFeaturedOnly] = useState(false);
+	const [view, setView] = useState<"grid" | "map">("grid");
+	const [page, setPage] = useState(1);
+	const [hasMore, setHasMore] = useState(false);
+	const [loadingMore, setLoadingMore] = useState(false);
 
 	useEffect(() => {
 		let cancelled = false;
-		setState({ status: "loading" });
+		setState({ status: "loading", items: [] });
+		setPage(1);
+		setHasMore(false);
 
-		apiGet<AlbumResponse>("/api/album")
+		apiGet<AlbumResponse>(
+			buildAlbumPath({
+				page: 1,
+				collection: selectedCollection,
+				kind: selectedKind,
+				featured: featuredOnly,
+			}),
+		)
 			.then((response) => {
 				if (!cancelled) {
 					setState({ status: "success", items: response.items });
+					setCollections(response.collections);
+					setPage(response.page);
+					setHasMore(response.hasMore);
 				}
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) {
-					setState({ status: "error", message: errorMessage(error) });
+					setState({
+						status: "error",
+						message: errorMessage(error),
+						items: [],
+					});
 				}
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [selectedCollection, selectedKind, featuredOnly]);
 
-	const groups = useMemo(
-		() => (state.status === "success" ? albumGroups(state.items) : []),
-		[state],
-	);
+	async function loadMore() {
+		if (!hasMore || loadingMore) {
+			return;
+		}
+
+		const nextPage = page + 1;
+		setLoadingMore(true);
+		try {
+			const response = await apiGet<AlbumResponse>(
+				buildAlbumPath({
+					page: nextPage,
+					collection: selectedCollection,
+					kind: selectedKind,
+					featured: featuredOnly,
+				}),
+			);
+			setState((current) => ({
+				status: "success",
+				items: [...current.items, ...response.items],
+			}));
+			setCollections((current) =>
+				response.collections.length ? response.collections : current,
+			);
+			setPage(response.page);
+			setHasMore(response.hasMore);
+		} catch (error) {
+			setState((current) => ({
+				status: "error",
+				message: errorMessage(error),
+				items: current.items,
+			}));
+		} finally {
+			setLoadingMore(false);
+		}
+	}
+
+	const items = state.items;
+	const groups = useMemo(() => albumGroups(items), [items]);
 
 	return (
 		<main className="public-shell">
 			<PublicHeader />
 			<section className="archive-page album-page">
+				<div className="album-filter-bar">
+					<div className="album-collection-switcher">
+						<button
+							type="button"
+							className={selectedCollection === "" ? "active" : ""}
+							onClick={() => setSelectedCollection("")}
+						>
+							All
+						</button>
+						{collections.map((collection) => (
+							<button
+								type="button"
+								key={collection.slug}
+								className={
+									selectedCollection === collection.slug ? "active" : ""
+								}
+								onClick={() => setSelectedCollection(collection.slug)}
+							>
+								{collection.title}
+							</button>
+						))}
+					</div>
+					<div className="album-filter-controls">
+						<select
+							aria-label="Album kind"
+							value={selectedKind}
+							onChange={(event) => setSelectedKind(event.currentTarget.value)}
+						>
+							<option value="">All media</option>
+							<option value="image">Images</option>
+							<option value="video">Videos</option>
+							<option value="audio">Audio</option>
+							<option value="pdf">PDF</option>
+							<option value="file">Files</option>
+						</select>
+						<button
+							type="button"
+							className={featuredOnly ? "active" : ""}
+							onClick={() => setFeaturedOnly((current) => !current)}
+						>
+							Featured
+						</button>
+						<button
+							type="button"
+							className={view === "grid" ? "active" : ""}
+							onClick={() => setView("grid")}
+						>
+							Grid
+						</button>
+						<button
+							type="button"
+							className={view === "map" ? "active" : ""}
+							onClick={() => setView("map")}
+						>
+							Map
+						</button>
+					</div>
+				</div>
+
 				{state.status === "loading" ? (
 					<div className="archive-skeleton" aria-label="Loading album" role="status">
 						<div className="skeleton-line skeleton-title-line" />
@@ -266,47 +470,69 @@ export default function Album() {
 				{state.status === "error" ? (
 					<p className="state-note state-error">{state.message}</p>
 				) : null}
-				{state.status === "success" && state.items.length === 0 ? (
+				{state.status === "success" && items.length === 0 ? (
 					<p className="state-note">No media has been synced yet.</p>
 				) : null}
-				{groups.map((year) => (
-					<section className="archive-year album-year" key={year.year}>
-						<h3>
-							<span>{year.year}</span>
-							<sup>{year.count}</sup>
-						</h3>
-						<div className="archive-months">
-							{year.months.map((month) => (
-								<section className="archive-month album-month" key={month.key}>
-									<div className="archive-month-label">
-										<span>{month.label}</span>
-										<sup>{month.items.length}</sup>
-									</div>
-									<div className="album-grid">
-										{month.items.map((item) => (
-											<article className="album-media-card" key={item.id}>
-												<div className="album-media-day">{formatDay(item)}</div>
-												<button
-													type="button"
-													className="album-media-preview-trigger"
-													aria-label={`Preview ${mediaTitle(item)}`}
-													onClick={() => setPreviewItem(item)}
-												>
-													<MediaThumbnail item={item} />
-												</button>
-												<div className="album-media-copy">
-													<span>{mediaLabel(item.kind)}</span>
-													<strong>{mediaTitle(item)}</strong>
-													<Link to={`/post/${item.postSlug}`}>{item.postTitle}</Link>
-												</div>
-											</article>
-										))}
-									</div>
-								</section>
-							))}
-						</div>
-					</section>
-				))}
+
+				{view === "map" ? <AlbumMap items={items} /> : null}
+
+				{view === "grid"
+					? groups.map((year) => (
+							<section className="archive-year album-year" key={year.year}>
+								<h3>
+									<span>{year.year}</span>
+									<sup>{year.count}</sup>
+								</h3>
+								<div className="archive-months">
+									{year.months.map((month) => (
+										<section
+											className="archive-month album-month"
+											key={month.key}
+										>
+											<div className="archive-month-label">
+												<span>{month.label}</span>
+												<sup>{month.items.length}</sup>
+											</div>
+											<div className="album-grid">
+												{month.items.map((item) => (
+													<article className="album-media-card" key={item.id}>
+														<div className="album-media-day">
+															{formatDay(item)}
+														</div>
+														<button
+															type="button"
+															className="album-media-preview-trigger"
+															aria-label={`Preview ${mediaTitle(item)}`}
+															onClick={() => setPreviewItem(item)}
+														>
+															<MediaThumbnail item={item} />
+														</button>
+														<div className="album-media-copy">
+															<span>{mediaLabel(item.kind)}</span>
+															<strong>{mediaTitle(item)}</strong>
+															{item.postSlug ? (
+																<Link to={`/post/${item.postSlug}`}>
+																	{item.postTitle || item.postSlug}
+																</Link>
+															) : null}
+														</div>
+													</article>
+												))}
+											</div>
+										</section>
+									))}
+								</div>
+							</section>
+						))
+					: null}
+
+				{hasMore ? (
+					<div className="album-load-more">
+						<button type="button" disabled={loadingMore} onClick={loadMore}>
+							{loadingMore ? "Loading..." : "Load more"}
+						</button>
+					</div>
+				) : null}
 			</section>
 			{previewItem ? (
 				<MediaPreview item={previewItem} onClose={() => setPreviewItem(null)} />

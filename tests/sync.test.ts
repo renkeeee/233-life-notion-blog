@@ -296,6 +296,24 @@ function syncDependencies(
 	};
 }
 
+function syncDependenciesWithIds(
+	pages: NotionSyncPage[],
+	ids: string[],
+	blocks: NotionBlock[] = pageBlocks(),
+): SyncDependencies {
+	const deps = syncDependencies(pages, blocks);
+	let index = 0;
+
+	return {
+		...deps,
+		id: () => {
+			const value = ids[index];
+			index += 1;
+			return value ?? `generated-${index}`;
+		},
+	};
+}
+
 function adminRequest(pathname: string, init: RequestInit = {}): Request {
 	return new Request(`https://example.test${pathname}`, init);
 }
@@ -537,6 +555,30 @@ describe("runSync", () => {
 				"SELECT post_id, block_id, kind, url, caption, r2_key, content_hash, sort_order FROM post_media WHERE post_id = ?",
 				"notion-page-1",
 			);
+			const albumItems = db.rows<{
+				id: string;
+				source_type: string;
+				source_id: string;
+				post_id: string;
+				kind: string;
+				url: string;
+				large_url: string | null;
+				title: string;
+				caption: string;
+				taken_at: string | null;
+				visibility: string;
+				featured: number;
+				sort_order: number;
+				source_content_hash: string | null;
+			}>(
+				`SELECT
+					id, source_type, source_id, post_id, kind, url, large_url, title,
+					caption, taken_at, visibility, featured, sort_order, source_content_hash
+				 FROM album_items
+				 WHERE post_id = ?
+				 ORDER BY sort_order`,
+				"notion-page-1",
+			);
 
 			expect(result).toEqual({ runId: "run-1" });
 			expect(run).toMatchObject({
@@ -584,6 +626,24 @@ describe("runSync", () => {
 					sort_order: 0,
 				},
 			]);
+			expect(albumItems).toEqual([
+				{
+					id: "notion-page-1:block-image:0",
+					source_type: "post_media",
+					source_id: "notion-page-1:block-image:0",
+					post_id: "notion-page-1",
+					kind: "image",
+					url: asset.cdn_url,
+					large_url: asset.cdn_url,
+					title: "Cover image",
+					caption: "Cover image",
+					taken_at: "2026-05-18",
+					visibility: "visible",
+					featured: 0,
+					sort_order: 0,
+					source_content_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+				},
+			]);
 			expect(asset.mime_type).toBe("image/png");
 			expect(bucket.puts).toHaveLength(1);
 			expect(bucket.puts[0].key).toMatch(/^assets\/[0-9a-f]{2}\/[0-9a-f]{64}\.png$/);
@@ -592,6 +652,85 @@ describe("runSync", () => {
 				status: "success",
 				post_id: "notion-page-1",
 			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("preserves managed album item fields during forced media resyncs", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			const env = envWithDb(db);
+			await runSync(
+				env,
+				{ triggerType: "manual", force: true },
+				syncDependenciesWithIds([syncPage()], ["run-1", "item-1"]),
+			);
+
+			db.exec(
+				`UPDATE album_items
+				 SET title = 'Edited album title',
+					description = 'Edited album description',
+					location_name = 'Window desk',
+					visibility = 'hidden',
+					featured = 1
+				 WHERE source_id = 'notion-page-1:block-image:0'`,
+			);
+
+			const changedBlocks: NotionBlock[] = pageBlocks().map((block) =>
+				block.id === "block-image"
+					? ({
+							...block,
+							image: {
+								type: "external",
+								external: {
+									url: "https://notion-assets.example.com/image.png",
+								},
+								caption: [{ plain_text: "Updated Notion caption" }],
+							},
+						} as NotionBlock)
+					: block,
+			);
+
+			await runSync(
+				env,
+				{ triggerType: "manual", force: true },
+				syncDependenciesWithIds(
+					[syncPage({ last_edited_time: "2026-05-19T02:30:00.000Z" })],
+					["run-2", "item-2"],
+					changedBlocks,
+				),
+			);
+
+			const item = db.row<{
+				title: string;
+				description: string;
+				location_name: string;
+				visibility: string;
+				featured: number;
+				caption: string;
+				url: string;
+				source_content_hash: string | null;
+			}>(
+				`SELECT
+					title, description, location_name, visibility, featured, caption,
+					url, source_content_hash
+				 FROM album_items
+				 WHERE source_id = ?`,
+				"notion-page-1:block-image:0",
+			);
+
+			expect(item).toMatchObject({
+				title: "Edited album title",
+				description: "Edited album description",
+				location_name: "Window desk",
+				visibility: "hidden",
+				featured: 1,
+				caption: "Updated Notion caption",
+			});
+			expect(item.url).toContain("https://cdn.example.com/assets/");
+			expect(item.source_content_hash).toMatch(/^[0-9a-f]{64}$/);
 		} finally {
 			db.close();
 		}
@@ -1787,6 +1926,253 @@ describe("admin posts API", () => {
 			await expect(response.json()).resolves.toEqual({
 				runId: "resync-run-1",
 			});
+		} finally {
+			db.close();
+		}
+	});
+});
+
+describe("admin album API", () => {
+	it("lists, updates, hides, restores, deletes album items and manages collections", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, excerpt, cover_url, category,
+					status, visibility, published_at, notion_last_edited_time,
+					content_hash, last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'hello-notion', 'Hello Notion',
+					'Excerpt', NULL, 'Journal', 'Published', 'published',
+					'2026-05-18', '2026-05-18T02:30:00.000Z', 'hash',
+					NULL, '${fixedNow}', '${fixedNow}'
+				);
+				INSERT INTO album_items (
+					id, source_type, source_id, post_id, kind, url, large_url, r2_key,
+					title, description, caption, taken_at, location_name, visibility,
+					featured, sort_order, source_content_hash, created_at, updated_at
+				)
+				VALUES (
+					'album-1', 'post_media', 'post-media-1', 'post-1', 'image',
+					'https://cdn.example.com/assets/photo.jpg',
+					'https://cdn.example.com/assets/photo.jpg',
+					'assets/photo.jpg', 'Original title', '', 'Original caption',
+					'2026-05-18', '', 'visible', 0, 0, 'hash-photo',
+					'${fixedNow}', '${fixedNow}'
+				);
+				INSERT INTO album_collections (
+					id, slug, title, description, visibility, sort_order, created_at, updated_at
+				)
+				VALUES (
+					'collection-1', 'daily', 'Daily', '', 'visible', 0,
+					'${fixedNow}', '${fixedNow}'
+				);
+				INSERT INTO album_item_collections (item_id, collection_id, sort_order)
+				VALUES ('album-1', 'collection-1', 0);`,
+			);
+
+			const listResponse = await handleAdminApi(
+				adminRequest("/api/admin/album?limit=5", {
+					headers: { cookie: session.cookie },
+				}),
+				env,
+			);
+			expect(listResponse.status).toBe(200);
+			await expect(listResponse.json()).resolves.toMatchObject({
+				total: 1,
+				items: [
+					{
+						id: "album-1",
+						title: "Original title",
+						visibility: "visible",
+						collectionIds: ["collection-1"],
+						post: { id: "post-1", slug: "hello-notion", title: "Hello Notion" },
+					},
+				],
+			});
+
+			const updateResponse = await handleAdminApi(
+				adminRequest("/api/admin/album/items/album-1", {
+					body: JSON.stringify({
+						title: "Edited title",
+						description: "A small note",
+						caption: "Edited caption",
+						takenAt: "2026-05-19T00:00:00.000Z",
+						locationName: "Shanghai",
+						latitude: 31.2304,
+						longitude: 121.4737,
+						featured: true,
+						collectionIds: [],
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "PUT",
+				}),
+				env,
+			);
+			expect(updateResponse.status).toBe(200);
+			await expect(updateResponse.json()).resolves.toMatchObject({
+				item: {
+					id: "album-1",
+					title: "Edited title",
+					description: "A small note",
+					caption: "Edited caption",
+					takenAt: "2026-05-19T00:00:00.000Z",
+					locationName: "Shanghai",
+					latitude: 31.2304,
+					longitude: 121.4737,
+					featured: true,
+					collectionIds: [],
+				},
+			});
+
+			for (const action of ["hide", "restore"] as const) {
+				const response = await handleAdminApi(
+					adminRequest(`/api/admin/album/items/album-1/${action}`, {
+						headers: {
+							cookie: session.cookie,
+							"x-csrf-token": session.csrfToken,
+						},
+						method: "POST",
+					}),
+					env,
+				);
+				expect(response.status).toBe(200);
+			}
+
+			const createCollectionResponse = await handleAdminApi(
+				adminRequest("/api/admin/album/collections", {
+					body: JSON.stringify({
+						slug: "travels",
+						title: "Travels",
+						description: "Away days",
+						sortOrder: 2,
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+			expect(createCollectionResponse.status).toBe(200);
+			await expect(createCollectionResponse.json()).resolves.toMatchObject({
+				collection: {
+					slug: "travels",
+					title: "Travels",
+					description: "Away days",
+					sortOrder: 2,
+				},
+			});
+
+			const batchResponse = await handleAdminApi(
+				adminRequest("/api/admin/album/batch", {
+					body: JSON.stringify({
+						itemIds: ["album-1"],
+						action: "hide",
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+			expect(batchResponse.status).toBe(200);
+			await expect(batchResponse.json()).resolves.toEqual({
+				ok: true,
+				updated: 1,
+			});
+			expect(
+				db.row<{ visibility: string }>(
+					"SELECT visibility FROM album_items WHERE id = ?",
+					"album-1",
+				).visibility,
+			).toBe("hidden");
+
+			const deleteResponse = await handleAdminApi(
+				adminRequest("/api/admin/album/items/album-1/delete", {
+					headers: {
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+			expect(deleteResponse.status).toBe(200);
+			expect(
+				db.rows("SELECT id FROM album_items WHERE id = ?", "album-1"),
+			).toEqual([]);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("uploads manual album media to R2 and creates album items", async () => {
+		const db = new SqliteD1Database();
+		const bucket = new FakeAssetBucket();
+		try {
+			await seedSettings(db);
+			await seedChangedPassword(db);
+			const env = envWithDb(db, bucket);
+			const session = await loginSession(env);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/album/upload", {
+					body: JSON.stringify({
+						fileName: "photo.jpg",
+						contentType: "image/jpeg",
+						contentBase64: btoa(String.fromCharCode(1, 2, 3, 4)),
+						title: "Manual upload",
+						takenAt: "2026-05-20T00:00:00.000Z",
+						featured: true,
+					}),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toMatchObject({
+				item: {
+					sourceType: "manual",
+					kind: "image",
+					title: "Manual upload",
+					takenAt: "2026-05-20T00:00:00.000Z",
+					featured: true,
+				},
+			});
+			expect(bucket.puts).toHaveLength(1);
+			const row = db.row<{
+				source_type: string;
+				kind: string;
+				url: string;
+				title: string;
+				featured: number;
+			}>("SELECT source_type, kind, url, title, featured FROM album_items");
+			expect(row).toMatchObject({
+				source_type: "manual",
+				kind: "image",
+				title: "Manual upload",
+				featured: 1,
+			});
+			expect(row.url).toContain("https://cdn.example.com/assets/");
 		} finally {
 			db.close();
 		}

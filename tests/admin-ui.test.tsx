@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
+import { AlbumPanel } from "../app/components/admin/AlbumPanel";
 import { PostStatusTable } from "../app/components/admin/PostStatusTable";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
 import { SyncPanel } from "../app/components/admin/SyncPanel";
@@ -738,6 +739,119 @@ describe("PostStatusTable", () => {
 			expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();
+		}
+	});
+});
+
+describe("AlbumPanel", () => {
+	it("loads album items, filters, edits items, creates collections, and uploads media", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "album-1",
+					title: "Window light",
+					description: "",
+					caption: "Morning",
+					kind: "image",
+					url: "https://cdn.example.com/assets/window.jpg",
+					thumbnailUrl: null,
+					largeUrl: "https://cdn.example.com/assets/window.jpg",
+					visibility: "visible",
+					featured: false,
+					takenAt: "2026-05-18",
+					locationName: "",
+					latitude: null,
+					longitude: null,
+					collectionIds: ["collection-1"],
+					post: { id: "post-1", slug: "hello-world", title: "Hello World" },
+					updatedAt: "2026-05-19T14:04:50.569Z",
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 30,
+			collections: [
+				{
+					id: "collection-1",
+					slug: "daily",
+					title: "Daily",
+					description: "",
+					visibility: "visible",
+					sortOrder: 0,
+				},
+			],
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({
+			item: {
+				id: "album-1",
+				title: "Edited window",
+				description: "Soft light",
+				caption: "Morning",
+				kind: "image",
+				visibility: "visible",
+				featured: true,
+				collectionIds: [],
+			},
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+
+		try {
+			render(<AlbumPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("Window light");
+			fireEvent.change(screen.getByLabelText("Keyword"), {
+				target: { value: "window" },
+			});
+			fireEvent.change(screen.getByLabelText("Kind"), {
+				target: { value: "image" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+
+			await waitFor(() =>
+				expect(apiGet).toHaveBeenLastCalledWith(
+					"/api/admin/album?page=1&limit=30&q=window&kind=image",
+				),
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+			const editDialog = screen.getByRole("dialog", { name: "Edit album item" });
+			fireEvent.change(within(editDialog).getByLabelText("Title"), {
+				target: { value: "Edited window" },
+			});
+			fireEvent.change(within(editDialog).getByLabelText("Description"), {
+				target: { value: "Soft light" },
+			});
+			fireEvent.click(within(editDialog).getByLabelText("Featured"));
+			fireEvent.click(within(editDialog).getByRole("button", { name: "Save item" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/album/items/album-1",
+					expect.objectContaining({
+						title: "Edited window",
+						description: "Soft light",
+						featured: true,
+					}),
+					"csrf-token",
+				),
+			);
+
+			fireEvent.change(screen.getByLabelText("Collection title"), {
+				target: { value: "Travels" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/album/collections",
+					expect.objectContaining({ title: "Travels" }),
+					"csrf-token",
+				),
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+			apiPost.mockRestore();
 		}
 	});
 });

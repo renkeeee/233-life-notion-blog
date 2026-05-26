@@ -49,6 +49,35 @@ describe("local post utilities", () => {
 		});
 	});
 
+	it("preserves draft markdown verbatim", () => {
+		const markdown = "\n    const value = 1;\n\nTrailing space  \n";
+
+		expect(
+			validateLocalDraftInput({
+				title: "Draft",
+				markdown,
+			}).markdown,
+		).toBe(markdown);
+	});
+
+	it("rejects malformed optional string fields", () => {
+		expect(() =>
+			validateLocalDraftInput({
+				title: "Draft",
+				excerpt: 123,
+			}),
+		).toThrow("Excerpt must be a string");
+	});
+
+	it("rejects malformed commentsEnabled values", () => {
+		expect(() =>
+			validateLocalDraftInput({
+				title: "Draft",
+				commentsEnabled: "true",
+			}),
+		).toThrow("Comments enabled must be a boolean");
+	});
+
 	it("extracts markdown image URLs in document order", () => {
 		expect(
 			extractMarkdownImageUrls(

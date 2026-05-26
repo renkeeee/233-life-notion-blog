@@ -49,14 +49,13 @@ export function validateLocalDraftInput(
 	return {
 		title,
 		slug,
-		excerpt: optionalDefaultString(input.excerpt),
-		markdown: optionalDefaultString(input.markdown),
-		coverUrl: optionalNullableString(input.coverUrl),
-		category: optionalNullableString(input.category),
+		excerpt: optionalDefaultString(input.excerpt, "Excerpt"),
+		markdown: optionalMarkdown(input.markdown),
+		coverUrl: optionalNullableString(input.coverUrl, "Cover URL"),
+		category: optionalNullableString(input.category, "Category"),
 		tags: normalizeTags(input.tags),
-		commentsEnabled:
-			typeof input.commentsEnabled === "boolean" ? input.commentsEnabled : null,
-		publishedAt: optionalNullableString(input.publishedAt),
+		commentsEnabled: optionalBoolean(input.commentsEnabled, "Comments enabled"),
+		publishedAt: optionalNullableString(input.publishedAt, "Published date"),
 	};
 }
 
@@ -69,7 +68,7 @@ export function validateLocalPublishInput(
 		throw new Error("Slug is required");
 	}
 
-	if (draft.markdown.length === 0) {
+	if (draft.markdown.trim().length === 0) {
 		throw new Error("Markdown is required");
 	}
 
@@ -105,9 +104,16 @@ function requiredString(value: unknown, label: string): string {
 	return trimmed;
 }
 
-function optionalNullableString(value: unknown): string | null {
-	if (typeof value !== "string") {
+function optionalNullableString(
+	value: unknown,
+	label: string,
+): string | null {
+	if (value === undefined || value === null) {
 		return null;
+	}
+
+	if (typeof value !== "string") {
+		throw new Error(`${label} must be a string`);
 	}
 
 	const trimmed = value.trim();
@@ -122,12 +128,40 @@ function optionalSlug(value: unknown): string | null {
 	return value.trim().length === 0 ? null : value;
 }
 
-function optionalDefaultString(value: unknown): string {
-	if (typeof value !== "string") {
+function optionalDefaultString(value: unknown, label: string): string {
+	if (value === undefined || value === null) {
 		return "";
 	}
 
+	if (typeof value !== "string") {
+		throw new Error(`${label} must be a string`);
+	}
+
 	return value.trim();
+}
+
+function optionalMarkdown(value: unknown): string {
+	if (value === undefined || value === null) {
+		return "";
+	}
+
+	if (typeof value !== "string") {
+		throw new Error("Markdown must be a string");
+	}
+
+	return value;
+}
+
+function optionalBoolean(value: unknown, label: string): boolean | null {
+	if (value === undefined || value === null) {
+		return null;
+	}
+
+	if (typeof value !== "boolean") {
+		throw new Error(`${label} must be a boolean`);
+	}
+
+	return value;
 }
 
 function normalizeTags(value: unknown): string[] {

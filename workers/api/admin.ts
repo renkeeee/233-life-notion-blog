@@ -2237,7 +2237,7 @@ async function handleUploadLocalPostImage(
 		}
 
 		if (message === "R2_UPLOAD_FAILED") {
-			return errorJson("R2_UPLOAD_FAILED", "Asset upload failed", 502);
+			return errorJson("R2_UPLOAD_FAILED", "Asset upload failed", 500);
 		}
 
 		return errorJson("INTERNAL_ERROR", "Asset could not be saved", 500);

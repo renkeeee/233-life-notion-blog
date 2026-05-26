@@ -134,6 +134,7 @@ class SqliteD1PreparedStatement {
 
 type FakeR2Bucket = R2Bucket & {
 	heads: string[];
+	failPut: boolean;
 	puts: Array<{
 		key: string;
 		body: ArrayBuffer;
@@ -143,6 +144,7 @@ type FakeR2Bucket = R2Bucket & {
 
 function fakeR2Bucket(): FakeR2Bucket {
 	const bucket = {
+		failPut: false,
 		heads: [] as string[],
 		puts: [] as FakeR2Bucket["puts"],
 		async head(key: string) {
@@ -154,6 +156,10 @@ function fakeR2Bucket(): FakeR2Bucket {
 			body: ArrayBuffer,
 			options?: { httpMetadata?: Record<string, string> },
 		) {
+			if (bucket.failPut) {
+				throw new Error("R2 put failed");
+			}
+
 			bucket.puts.push({ key, body, options });
 			return null;
 		},
@@ -654,6 +660,30 @@ describe("admin API routes", () => {
 				key: body.asset.r2Key,
 			}),
 		]);
+	});
+
+	it("returns R2_UPLOAD_FAILED with status 500 when local image upload fails", async () => {
+		const { bucket, env } = sqliteAdminEnv();
+		bucket.failPut = true;
+		const session = await usableLogin(env);
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/uploads", {
+				body: new Uint8Array([1, 2, 3, 4]),
+				headers: {
+					"content-type": "image/png",
+					"x-csrf-token": session.csrfToken,
+					cookie: session.cookie,
+				},
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(500);
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "R2_UPLOAD_FAILED", message: "Asset upload failed" },
+		});
 	});
 
 	it("publishes markdown images into post media and album items", async () => {

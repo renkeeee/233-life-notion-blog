@@ -40,7 +40,7 @@ export function validateLocalDraftInput(
 	input: LocalDraftInput,
 ): ValidLocalDraftInput {
 	const title = requiredString(input.title, "Title");
-	const slug = optionalNullableString(input.slug);
+	const slug = optionalSlug(input.slug);
 
 	if (slug !== null && !slugPattern.test(slug)) {
 		throw new Error(slugValidationMessage);
@@ -112,6 +112,14 @@ function optionalNullableString(value: unknown): string | null {
 
 	const trimmed = value.trim();
 	return trimmed.length === 0 ? null : trimmed;
+}
+
+function optionalSlug(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+
+	return value.trim().length === 0 ? null : value;
 }
 
 function optionalDefaultString(value: unknown): string {

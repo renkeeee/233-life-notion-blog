@@ -24,6 +24,15 @@ describe("local post utilities", () => {
 		).toThrow("Slug must contain only lowercase letters, numbers, and hyphens");
 	});
 
+	it("rejects draft input with leading whitespace in slug", () => {
+		expect(() =>
+			validateLocalDraftInput({
+				title: "Hello",
+				slug: " hello",
+			}),
+		).toThrow("Slug must contain only lowercase letters, numbers, and hyphens");
+	});
+
 	it("accepts draft input with empty optional content", () => {
 		expect(
 			validateLocalDraftInput({

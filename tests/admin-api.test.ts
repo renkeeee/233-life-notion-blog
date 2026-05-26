@@ -145,6 +145,7 @@ function fakeR2Bucket(): R2Bucket {
 
 class SqliteAdminD1 {
 	private readonly db = new DatabaseSync(":memory:");
+	batchCallCount = 0;
 
 	constructor() {
 		this.db.exec("PRAGMA foreign_keys = ON;");
@@ -155,6 +156,22 @@ class SqliteAdminD1 {
 		return new SqliteD1PreparedStatement(
 			this.db.prepare(sql),
 		) as unknown as D1PreparedStatement;
+	}
+
+	async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
+		this.batchCallCount += 1;
+		this.db.exec("BEGIN");
+		try {
+			const results: D1Result[] = [];
+			for (const statement of statements) {
+				results.push(await statement.run());
+			}
+			this.db.exec("COMMIT");
+			return results;
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
 	}
 
 	rows<T = Record<string, unknown>>(
@@ -533,10 +550,24 @@ describe("admin API routes", () => {
 		);
 
 		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			draft: { id: string; postId: string | null; status: string };
+		};
+		expect(body.draft).toMatchObject({
+			id: draft.id,
+			status: "published",
+			postId: expect.any(String),
+		});
+		expect(db.batchCallCount).toBe(1);
 		expect(
-			sqliteRows(db, "SELECT source_type, slug, title FROM posts"),
+			sqliteRows(
+				db,
+				"SELECT source_type, source_id, notion_page_id, slug, title FROM posts",
+			),
 		).toEqual([
 			expect.objectContaining({
+				notion_page_id: `local:${String(draft.id)}`,
+				source_id: draft.id,
 				source_type: "local",
 				slug: "local-hello",
 				title: "Local hello",
@@ -545,8 +576,17 @@ describe("admin API routes", () => {
 		expect(
 			sqliteRows(db, "SELECT tag FROM post_tags ORDER BY sort_order"),
 		).toEqual([{ tag: "local" }, { tag: "writing" }]);
-		expect(sqliteRows(db, "SELECT markdown FROM post_content")).toEqual([
-			{ markdown: "Hello from **local** writing." },
+		expect(
+			sqliteRows(
+				db,
+				"SELECT markdown, block_snapshot_hash, content_hash FROM post_content",
+			),
+		).toEqual([
+			{
+				block_snapshot_hash: expect.stringMatching(/^local:/),
+				content_hash: expect.any(String),
+				markdown: "Hello from **local** writing.",
+			},
 		]);
 	});
 
@@ -597,8 +637,13 @@ describe("admin API routes", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(sqliteRows(db, "SELECT visibility FROM posts")).toEqual([
-			{ visibility: "archived" },
-		]);
+		expect(
+			sqliteRows(
+				db,
+				`SELECT p.visibility, d.status
+				 FROM posts p
+				 JOIN post_drafts d ON d.post_id = p.id`,
+			),
+		).toEqual([{ visibility: "archived", status: "draft" }]);
 	});
 });

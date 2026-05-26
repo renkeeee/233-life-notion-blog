@@ -272,26 +272,54 @@ export async function ensureUniqueSlug(
 	}
 }
 
+async function runStatements(
+	db: D1Database,
+	statements: D1PreparedStatement[],
+): Promise<void> {
+	const batch = (db as { batch?: D1Database["batch"] }).batch;
+
+	if (typeof batch === "function") {
+		await batch.call(db, statements);
+		return;
+	}
+
+	for (const statement of statements) {
+		await statement.run();
+	}
+}
+
+export function prepareReplacePostTags(
+	env: AppEnv,
+	postId: string,
+	tags: string[],
+	now = new Date().toISOString(),
+): D1PreparedStatement[] {
+	const statements = [
+		env.DB.prepare("DELETE FROM post_tags WHERE post_id = ?").bind(postId),
+	];
+
+	for (const [index, tag] of tags.entries()) {
+		statements.push(
+			env.DB.prepare(
+				`INSERT INTO post_tags (
+					post_id, tag, sort_order, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?)`,
+			)
+				.bind(postId, tag, index, now, now),
+		);
+	}
+
+	return statements;
+}
+
 export async function replacePostTags(
 	env: AppEnv,
 	postId: string,
 	tags: string[],
 	now = new Date().toISOString(),
 ): Promise<void> {
-	await env.DB.prepare("DELETE FROM post_tags WHERE post_id = ?")
-		.bind(postId)
-		.run();
-
-	for (const [index, tag] of tags.entries()) {
-		await env.DB.prepare(
-			`INSERT INTO post_tags (
-				post_id, tag, sort_order, created_at, updated_at
-			)
-			VALUES (?, ?, ?, ?, ?)`,
-		)
-			.bind(postId, tag, index, now, now)
-			.run();
-	}
+	await runStatements(env.DB, prepareReplacePostTags(env, postId, tags, now));
 }
 
 export async function publishLocalDraft(
@@ -319,85 +347,83 @@ export async function publishLocalDraft(
 
 	await ensureUniqueSlug(env, slug, postId);
 
-	await env.DB.prepare(
-		`INSERT INTO posts (
-			id, notion_page_id, slug, title, excerpt, cover_url, category,
-			status, visibility, published_at, notion_last_edited_time,
-			content_hash, last_sync_error, created_at, updated_at, comments_enabled,
-			source_type, source_id
+	const statements: D1PreparedStatement[] = [
+		env.DB.prepare(
+			`INSERT INTO posts (
+				id, notion_page_id, slug, title, excerpt, cover_url, category,
+				status, visibility, published_at, notion_last_edited_time,
+				content_hash, last_sync_error, created_at, updated_at, comments_enabled,
+				source_type, source_id
+			)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 'published', 'published', ?, ?, ?, NULL, ?, ?, ?, 'local', ?)
+			ON CONFLICT(id) DO UPDATE SET
+				notion_page_id = excluded.notion_page_id,
+				slug = excluded.slug,
+				title = excluded.title,
+				excerpt = excluded.excerpt,
+				cover_url = excluded.cover_url,
+				category = excluded.category,
+				status = excluded.status,
+				visibility = excluded.visibility,
+				published_at = excluded.published_at,
+				notion_last_edited_time = excluded.notion_last_edited_time,
+				content_hash = excluded.content_hash,
+				last_sync_error = NULL,
+				updated_at = excluded.updated_at,
+				comments_enabled = excluded.comments_enabled,
+				source_type = excluded.source_type,
+				source_id = excluded.source_id`,
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', 'published', ?, ?, ?, NULL, ?, ?, ?, 'local', ?)
-		ON CONFLICT(id) DO UPDATE SET
-			notion_page_id = excluded.notion_page_id,
-			slug = excluded.slug,
-			title = excluded.title,
-			excerpt = excluded.excerpt,
-			cover_url = excluded.cover_url,
-			category = excluded.category,
-			status = excluded.status,
-			visibility = excluded.visibility,
-			published_at = excluded.published_at,
-			notion_last_edited_time = excluded.notion_last_edited_time,
-			content_hash = excluded.content_hash,
-			last_sync_error = NULL,
-			updated_at = excluded.updated_at,
-			comments_enabled = excluded.comments_enabled,
-			source_type = excluded.source_type,
-			source_id = excluded.source_id`,
-	)
-		.bind(
-			postId,
-			`local:${sourceId}`,
-			slug,
-			input.title,
-			input.excerpt,
-			input.coverUrl,
-			input.category,
-			publishedAt,
-			now,
-			contentHash,
-			now,
-			now,
-			commentsEnabled ? 1 : 0,
-			sourceId,
+			.bind(
+				postId,
+				`local:${sourceId}`,
+				slug,
+				input.title,
+				input.excerpt,
+				input.coverUrl,
+				input.category,
+				publishedAt,
+				now,
+				contentHash,
+				now,
+				now,
+				commentsEnabled ? 1 : 0,
+				sourceId,
+			),
+		env.DB.prepare(
+			`INSERT INTO post_content (
+				post_id, markdown, block_snapshot_hash, content_hash,
+				resource_refs_json, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, '[]', ?, ?)
+			ON CONFLICT(post_id) DO UPDATE SET
+				markdown = excluded.markdown,
+				block_snapshot_hash = excluded.block_snapshot_hash,
+				content_hash = excluded.content_hash,
+				resource_refs_json = excluded.resource_refs_json,
+				updated_at = excluded.updated_at`,
 		)
-		.run();
+			.bind(
+				postId,
+				input.markdown,
+				`local:${contentHash}`,
+				contentHash,
+				now,
+				now,
+			),
+		...prepareReplacePostTags(env, postId, input.tags, now),
+		env.DB.prepare(
+			`UPDATE post_drafts
+			 SET post_id = ?,
+				 status = 'published',
+				 published_at = ?,
+				 updated_at = ?
+			 WHERE id = ?`,
+		)
+			.bind(postId, publishedAt, now, draftId),
+	];
 
-	await env.DB.prepare(
-		`INSERT INTO post_content (
-			post_id, markdown, block_snapshot_hash, content_hash,
-			resource_refs_json, created_at, updated_at
-		)
-		VALUES (?, ?, ?, ?, '[]', ?, ?)
-		ON CONFLICT(post_id) DO UPDATE SET
-			markdown = excluded.markdown,
-			block_snapshot_hash = excluded.block_snapshot_hash,
-			content_hash = excluded.content_hash,
-			resource_refs_json = excluded.resource_refs_json,
-			updated_at = excluded.updated_at`,
-	)
-		.bind(
-			postId,
-			input.markdown,
-			`local:${contentHash}`,
-			contentHash,
-			now,
-			now,
-		)
-		.run();
-
-	await replacePostTags(env, postId, input.tags, now);
-
-	await env.DB.prepare(
-		`UPDATE post_drafts
-		 SET post_id = ?,
-			 status = 'published',
-			 published_at = ?,
-			 updated_at = ?
-		 WHERE id = ?`,
-	)
-		.bind(postId, publishedAt, now, draftId)
-		.run();
+	await runStatements(env.DB, statements);
 
 	return getLocalDraft(env, draftId);
 }

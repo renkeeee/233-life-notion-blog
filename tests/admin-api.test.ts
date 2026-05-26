@@ -214,6 +214,123 @@ async function createDraftThroughApi(
 	return body.draft;
 }
 
+async function updateDraftThroughApi(
+	env: AppEnv,
+	session: { cookie: string; csrfToken: string },
+	draftId: unknown,
+	body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+	const response = await handleAdminApi(
+		adminRequest(`/api/admin/local-posts/${String(draftId)}`, {
+			body: JSON.stringify(body),
+			headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+			method: "PUT",
+		}),
+		env,
+	);
+	expect(response.status).toBe(200);
+	const responseBody = (await response.json()) as {
+		draft: Record<string, unknown>;
+	};
+	return responseBody.draft;
+}
+
+function insertPublicPost(
+	db: SqliteAdminD1,
+	input: {
+		id: string;
+		slug: string;
+		title: string;
+		sourceType?: "notion" | "local";
+		sourceId?: string | null;
+		visibility?: "published" | "hidden" | "archived";
+	},
+): void {
+	const now = "2026-05-26T00:00:00.000Z";
+	db.prepare(
+		`INSERT INTO posts (
+			id, notion_page_id, slug, title, excerpt, cover_url, category,
+			status, visibility, published_at, notion_last_edited_time,
+			content_hash, last_sync_error, created_at, updated_at, comments_enabled,
+			source_type, source_id
+		)
+		VALUES (?, ?, ?, ?, '', NULL, NULL, 'published', ?, ?, ?, NULL, NULL, ?, ?, 1, ?, ?)`,
+	)
+		.bind(
+			input.id,
+			input.sourceType === "local"
+				? `local:${input.sourceId ?? input.id}`
+				: `notion-${input.id}`,
+			input.slug,
+			input.title,
+			input.visibility ?? "published",
+			now,
+			now,
+			now,
+			now,
+			input.sourceType ?? "notion",
+			input.sourceId ?? null,
+		)
+		.run();
+}
+
+async function insertPublishedLocalPostWithContent(
+	db: SqliteAdminD1,
+	input: {
+		postId: string;
+		sourceId: string;
+		slug: string;
+		title: string;
+		markdown: string;
+	},
+): Promise<void> {
+	const now = "2026-05-26T00:00:00.000Z";
+	insertPublicPost(db, {
+		id: input.postId,
+		slug: input.slug,
+		sourceId: input.sourceId,
+		sourceType: "local",
+		title: input.title,
+	});
+	await db
+		.prepare(
+			`INSERT INTO post_content (
+				post_id, markdown, block_snapshot_hash, content_hash,
+				resource_refs_json, created_at, updated_at
+			)
+			VALUES (?, ?, 'local:test-content-hash', 'test-content-hash', '[]', ?, ?)`,
+		)
+		.bind(input.postId, input.markdown, now, now)
+		.run();
+}
+
+async function createAndPublishLocalPost(
+	env: AppEnv,
+	session: { cookie: string; csrfToken: string },
+): Promise<Record<string, unknown>> {
+	const draft = await createDraftThroughApi(env, session, "Local hello");
+	await updateDraftThroughApi(env, session, draft.id, {
+		title: "Local hello",
+		slug: "local-hello",
+		excerpt: "A local excerpt",
+		markdown: "Hello from **local** writing.",
+		category: "Life",
+		tags: ["local", "writing"],
+		commentsEnabled: true,
+	});
+
+	const response = await handleAdminApi(
+		adminRequest(`/api/admin/local-posts/${String(draft.id)}/publish`, {
+			headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+			method: "POST",
+		}),
+		env,
+	);
+	expect(response.status).toBe(200);
+	const body = (await response.json()) as { draft: Record<string, unknown> };
+	return body.draft;
+}
+
 describe("admin login validation", () => {
 	it("accepts a non-empty string password", () => {
 		expect(validateLoginBody({ password: "secret" })).toEqual({
@@ -391,5 +508,97 @@ describe("admin API routes", () => {
 			status: "draft",
 		});
 		expect(sqliteRows(db, "SELECT * FROM posts")).toEqual([]);
+	});
+
+	it("publishes a local draft into public post tables", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const draft = await createDraftThroughApi(env, session, "Local hello");
+		await updateDraftThroughApi(env, session, draft.id, {
+			title: "Local hello",
+			slug: "local-hello",
+			excerpt: "A local excerpt",
+			markdown: "Hello from **local** writing.",
+			category: "Life",
+			tags: ["local", "writing"],
+			commentsEnabled: true,
+		});
+
+		const response = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(draft.id)}/publish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		expect(
+			sqliteRows(db, "SELECT source_type, slug, title FROM posts"),
+		).toEqual([
+			expect.objectContaining({
+				source_type: "local",
+				slug: "local-hello",
+				title: "Local hello",
+			}),
+		]);
+		expect(
+			sqliteRows(db, "SELECT tag FROM post_tags ORDER BY sort_order"),
+		).toEqual([{ tag: "local" }, { tag: "writing" }]);
+		expect(sqliteRows(db, "SELECT markdown FROM post_content")).toEqual([
+			{ markdown: "Hello from **local** writing." },
+		]);
+	});
+
+	it("rejects publishing when slug already belongs to another post", async () => {
+		const { db, env } = sqliteAdminEnv();
+		insertPublicPost(db, {
+			id: "existing",
+			slug: "same-slug",
+			title: "Existing",
+		});
+		const session = await usableLogin(env);
+		const draft = await createDraftThroughApi(env, session, "Conflict");
+		await updateDraftThroughApi(env, session, draft.id, {
+			title: "Conflict",
+			slug: "same-slug",
+			excerpt: "A conflict",
+			markdown: "This slug is taken.",
+			category: "Life",
+			tags: ["local"],
+			commentsEnabled: true,
+		});
+
+		const response = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(draft.id)}/publish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "BAD_REQUEST", message: "Slug already exists" },
+		});
+	});
+
+	it("unpublishes a local post by archiving the public row", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const draft = await createAndPublishLocalPost(env, session);
+
+		const response = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(draft.id)}/unpublish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		expect(sqliteRows(db, "SELECT visibility FROM posts")).toEqual([
+			{ visibility: "archived" },
+		]);
 	});
 });

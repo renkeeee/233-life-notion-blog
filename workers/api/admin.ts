@@ -47,7 +47,9 @@ import {
 	createLocalDraft,
 	getLocalDraft,
 	localDraftResponse,
+	publishLocalDraft,
 	type LocalDraftInput,
+	unpublishLocalDraft,
 	updateLocalDraft,
 	validateLocalDraftInput,
 } from "../local-posts";
@@ -127,6 +129,8 @@ type AdminPostAction =
 	| "comments-off"
 	| "delete"
 	| "resync";
+
+type AdminLocalDraftAction = "publish" | "unpublish";
 
 type AdminPostIdentityRow = {
 	id: string;
@@ -1681,6 +1685,18 @@ function adminLocalDraftPath(pathname: string): { draftId: string } | null {
 	return draftId ? { draftId } : null;
 }
 
+function adminLocalDraftActionPath(
+	pathname: string,
+): { draftId: string; action: AdminLocalDraftAction } | null {
+	const match = /^\/api\/admin\/local-posts\/([^/]+)\/(publish|unpublish)$/.exec(
+		pathname,
+	);
+	const draftId = match ? decodePathSegment(match[1]) : null;
+	const action = match?.[2] as AdminLocalDraftAction | undefined;
+
+	return draftId && action ? { draftId, action } : null;
+}
+
 function adminPostCommentsFromPath(pathname: string): { postId: string } | null {
 	const match = /^\/api\/admin\/posts\/([^/]+)\/comments$/.exec(pathname);
 	const postId = match ? decodePathSegment(match[1]) : null;
@@ -2124,6 +2140,69 @@ async function handleUpdateLocalDraft(
 
 		return json({ draft: localDraftResponse(draft) });
 	} catch {
+		return errorJson("INTERNAL_ERROR", "Draft could not be saved", 500);
+	}
+}
+
+function localDraftActionValidationMessage(error: unknown): string | null {
+	if (!(error instanceof Error)) {
+		return null;
+	}
+
+	const validationMessages = new Set([
+		"Slug already exists",
+		"Slug is required",
+		"Markdown is required",
+		"Title is required",
+		"Slug must be a string",
+		"Slug must contain only lowercase letters, numbers, and hyphens",
+		"Excerpt must be a string",
+		"Markdown must be a string",
+		"Cover URL must be a string",
+		"Category must be a string",
+		"Tags must be an array",
+		"Tags must contain only strings",
+		"Comments enabled must be a boolean",
+		"Published date must be a string",
+	]);
+
+	return validationMessages.has(error.message) ? error.message : null;
+}
+
+async function handleLocalDraftAction(
+	request: Request,
+	env: AppEnv,
+	draftId: string,
+	action: AdminLocalDraftAction,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	try {
+		const draft =
+			action === "publish"
+				? await publishLocalDraft(env, draftId)
+				: await unpublishLocalDraft(env, draftId);
+
+		if (!draft) {
+			return errorJson("NOT_FOUND", "Local draft not found", 404);
+		}
+
+		return json({ draft: localDraftResponse(draft) });
+	} catch (error) {
+		const validationMessage = localDraftActionValidationMessage(error);
+		if (validationMessage) {
+			return errorJson("BAD_REQUEST", validationMessage, 400);
+		}
+
 		return errorJson("INTERNAL_ERROR", "Draft could not be saved", 500);
 	}
 }
@@ -3308,6 +3387,16 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/local-posts" && request.method === "POST") {
 		return handleCreateLocalDraft(request, env);
+	}
+
+	const localDraftAction = adminLocalDraftActionPath(url.pathname);
+	if (localDraftAction && request.method === "POST") {
+		return handleLocalDraftAction(
+			request,
+			env,
+			localDraftAction.draftId,
+			localDraftAction.action,
+		);
 	}
 
 	const localDraft = adminLocalDraftPath(url.pathname);

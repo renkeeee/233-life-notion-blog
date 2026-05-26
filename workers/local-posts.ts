@@ -1,4 +1,6 @@
 import type { AppEnv } from "./types";
+import { loadCommentsDefaultEnabled } from "./comments";
+import { sha256Hex } from "./crypto";
 
 export type LocalDraftStatus = "draft" | "published" | "archived";
 
@@ -244,6 +246,197 @@ export async function updateLocalDraft(
 		.run();
 
 	return getLocalDraft(env, id);
+}
+
+export function contentHashForMarkdown(markdown: string): Promise<string> {
+	return sha256Hex(markdown);
+}
+
+export async function ensureUniqueSlug(
+	env: AppEnv,
+	slug: string,
+	postId: string,
+): Promise<void> {
+	const existing = await env.DB.prepare(
+		`SELECT id
+		 FROM posts
+		 WHERE slug = ?
+		 AND id <> ?
+		 LIMIT 1`,
+	)
+		.bind(slug, postId)
+		.first<{ id: string }>();
+
+	if (existing) {
+		throw new Error("Slug already exists");
+	}
+}
+
+export async function replacePostTags(
+	env: AppEnv,
+	postId: string,
+	tags: string[],
+	now = new Date().toISOString(),
+): Promise<void> {
+	await env.DB.prepare("DELETE FROM post_tags WHERE post_id = ?")
+		.bind(postId)
+		.run();
+
+	for (const [index, tag] of tags.entries()) {
+		await env.DB.prepare(
+			`INSERT INTO post_tags (
+				post_id, tag, sort_order, created_at, updated_at
+			)
+			VALUES (?, ?, ?, ?, ?)`,
+		)
+			.bind(postId, tag, index, now, now)
+			.run();
+	}
+}
+
+export async function publishLocalDraft(
+	env: AppEnv,
+	draftId: string,
+	now = new Date().toISOString(),
+): Promise<LocalDraftRecord | null> {
+	const draft = await getLocalDraft(env, draftId);
+
+	if (!draft) {
+		return null;
+	}
+
+	const input = validateLocalPublishInput(draft);
+	const postId = draft.postId ?? crypto.randomUUID();
+	const sourceId = draft.id;
+	const slug = input.slug;
+	if (slug === null) {
+		throw new Error("Slug is required");
+	}
+	const contentHash = await contentHashForMarkdown(input.markdown);
+	const publishedAt = input.publishedAt ?? draft.publishedAt ?? now;
+	const commentsEnabled =
+		input.commentsEnabled ?? (await loadCommentsDefaultEnabled(env.DB));
+
+	await ensureUniqueSlug(env, slug, postId);
+
+	await env.DB.prepare(
+		`INSERT INTO posts (
+			id, notion_page_id, slug, title, excerpt, cover_url, category,
+			status, visibility, published_at, notion_last_edited_time,
+			content_hash, last_sync_error, created_at, updated_at, comments_enabled,
+			source_type, source_id
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', 'published', ?, ?, ?, NULL, ?, ?, ?, 'local', ?)
+		ON CONFLICT(id) DO UPDATE SET
+			notion_page_id = excluded.notion_page_id,
+			slug = excluded.slug,
+			title = excluded.title,
+			excerpt = excluded.excerpt,
+			cover_url = excluded.cover_url,
+			category = excluded.category,
+			status = excluded.status,
+			visibility = excluded.visibility,
+			published_at = excluded.published_at,
+			notion_last_edited_time = excluded.notion_last_edited_time,
+			content_hash = excluded.content_hash,
+			last_sync_error = NULL,
+			updated_at = excluded.updated_at,
+			comments_enabled = excluded.comments_enabled,
+			source_type = excluded.source_type,
+			source_id = excluded.source_id`,
+	)
+		.bind(
+			postId,
+			`local:${sourceId}`,
+			slug,
+			input.title,
+			input.excerpt,
+			input.coverUrl,
+			input.category,
+			publishedAt,
+			now,
+			contentHash,
+			now,
+			now,
+			commentsEnabled ? 1 : 0,
+			sourceId,
+		)
+		.run();
+
+	await env.DB.prepare(
+		`INSERT INTO post_content (
+			post_id, markdown, block_snapshot_hash, content_hash,
+			resource_refs_json, created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, '[]', ?, ?)
+		ON CONFLICT(post_id) DO UPDATE SET
+			markdown = excluded.markdown,
+			block_snapshot_hash = excluded.block_snapshot_hash,
+			content_hash = excluded.content_hash,
+			resource_refs_json = excluded.resource_refs_json,
+			updated_at = excluded.updated_at`,
+	)
+		.bind(
+			postId,
+			input.markdown,
+			`local:${contentHash}`,
+			contentHash,
+			now,
+			now,
+		)
+		.run();
+
+	await replacePostTags(env, postId, input.tags, now);
+
+	await env.DB.prepare(
+		`UPDATE post_drafts
+		 SET post_id = ?,
+			 status = 'published',
+			 published_at = ?,
+			 updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(postId, publishedAt, now, draftId)
+		.run();
+
+	return getLocalDraft(env, draftId);
+}
+
+export async function unpublishLocalDraft(
+	env: AppEnv,
+	draftId: string,
+	now = new Date().toISOString(),
+): Promise<LocalDraftRecord | null> {
+	const draft = await getLocalDraft(env, draftId);
+
+	if (!draft) {
+		return null;
+	}
+
+	if (!draft.postId) {
+		return draft;
+	}
+
+	await env.DB.prepare(
+		`UPDATE posts
+		 SET visibility = 'archived',
+			 updated_at = ?
+		 WHERE id = ?
+		 AND source_type = 'local'`,
+	)
+		.bind(now, draft.postId)
+		.run();
+
+	await env.DB.prepare(
+		`UPDATE post_drafts
+		 SET status = 'draft',
+			 updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(now, draftId)
+		.run();
+
+	return getLocalDraft(env, draftId);
 }
 
 export function localDraftResponse(draft: LocalDraftRecord) {

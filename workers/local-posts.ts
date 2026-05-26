@@ -82,6 +82,23 @@ type LocalDraftRow = {
 	updated_at: string;
 };
 
+type PublishedPostForDraftRow = {
+	id: string;
+	source_type: "notion" | "local" | null;
+	title: string;
+	slug: string;
+	excerpt: string | null;
+	markdown: string | null;
+	cover_url: string | null;
+	category: string | null;
+	comments_enabled: number | boolean;
+	published_at: string | null;
+};
+
+export type LocalDraftFromPostResult =
+	| { draft: LocalDraftRecord }
+	| { error: "NOT_FOUND" | "NOT_LOCAL" };
+
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const slugValidationMessage =
 	"Slug must contain only lowercase letters, numbers, and hyphens";
@@ -310,6 +327,88 @@ export async function createLocalDraft(
 	return created;
 }
 
+export async function createLocalDraftFromPublishedPost(
+	env: AppEnv,
+	postId: string,
+	now = new Date().toISOString(),
+): Promise<LocalDraftFromPostResult> {
+	const post = await env.DB.prepare(
+		`SELECT
+			p.id,
+			p.source_type,
+			p.title,
+			p.slug,
+			p.excerpt,
+			pc.markdown,
+			p.cover_url,
+			p.category,
+			p.comments_enabled,
+			p.published_at
+		 FROM posts p
+		 LEFT JOIN post_content pc ON pc.post_id = p.id
+		 WHERE p.id = ?
+		 LIMIT 1`,
+	)
+		.bind(postId)
+		.first<PublishedPostForDraftRow>();
+
+	if (!post) {
+		return { error: "NOT_FOUND" };
+	}
+
+	if ((post.source_type ?? "notion") !== "local") {
+		return { error: "NOT_LOCAL" };
+	}
+
+	const existingDraft = await env.DB.prepare(
+		`SELECT
+			id, post_id, title, slug, excerpt, markdown, cover_url, category,
+			tags_json, status, comments_enabled, published_at, created_at, updated_at
+		 FROM post_drafts
+		 WHERE post_id = ?
+		 LIMIT 1`,
+	)
+		.bind(postId)
+		.first<LocalDraftRow>();
+
+	if (existingDraft) {
+		return { draft: mapDraftRow(existingDraft) };
+	}
+
+	const tags = await tagsForPost(env, postId);
+	const draftId = crypto.randomUUID();
+	await env.DB.prepare(
+		`INSERT INTO post_drafts (
+			id, post_id, title, slug, excerpt, markdown, cover_url, category,
+			tags_json, status, comments_enabled, published_at, created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+	)
+		.bind(
+			draftId,
+			post.id,
+			post.title,
+			post.slug,
+			post.excerpt ?? "",
+			post.markdown ?? "",
+			post.cover_url,
+			post.category,
+			JSON.stringify(tags),
+			post.comments_enabled === 1 || post.comments_enabled === true ? 1 : 0,
+			post.published_at,
+			now,
+			now,
+		)
+		.run();
+
+	const draft = await getLocalDraft(env, draftId);
+	if (!draft) {
+		throw new Error("Local draft could not be loaded");
+	}
+
+	return { draft };
+}
+
 export async function getLocalDraft(
 	env: AppEnv,
 	id: string,
@@ -325,6 +424,21 @@ export async function getLocalDraft(
 		.first<LocalDraftRow>();
 
 	return row ? mapDraftRow(row) : null;
+}
+
+async function tagsForPost(env: AppEnv, postId: string): Promise<string[]> {
+	const result = await env.DB.prepare(
+		`SELECT tag
+		 FROM post_tags
+		 WHERE post_id = ?
+		 ORDER BY sort_order ASC, tag ASC`,
+	)
+		.bind(postId)
+		.all<{ tag: string }>();
+
+	return result.results
+		.map((row) => row.tag)
+		.filter((tag): tag is string => typeof tag === "string");
 }
 
 export async function updateLocalDraft(

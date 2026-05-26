@@ -13,6 +13,7 @@ import type {
 	PublicAlbumMediaKind,
 	PublicAlbumMediaRecord,
 	PublicPostRecord,
+	PostSourceType,
 } from "../types";
 import {
 	handleTurnstileAccess,
@@ -29,6 +30,7 @@ type PublicPostSummary = {
 	coverThumbnailUrl?: string;
 	category: string | null;
 	tags: string[];
+	sourceType: PostSourceType;
 	locked?: boolean;
 	publishedAt: string | null;
 	updatedAt: string;
@@ -90,6 +92,7 @@ function toPublicSummary(post: PublicPostRecord): PublicPostSummary {
 		...(coverThumbnailUrl ? { coverThumbnailUrl } : {}),
 		category: post.category,
 		tags: post.tags,
+		sourceType: post.sourceType ?? "notion",
 		...(post.locked === true ? { locked: true } : {}),
 		publishedAt: post.publishedAt,
 		updatedAt: post.updatedAt,

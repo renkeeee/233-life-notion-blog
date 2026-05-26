@@ -453,6 +453,29 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		}
 	}
 
+	async function editLocalPost(post: AdminPostRecord) {
+		setActionPending(`${post.id}:edit`);
+		setError(null);
+		setToast(null);
+
+		try {
+			const response = await apiPost<LocalPostDraftResponse>(
+				"/api/admin/local-posts",
+				{ postId: post.id },
+				csrfToken,
+			);
+			setEditorDraft(response.draft);
+		} catch (editError) {
+			setError(
+				editError instanceof Error
+					? editError.message
+					: "Local post could not be opened.",
+			);
+		} finally {
+			setActionPending(null);
+		}
+	}
+
 	async function saveCommentDefaults() {
 		setCommentSettingsPending(true);
 		setCommentSettingsStatus("Saving comment settings...");
@@ -897,7 +920,15 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												>
 													Comments
 												</button>
-												{post.sourceType !== "local" ? (
+												{post.sourceType === "local" ? (
+													<button
+														type="button"
+														disabled={pendingAction("edit")}
+														onClick={() => void editLocalPost(post)}
+													>
+														Edit
+													</button>
+												) : (
 													<button
 														type="button"
 														disabled={pendingAction("resync")}
@@ -905,7 +936,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 													>
 														Resync
 													</button>
-												) : null}
+												)}
 												<button
 													type="button"
 													className="danger-link"

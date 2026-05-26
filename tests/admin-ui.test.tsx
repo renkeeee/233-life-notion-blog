@@ -958,6 +958,112 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("shows Edit only for local posts and opens the local editor", async () => {
+		const editDraftResponse = {
+			draft: {
+				...newDraftResponse.draft,
+				id: "existing-draft",
+				postId: "local-post",
+				title: "Local Post",
+				slug: "local-post",
+				excerpt: "Local excerpt",
+				markdown: "# Existing local post",
+				category: "Life",
+				tags: ["local"],
+				commentsEnabled: true,
+				publishedAt: "2026-05-27T00:00:00.000Z",
+			},
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(commentSettingsResponse);
+			}
+			return Promise.resolve({
+				items: [
+					{
+						id: "local-post",
+						title: "Local Post",
+						slug: "local-post",
+						status: "Published",
+						visibility: "published",
+						manualVisibility: "visible",
+						locked: false,
+						sourceType: "local",
+						sourceId: "local-source",
+						publishedAt: null,
+						notionLastEditedTime: null,
+						updatedAt: "2026-05-19T14:04:50.569Z",
+						lastSyncError: null,
+					},
+					{
+						id: "notion-post",
+						title: "Notion Post",
+						slug: "notion-post",
+						status: "Published",
+						visibility: "published",
+						manualVisibility: "visible",
+						locked: false,
+						sourceType: "notion",
+						sourceId: "notion-source",
+						publishedAt: null,
+						notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+						updatedAt: "2026-05-19T14:04:50.569Z",
+						lastSyncError: null,
+					},
+				],
+				total: 2,
+				page: 1,
+				limit: 20,
+			});
+		});
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(editDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			const localRow = (await screen.findByRole("link", {
+				name: "Local Post",
+			})).closest("tr");
+			const notionRow = screen
+				.getByRole("link", { name: "Notion Post" })
+				.closest("tr");
+			expect(localRow).not.toBeNull();
+			expect(notionRow).not.toBeNull();
+			expect(
+				within(localRow as HTMLTableRowElement).getByRole("button", {
+					name: "Edit",
+				}),
+			).toBeTruthy();
+			expect(
+				within(notionRow as HTMLTableRowElement).queryByRole("button", {
+					name: "Edit",
+				}),
+			).toBeNull();
+
+			fireEvent.click(
+				within(localRow as HTMLTableRowElement).getByRole("button", {
+					name: "Edit",
+				}),
+			);
+
+			await screen.findByRole("heading", { name: "New local post" });
+			expect(screen.getByLabelText("Title")).toHaveValue("Local Post");
+			expect(screen.getByLabelText("Markdown")).toHaveValue(
+				"# Existing local post",
+			);
+			expect(apiPost).toHaveBeenCalledWith(
+				"/api/admin/local-posts",
+				{ postId: "local-post" },
+				"csrf-token",
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("opens post comments in a modal, saves the toggle, and deletes comments", async () => {
 		const postsResponse = {
 			items: [

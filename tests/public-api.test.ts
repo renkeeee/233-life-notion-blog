@@ -138,9 +138,9 @@ class SqliteD1Database {
 					id, notion_page_id, slug, title, excerpt, cover_url, category,
 					status, visibility, published_at, notion_last_edited_time,
 					content_hash, last_sync_error, created_at, updated_at,
-					comments_enabled
+					comments_enabled, source_type, source_id
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -160,6 +160,8 @@ class SqliteD1Database {
 					row.created_at,
 					row.updated_at,
 					row.comments_enabled ?? 1,
+					row.source_type ?? "notion",
+					row.source_id ?? null,
 				] as SqlInputValue[]),
 			);
 	}
@@ -487,6 +489,7 @@ describe("public response helpers", () => {
 					coverUrl: "https://cdn.example.com/cover.jpg",
 					category: "Essay",
 					tags: ["Life", "Notes"],
+					sourceType: "notion",
 					publishedAt: "2026-05-01T00:00:00.000Z",
 					updatedAt: "2026-05-02T00:00:00.000Z",
 				},
@@ -506,6 +509,7 @@ describe("public response helpers", () => {
 			coverUrl: "https://cdn.example.com/cover.jpg",
 			category: "Essay",
 			tags: ["Life", "Notes"],
+			sourceType: "notion",
 			commentsEnabled: false,
 			comments: [],
 			publishedAt: "2026-05-01T00:00:00.000Z",
@@ -605,6 +609,79 @@ describe("PostsRepository", () => {
 				}),
 			],
 			total: 2,
+		});
+	});
+
+	it("maps local and legacy null source types in public list records", async () => {
+		const fakeDb = new FakeD1Database((sql) => {
+			if (sql.includes("COUNT(DISTINCT p.id)")) {
+				return [{ total: 2 }];
+			}
+			return [
+				postRow({
+					id: "local-post",
+					slug: "local-post",
+					source_type: "local",
+				}),
+				postRow({
+					id: "legacy-post",
+					slug: "legacy-post",
+					source_type: null,
+				}),
+			];
+		});
+		const repository = new PostsRepository(fakeDb.asD1());
+
+		await expect(repository.listPublished()).resolves.toMatchObject({
+			items: [
+				{ id: "local-post", sourceType: "local" },
+				{ id: "legacy-post", sourceType: "notion" },
+			],
+		});
+		expect(fakeDb.calls[0]?.sql).toContain("source_type");
+	});
+
+	it("maps local and legacy null source types in public detail records", async () => {
+		const fakeDb = new FakeD1Database((sql, values) => {
+			if (sql.includes("post_tags")) {
+				return [];
+			}
+			if (values[0] === "local-post") {
+				return [
+					{
+						...postRow({
+							id: "local-post",
+							slug: "local-post",
+							source_type: "local",
+						}),
+						markdown: "# Local",
+					},
+				];
+			}
+			return [
+				{
+					...postRow({
+						id: "legacy-post",
+						slug: "legacy-post",
+						source_type: null,
+					}),
+					markdown: "# Legacy",
+				},
+			];
+		});
+		const repository = new PostsRepository(fakeDb.asD1());
+
+		await expect(
+			repository.findPublishedDetailBySlug("local-post"),
+		).resolves.toMatchObject({
+			post: { id: "local-post", sourceType: "local" },
+			markdown: "# Local",
+		});
+		await expect(
+			repository.findPublishedDetailBySlug("legacy-post"),
+		).resolves.toMatchObject({
+			post: { id: "legacy-post", sourceType: "notion" },
+			markdown: "# Legacy",
 		});
 	});
 
@@ -1588,14 +1665,15 @@ describe("handlePublicApi", () => {
 			title: "Published post",
 			excerpt: "Opening text for the published post.",
 			coverUrl: "https://cdn.example.com/cover.jpg",
-				category: "Essay",
-				tags: [],
-				commentsEnabled: true,
-				comments: [],
-				publishedAt: "2026-05-01T00:00:00.000Z",
-				updatedAt: "2026-05-02T00:00:00.000Z",
-				markdown: "# Hello world",
-			});
+			category: "Essay",
+			tags: [],
+			sourceType: "notion",
+			commentsEnabled: true,
+			comments: [],
+			publishedAt: "2026-05-01T00:00:00.000Z",
+			updatedAt: "2026-05-02T00:00:00.000Z",
+			markdown: "# Hello world",
+		});
 		expect(
 			fakeDb.calls.some((call) =>
 				call.sql.includes("SELECT markdown FROM post_content"),

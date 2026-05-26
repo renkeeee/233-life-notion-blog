@@ -296,6 +296,11 @@ function insertPublicPost(
 		sourceType?: "notion" | "local";
 		sourceId?: string | null;
 		visibility?: "published" | "hidden" | "archived";
+		excerpt?: string;
+		coverUrl?: string | null;
+		category?: string | null;
+		commentsEnabled?: boolean;
+		publishedAt?: string | null;
 	},
 ): void {
 	const now = "2026-05-26T00:00:00.000Z";
@@ -306,7 +311,7 @@ function insertPublicPost(
 			content_hash, last_sync_error, created_at, updated_at, comments_enabled,
 			source_type, source_id
 		)
-		VALUES (?, ?, ?, ?, '', NULL, NULL, 'published', ?, ?, ?, NULL, NULL, ?, ?, 1, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
 	)
 		.bind(
 			input.id,
@@ -315,11 +320,15 @@ function insertPublicPost(
 				: `notion-${input.id}`,
 			input.slug,
 			input.title,
+			input.excerpt ?? "",
+			input.coverUrl ?? null,
+			input.category ?? null,
 			input.visibility ?? "published",
+			input.publishedAt ?? now,
 			now,
 			now,
 			now,
-			now,
+			input.commentsEnabled === false ? 0 : 1,
 			input.sourceType ?? "notion",
 			input.sourceId ?? null,
 		)
@@ -334,11 +343,22 @@ async function insertPublishedLocalPostWithContent(
 		slug: string;
 		title: string;
 		markdown: string;
+		excerpt?: string;
+		coverUrl?: string | null;
+		category?: string | null;
+		tags?: string[];
+		commentsEnabled?: boolean;
+		publishedAt?: string | null;
 	},
 ): Promise<void> {
 	const now = "2026-05-26T00:00:00.000Z";
 	insertPublicPost(db, {
+		category: input.category,
+		commentsEnabled: input.commentsEnabled,
+		coverUrl: input.coverUrl,
+		excerpt: input.excerpt,
 		id: input.postId,
+		publishedAt: input.publishedAt,
 		slug: input.slug,
 		sourceId: input.sourceId,
 		sourceType: "local",
@@ -354,6 +374,14 @@ async function insertPublishedLocalPostWithContent(
 		)
 		.bind(input.postId, input.markdown, now, now)
 		.run();
+	for (const [index, tag] of (input.tags ?? []).entries()) {
+		db.prepare(
+			`INSERT INTO post_tags (post_id, tag, sort_order, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?)`,
+		)
+			.bind(input.postId, tag, index, now, now)
+			.run();
+	}
 }
 
 async function createAndPublishLocalPost(
@@ -526,6 +554,151 @@ describe("admin API routes", () => {
 			id: created.id,
 			title: "Local Draft",
 			status: "draft",
+		});
+	});
+
+	it("creates a draft populated from an existing published local post", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		await insertPublishedLocalPostWithContent(db, {
+			postId: "published-local-post",
+			sourceId: "published-draft-source",
+			slug: "published-local-post",
+			title: "Published Local Post",
+			excerpt: "Public excerpt",
+			markdown: "# Published markdown",
+			coverUrl: "https://assets.233.life/assets/cover.jpg",
+			category: "Life",
+			tags: ["local", "edited"],
+			commentsEnabled: false,
+			publishedAt: "2026-05-20T03:04:05.000Z",
+		});
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ postId: "published-local-post" }),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			draft: Record<string, unknown>;
+		};
+		expect(body.draft).toMatchObject({
+			postId: "published-local-post",
+			title: "Published Local Post",
+			slug: "published-local-post",
+			excerpt: "Public excerpt",
+			markdown: "# Published markdown",
+			coverUrl: "https://assets.233.life/assets/cover.jpg",
+			category: "Life",
+			tags: ["local", "edited"],
+			status: "draft",
+			commentsEnabled: false,
+			publishedAt: "2026-05-20T03:04:05.000Z",
+		});
+		expect(sqliteRows(db, "SELECT post_id FROM post_drafts")).toEqual([
+			{ post_id: "published-local-post" },
+		]);
+	});
+
+	it("returns an existing draft when editing the same published local post", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		await insertPublishedLocalPostWithContent(db, {
+			postId: "published-local-post",
+			sourceId: "published-draft-source",
+			slug: "published-local-post",
+			title: "Published Local Post",
+			markdown: "# Published markdown",
+		});
+		const firstResponse = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ postId: "published-local-post" }),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+		const firstBody = (await firstResponse.json()) as {
+			draft: Record<string, unknown>;
+		};
+		await updateDraftThroughApi(env, session, firstBody.draft.id, {
+			title: "Already edited draft",
+			slug: "already-edited-draft",
+			excerpt: "Draft excerpt",
+			markdown: "# Draft markdown",
+		});
+
+		const secondResponse = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ postId: "published-local-post" }),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(secondResponse.status).toBe(200);
+		const secondBody = (await secondResponse.json()) as {
+			draft: Record<string, unknown>;
+		};
+		expect(secondBody.draft).toMatchObject({
+			id: firstBody.draft.id,
+			postId: "published-local-post",
+			title: "Already edited draft",
+			markdown: "# Draft markdown",
+		});
+		expect(sqliteRows(db, "SELECT id FROM post_drafts")).toHaveLength(1);
+	});
+
+	it("rejects editing a published Notion post as a local post", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		insertPublicPost(db, {
+			id: "notion-post",
+			slug: "notion-post",
+			title: "Notion Post",
+			sourceType: "notion",
+		});
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ postId: "notion-post" }),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Only local posts can be edited here",
+			},
+		});
+	});
+
+	it("returns not found when editing a missing published local post", async () => {
+		const { env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ postId: "missing-post" }),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(404);
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "NOT_FOUND", message: "Post not found" },
 		});
 	});
 

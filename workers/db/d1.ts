@@ -6,6 +6,7 @@ import type {
 	PostVisibility,
 	PublicPostComment,
 	PublicPostRecord,
+	PostSourceType,
 } from "../types";
 
 const upsertSettingSql = `INSERT INTO settings (key, value, encrypted, updated_at)
@@ -78,6 +79,7 @@ type PostRow = {
 	category: string | null;
 	status: string;
 	visibility: PostVisibility;
+	source_type: PostSourceType | null;
 	locked: number | boolean;
 	comments_enabled: number | boolean;
 	published_at: string | null;
@@ -183,6 +185,7 @@ const publicPostColumnNames = [
 	"category",
 	"status",
 	"visibility",
+	"source_type",
 	"locked",
 	"comments_enabled",
 	"published_at",
@@ -206,6 +209,7 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		tags: [],
 		status: row.status,
 		visibility: row.visibility,
+		sourceType: row.source_type ?? "notion",
 		locked: row.locked === 1 || row.locked === true,
 		commentsEnabled:
 			row.comments_enabled === 1 || row.comments_enabled === true,

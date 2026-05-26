@@ -45,6 +45,7 @@ import {
 } from "../notion/database";
 import {
 	createLocalDraft,
+	createLocalDraftFromPublishedPost,
 	getLocalDraft,
 	localDraftResponse,
 	publishLocalDraft,
@@ -134,6 +135,10 @@ type AdminPostAction =
 	| "resync";
 
 type AdminLocalDraftAction = "publish" | "unpublish";
+
+type CreateLocalDraftBody = LocalDraftInput & {
+	postId?: unknown;
+};
 
 type AdminPostIdentityRow = {
 	id: string;
@@ -2068,10 +2073,43 @@ async function handleCreateLocalDraft(
 		return csrfError;
 	}
 
-	let body: LocalDraftInput;
+	let body: CreateLocalDraftBody;
+	try {
+		body = (await readJsonObject(request)) as unknown as CreateLocalDraftBody;
+	} catch {
+		return errorJson("BAD_REQUEST", "Invalid request body", 400);
+	}
+
+	if (body.postId !== undefined) {
+		if (typeof body.postId !== "string" || body.postId.trim().length === 0) {
+			return errorJson("BAD_REQUEST", "postId must be a string", 400);
+		}
+
+		try {
+			const result = await createLocalDraftFromPublishedPost(
+				env,
+				body.postId.trim(),
+			);
+			if ("error" in result) {
+				if (result.error === "NOT_FOUND") {
+					return errorJson("NOT_FOUND", "Post not found", 404);
+				}
+
+				return errorJson(
+					"BAD_REQUEST",
+					"Only local posts can be edited here",
+					400,
+				);
+			}
+
+			return json({ draft: localDraftResponse(result.draft) });
+		} catch {
+			return errorJson("INTERNAL_ERROR", "Draft could not be loaded", 500);
+		}
+	}
+
 	let draftInput: ReturnType<typeof validateLocalDraftInput>;
 	try {
-		body = (await readJsonObject(request)) as unknown as LocalDraftInput;
 		draftInput = validateLocalDraftInput(body);
 	} catch (error) {
 		return errorJson(

@@ -13,6 +13,7 @@ import addCommentRateLimitsMigrationSql from "../migrations/0008_add_comment_rat
 import addCommentModerationAndRepliesMigrationSql from "../migrations/0009_add_comment_moderation_and_replies.sql?raw";
 import addPostMediaMigrationSql from "../migrations/0010_add_post_media.sql?raw";
 import addAlbumItemsMigrationSql from "../migrations/0011_album_items.sql?raw";
+import nativePostAuthoringMigrationSql from "../migrations/0012_native_post_authoring.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -23,6 +24,7 @@ const requiredTables = [
 	"comment_rate_limits",
 	"post_tags",
 	"post_media",
+	"post_drafts",
 	"album_items",
 	"album_collections",
 	"album_item_collections",
@@ -35,10 +37,13 @@ const requiredTables = [
 const requiredIndexes = [
 	"idx_posts_visibility_published_at",
 	"idx_posts_notion_last_edited_time",
+	"idx_posts_source",
 	"idx_post_tags_tag",
 	"idx_post_tags_post_id",
 	"idx_post_media_post_id",
 	"idx_post_media_kind",
+	"idx_post_drafts_post_id",
+	"idx_post_drafts_status_updated",
 	"idx_album_items_visible_taken",
 	"idx_album_items_source",
 	"idx_album_items_kind",
@@ -68,6 +73,9 @@ const syncRunCountColumns = [
 ];
 
 const normalizedSchemaSql = schemaSql.replace(/\s+/g, " ").trim();
+const normalizedPostsSchemaSql =
+	normalizedSchemaSql.match(/CREATE TABLE IF NOT EXISTS posts \((.*?)\);/)?.[1] ??
+	"";
 
 function postColumns(db: DatabaseSync): string[] {
 	return (
@@ -110,7 +118,7 @@ describe("D1 schema", () => {
 		);
 		expect(normalizedSchemaSql).toContain("reply_body TEXT");
 		expect(normalizedSchemaSql).toContain("reply_created_at TEXT");
-		expect(normalizedSchemaSql).not.toContain("tags_json TEXT");
+		expect(normalizedPostsSchemaSql).not.toContain("tags_json TEXT");
 	});
 
 	it("defines the tables required by the Notion blog design", () => {
@@ -166,6 +174,7 @@ describe("D1 schema", () => {
 				"deleted_posts",
 				"post_comments",
 				"post_content",
+				"post_drafts",
 				"post_media",
 				"post_tags",
 				"posts",
@@ -195,6 +204,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addCommentModerationAndRepliesMigrationSql);
 			migratedDb.exec(addPostMediaMigrationSql);
 			migratedDb.exec(addAlbumItemsMigrationSql);
+			migratedDb.exec(nativePostAuthoringMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -221,6 +231,8 @@ describe("D1 schema", () => {
 				"locked",
 				"lock_password_encrypted",
 				"comments_enabled",
+				"source_type",
+				"source_id",
 			]);
 			expect(tableColumns(currentDb, "post_comments")).toEqual([
 				"id",
@@ -242,6 +254,22 @@ describe("D1 schema", () => {
 				"r2_key",
 				"content_hash",
 				"sort_order",
+				"created_at",
+				"updated_at",
+			]);
+			expect(tableColumns(currentDb, "post_drafts")).toEqual([
+				"id",
+				"post_id",
+				"title",
+				"slug",
+				"excerpt",
+				"markdown",
+				"cover_url",
+				"category",
+				"tags_json",
+				"status",
+				"comments_enabled",
+				"published_at",
 				"created_at",
 				"updated_at",
 			]);

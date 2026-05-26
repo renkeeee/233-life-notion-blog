@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS posts (
 	manual_visibility TEXT NOT NULL DEFAULT 'visible' CHECK (manual_visibility IN ('visible', 'hidden')),
 	locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
 	lock_password_encrypted TEXT,
-	comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1))
+	comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1)),
+	source_type TEXT NOT NULL DEFAULT 'notion' CHECK (source_type IN ('notion', 'local')),
+	source_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
@@ -38,6 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_posts_category
 
 CREATE INDEX IF NOT EXISTS idx_posts_management_visibility
 	ON posts (manual_visibility, locked, visibility, published_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_posts_source
+	ON posts (source_type, source_id);
 
 CREATE TABLE IF NOT EXISTS deleted_posts (
 	notion_page_id TEXT PRIMARY KEY,
@@ -104,6 +109,30 @@ CREATE TABLE IF NOT EXISTS post_content (
 	updated_at TEXT NOT NULL,
 	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS post_drafts (
+	id TEXT PRIMARY KEY,
+	post_id TEXT,
+	title TEXT NOT NULL,
+	slug TEXT,
+	excerpt TEXT,
+	markdown TEXT NOT NULL,
+	cover_url TEXT,
+	category TEXT,
+	tags_json TEXT NOT NULL DEFAULT '[]',
+	status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+	comments_enabled INTEGER CHECK (comments_enabled IS NULL OR comments_enabled IN (0, 1)),
+	published_at TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_drafts_post_id
+	ON post_drafts (post_id);
+
+CREATE INDEX IF NOT EXISTS idx_post_drafts_status_updated
+	ON post_drafts (status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS post_media (
 	id TEXT PRIMARY KEY,

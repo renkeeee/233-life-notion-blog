@@ -1,3 +1,5 @@
+import type { AppEnv } from "./types";
+
 export type LocalDraftStatus = "draft" | "published" | "archived";
 
 export interface LocalDraftInput {
@@ -23,6 +25,40 @@ export interface ValidLocalDraftInput {
 	commentsEnabled: boolean | null;
 	publishedAt: string | null;
 }
+
+export interface LocalDraftRecord {
+	id: string;
+	postId: string | null;
+	title: string;
+	slug: string | null;
+	excerpt: string;
+	markdown: string;
+	coverUrl: string | null;
+	category: string | null;
+	tags: string[];
+	status: LocalDraftStatus;
+	commentsEnabled: boolean | null;
+	publishedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+type LocalDraftRow = {
+	id: string;
+	post_id: string | null;
+	title: string;
+	slug: string | null;
+	excerpt: string | null;
+	markdown: string;
+	cover_url: string | null;
+	category: string | null;
+	tags_json: string;
+	status: LocalDraftStatus;
+	comments_enabled: number | null;
+	published_at: string | null;
+	created_at: string;
+	updated_at: string;
+};
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const slugValidationMessage =
@@ -73,6 +109,160 @@ export function validateLocalPublishInput(
 	}
 
 	return draft;
+}
+
+export function parseTagsJson(value: string): string[] {
+	try {
+		const parsed = JSON.parse(value) as unknown;
+
+		if (!Array.isArray(parsed)) {
+			return [];
+		}
+
+		return parsed.filter((tag): tag is string => typeof tag === "string");
+	} catch {
+		return [];
+	}
+}
+
+function mapDraftRow(row: LocalDraftRow): LocalDraftRecord {
+	return {
+		id: row.id,
+		postId: row.post_id,
+		title: row.title,
+		slug: row.slug,
+		excerpt: row.excerpt ?? "",
+		markdown: row.markdown,
+		coverUrl: row.cover_url,
+		category: row.category,
+		tags: parseTagsJson(row.tags_json),
+		status: row.status,
+		commentsEnabled:
+			row.comments_enabled === null ? null : row.comments_enabled === 1,
+		publishedAt: row.published_at,
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+export async function createLocalDraft(
+	env: AppEnv,
+	input: LocalDraftInput,
+	now = new Date().toISOString(),
+): Promise<LocalDraftRecord> {
+	const draft = validateLocalDraftInput(input);
+	const id = crypto.randomUUID();
+
+	await env.DB.prepare(
+		`INSERT INTO post_drafts (
+			id, post_id, title, slug, excerpt, markdown, cover_url, category,
+			tags_json, status, comments_enabled, published_at, created_at, updated_at
+		)
+		VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+	)
+		.bind(
+			id,
+			draft.title,
+			draft.slug,
+			draft.excerpt,
+			draft.markdown,
+			draft.coverUrl,
+			draft.category,
+			JSON.stringify(draft.tags),
+			draft.commentsEnabled === null ? null : draft.commentsEnabled ? 1 : 0,
+			draft.publishedAt,
+			now,
+			now,
+		)
+		.run();
+
+	const created = await getLocalDraft(env, id);
+	if (!created) {
+		throw new Error("Local draft could not be loaded");
+	}
+
+	return created;
+}
+
+export async function getLocalDraft(
+	env: AppEnv,
+	id: string,
+): Promise<LocalDraftRecord | null> {
+	const row = await env.DB.prepare(
+		`SELECT
+			id, post_id, title, slug, excerpt, markdown, cover_url, category,
+			tags_json, status, comments_enabled, published_at, created_at, updated_at
+		 FROM post_drafts
+		 WHERE id = ?`,
+	)
+		.bind(id)
+		.first<LocalDraftRow>();
+
+	return row ? mapDraftRow(row) : null;
+}
+
+export async function updateLocalDraft(
+	env: AppEnv,
+	id: string,
+	input: LocalDraftInput,
+	now = new Date().toISOString(),
+): Promise<LocalDraftRecord | null> {
+	const draft = validateLocalDraftInput(input);
+	const existing = await getLocalDraft(env, id);
+
+	if (!existing) {
+		return null;
+	}
+
+	await env.DB.prepare(
+		`UPDATE post_drafts
+		 SET title = ?,
+			 slug = ?,
+			 excerpt = ?,
+			 markdown = ?,
+			 cover_url = ?,
+			 category = ?,
+			 tags_json = ?,
+			 comments_enabled = ?,
+			 published_at = ?,
+			 updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(
+			draft.title,
+			draft.slug,
+			draft.excerpt,
+			draft.markdown,
+			draft.coverUrl,
+			draft.category,
+			JSON.stringify(draft.tags),
+			draft.commentsEnabled === null ? null : draft.commentsEnabled ? 1 : 0,
+			draft.publishedAt,
+			now,
+			id,
+		)
+		.run();
+
+	return getLocalDraft(env, id);
+}
+
+export function localDraftResponse(draft: LocalDraftRecord) {
+	return {
+		id: draft.id,
+		postId: draft.postId,
+		title: draft.title,
+		slug: draft.slug,
+		excerpt: draft.excerpt,
+		markdown: draft.markdown,
+		coverUrl: draft.coverUrl,
+		category: draft.category,
+		tags: draft.tags,
+		status: draft.status,
+		commentsEnabled: draft.commentsEnabled,
+		publishedAt: draft.publishedAt,
+		createdAt: draft.createdAt,
+		updatedAt: draft.updatedAt,
+	};
 }
 
 export function extractMarkdownImageUrls(markdown: string): string[] {

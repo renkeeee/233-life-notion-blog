@@ -43,6 +43,12 @@ import {
 	parseNotionDatabaseId,
 	type NotionProperties,
 } from "../notion/database";
+import {
+	createLocalDraft,
+	getLocalDraft,
+	localDraftResponse,
+	updateLocalDraft,
+} from "../local-posts";
 
 type LoginBody = {
 	password: string;
@@ -1666,6 +1672,13 @@ function decodePathSegment(value: string): string | null {
 	}
 }
 
+function adminLocalDraftPath(pathname: string): { draftId: string } | null {
+	const match = /^\/api\/admin\/local-posts\/([^/]+)$/.exec(pathname);
+	const draftId = match ? decodePathSegment(match[1]) : null;
+
+	return draftId ? { draftId } : null;
+}
+
 function adminPostCommentsFromPath(pathname: string): { postId: string } | null {
 	const match = /^\/api\/admin\/posts\/([^/]+)\/comments$/.exec(pathname);
 	const postId = match ? decodePathSegment(match[1]) : null;
@@ -2015,6 +2028,88 @@ async function decryptPostPassword(
 	}
 
 	return decryptString(encrypted, env.CONFIG_ENCRYPTION_KEY);
+}
+
+async function handleCreateLocalDraft(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	try {
+		const draft = await createLocalDraft(env, await readJsonObject(request));
+		return json({ draft: localDraftResponse(draft) });
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+}
+
+async function handleGetLocalDraft(
+	request: Request,
+	env: AppEnv,
+	draftId: string,
+): Promise<Response> {
+	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const draft = await getLocalDraft(env, draftId);
+	if (!draft) {
+		return errorJson("NOT_FOUND", "Local draft not found", 404);
+	}
+
+	return json({ draft: localDraftResponse(draft) });
+}
+
+async function handleUpdateLocalDraft(
+	request: Request,
+	env: AppEnv,
+	draftId: string,
+): Promise<Response> {
+	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	try {
+		const draft = await updateLocalDraft(
+			env,
+			draftId,
+			await readJsonObject(request),
+		);
+		if (!draft) {
+			return errorJson("NOT_FOUND", "Local draft not found", 404);
+		}
+
+		return json({ draft: localDraftResponse(draft) });
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
 }
 
 async function handleListPosts(
@@ -3193,6 +3288,19 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/posts" && request.method === "GET") {
 		return handleListPosts(request, env);
+	}
+
+	if (url.pathname === "/api/admin/local-posts" && request.method === "POST") {
+		return handleCreateLocalDraft(request, env);
+	}
+
+	const localDraft = adminLocalDraftPath(url.pathname);
+	if (localDraft && request.method === "GET") {
+		return handleGetLocalDraft(request, env, localDraft.draftId);
+	}
+
+	if (localDraft && request.method === "PUT") {
+		return handleUpdateLocalDraft(request, env, localDraft.draftId);
 	}
 
 	if (url.pathname === "/api/admin/album" && request.method === "GET") {

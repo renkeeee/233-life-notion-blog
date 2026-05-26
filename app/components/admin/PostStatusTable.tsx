@@ -4,6 +4,8 @@ import { apiDelete, apiGet, apiPost, apiPut } from "../../lib/api-client";
 
 type AdminPostRecord = {
 	id: string;
+	sourceType?: "notion" | "local" | null;
+	sourceId?: string | null;
 	title?: string | null;
 	slug?: string | null;
 	status?: string | null;
@@ -137,6 +139,10 @@ function postTitle(post: AdminPostRecord): string {
 function postHref(post: AdminPostRecord): string {
 	const slug = post.slug?.trim();
 	return slug ? `/post/${encodeURIComponent(slug)}` : "#";
+}
+
+function postSourceLabel(post: AdminPostRecord): string {
+	return post.sourceType ?? "notion";
 }
 
 function formatDate(value?: string | null): string {
@@ -734,6 +740,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 						<thead>
 							<tr>
 								<th>Title</th>
+								<th>Source</th>
 								<th>Visibility</th>
 								<th>Updated</th>
 								<th>Sync error</th>
@@ -756,6 +763,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												{title}
 											</a>
 										</td>
+										<td>{postSourceLabel(post)}</td>
 										<td>
 											{post.visibility ?? "-"}
 											{isHidden ? " / manually hidden" : ""}
@@ -803,13 +811,15 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 												>
 													Comments
 												</button>
-												<button
-													type="button"
-													disabled={pendingAction("resync")}
-													onClick={() => runAction(post, "resync")}
-												>
-													Resync
-												</button>
+												{post.sourceType !== "local" ? (
+													<button
+														type="button"
+														disabled={pendingAction("resync")}
+														onClick={() => runAction(post, "resync")}
+													>
+														Resync
+													</button>
+												) : null}
 												<button
 													type="button"
 													className="danger-link"

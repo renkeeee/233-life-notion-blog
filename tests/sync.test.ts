@@ -787,6 +787,83 @@ describe("runSync", () => {
 		}
 	});
 
+	it("creates a Notion post without overwriting a local post with a related source id", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at, source_type, source_id
+				)
+				VALUES (
+					'local-post', 'local:notion-page-1', 'local-post', 'Local Post',
+					NULL, 'Published', 'published', '2026-05-18T00:00:00.000Z',
+					'2026-05-18T00:00:00.000Z', 'local-content-hash', NULL,
+					'2026-05-18T00:00:00.000Z', '2026-05-18T00:00:00.000Z',
+					'local', 'local-post'
+				)`,
+			);
+
+			await runSync(
+				envWithDb(db),
+				{
+					triggerType: "manual",
+					force: true,
+					notionPageId: "notion-page-1",
+				},
+				{
+					...syncDependencies([], pageBlocks()),
+					notionSource: {
+						async listPages() {
+							throw new Error("listPages should not be used for targeted resync");
+						},
+						async retrievePage(_settings: SiteSettings, pageId: string) {
+							expect(pageId).toBe("notion-page-1");
+							return syncPage();
+						},
+						async listBlocks(_settings, pageId) {
+							expect(pageId).toBe("notion-page-1");
+							return pageBlocks();
+						},
+					} as SyncDependencies["notionSource"],
+				},
+			);
+
+			expect(
+				db.rows<{
+					id: string;
+					notion_page_id: string;
+					source_type: string;
+					source_id: string | null;
+					title: string;
+				}>(
+					`SELECT id, notion_page_id, source_type, source_id, title
+					 FROM posts
+					 ORDER BY id`,
+				),
+			).toEqual([
+				{
+					id: "local-post",
+					notion_page_id: "local:notion-page-1",
+					source_type: "local",
+					source_id: "local-post",
+					title: "Local Post",
+				},
+				{
+					id: "notion-page-1",
+					notion_page_id: "notion-page-1",
+					source_type: "notion",
+					source_id: "notion-page-1",
+					title: "Hello Notion",
+				},
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("skips admin-deleted posts unless the sync is forced", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1558,6 +1635,8 @@ describe("admin posts API", () => {
 				items: [
 					{
 						id: "post-2",
+						sourceType: "notion",
+						sourceId: null,
 						title: "Published Post",
 						slug: "published-post",
 						status: "Published",

@@ -114,6 +114,7 @@ interface ResolvedSyncDependencies {
 
 interface ExistingPostState {
 	id: string;
+	source_type?: "notion" | "local" | null;
 	notion_last_edited_time: string;
 	content_hash: string | null;
 	slug: string;
@@ -652,10 +653,11 @@ async function existingPostState(
 	return db
 		.prepare(
 			`SELECT
-				id, notion_last_edited_time, content_hash, slug, title, excerpt, cover_url,
-				category, status, visibility, published_at
+				id, source_type, notion_last_edited_time, content_hash, slug, title,
+				excerpt, cover_url, category, status, visibility, published_at
 			 FROM posts
 			 WHERE notion_page_id = ?
+			 AND COALESCE(source_type, 'notion') = 'notion'
 			 LIMIT 1`,
 		)
 		.bind(notionPageId)
@@ -947,9 +949,10 @@ function prepareUpsertPost(
 			`INSERT INTO posts (
 				id, notion_page_id, slug, title, excerpt, cover_url, category,
 				status, visibility, published_at, notion_last_edited_time,
-				content_hash, last_sync_error, created_at, updated_at, comments_enabled
+				content_hash, last_sync_error, created_at, updated_at, comments_enabled,
+				source_type, source_id
 			)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'notion', ?)
 			ON CONFLICT(notion_page_id) DO UPDATE SET
 				slug = excluded.slug,
 				title = excluded.title,
@@ -962,7 +965,9 @@ function prepareUpsertPost(
 				notion_last_edited_time = excluded.notion_last_edited_time,
 				content_hash = excluded.content_hash,
 				last_sync_error = NULL,
-				updated_at = excluded.updated_at`,
+				updated_at = excluded.updated_at,
+				source_type = excluded.source_type,
+				source_id = excluded.source_id`,
 		)
 		.bind(
 			post.id,
@@ -980,6 +985,7 @@ function prepareUpsertPost(
 			now,
 			now,
 			commentsDefaultEnabled ? 1 : 0,
+			post.notionPageId,
 		);
 }
 

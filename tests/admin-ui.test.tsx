@@ -510,6 +510,45 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("shows local post source and hides resync for local rows", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+			items: [
+				{
+					id: "local-post",
+					title: "Local Post",
+					slug: "local-post",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					sourceType: "local",
+					sourceId: "local-post",
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({});
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("link", { name: "Local Post" });
+
+			expect(screen.getByText("local")).toBeTruthy();
+			expect(screen.queryByRole("button", { name: "Resync" })).toBeNull();
+			expect(apiPost).not.toHaveBeenCalled();
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("opens post comments in a modal, saves the toggle, and deletes comments", async () => {
 		const postsResponse = {
 			items: [

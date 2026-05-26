@@ -621,6 +621,40 @@ describe("admin API routes", () => {
 		]);
 	});
 
+	it("rejects resyncing a local post", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		insertPublicPost(db, {
+			id: "local-post",
+			slug: "local-post",
+			sourceId: "local-post",
+			sourceType: "local",
+			title: "Local Post",
+		});
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/posts/local-post/resync", {
+				body: JSON.stringify({}),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+			{
+				runSync: async () => {
+					throw new Error("Local posts should not invoke Notion sync");
+				},
+			},
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error: {
+				code: "BAD_REQUEST",
+				message: "Local posts cannot be resynced",
+			},
+		});
+	});
+
 	it("uploads local post images to R2", async () => {
 		const { bucket, env } = sqliteAdminEnv();
 		const session = await usableLogin(env);

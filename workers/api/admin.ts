@@ -107,6 +107,8 @@ type SyncRunRow = {
 
 type AdminPostRow = {
 	id: string;
+	source_type: "notion" | "local" | null;
+	source_id: string | null;
 	title: string;
 	slug: string;
 	status: string;
@@ -136,6 +138,7 @@ type AdminLocalDraftAction = "publish" | "unpublish";
 type AdminPostIdentityRow = {
 	id: string;
 	notion_page_id: string;
+	source_type: "notion" | "local" | null;
 	slug: string;
 	title: string;
 };
@@ -2266,6 +2269,8 @@ async function handleListPosts(
 		const result = await env.DB.prepare(
 			`SELECT
 				id,
+				source_type,
+				source_id,
 				title,
 				slug,
 				status,
@@ -2295,6 +2300,8 @@ async function handleListPosts(
 		const items = await Promise.all(
 			result.results.map(async (post) => ({
 				id: post.id,
+				sourceType: post.source_type,
+				sourceId: post.source_id,
 				title: post.title,
 				slug: post.slug,
 				status: post.status,
@@ -2342,7 +2349,7 @@ async function handleAdminPostAction(
 
 	const now = new Date().toISOString();
 	const post = await env.DB.prepare(
-		`SELECT id, notion_page_id, slug, title
+		`SELECT id, notion_page_id, source_type, slug, title
 		 FROM posts
 		 WHERE id = ?
 		 LIMIT 1`,
@@ -2355,6 +2362,10 @@ async function handleAdminPostAction(
 	}
 
 	if (action === "resync") {
+		if (post.source_type === "local") {
+			return errorJson("BAD_REQUEST", "Local posts cannot be resynced", 400);
+		}
+
 		const syncRunner = options.runSync ?? defaultRunSync;
 		const result = await syncRunner(env, {
 			triggerType: "manual",
@@ -2431,20 +2442,22 @@ async function handleAdminPostAction(
 		return json({ ok: true });
 	}
 
-	await env.DB
-		.prepare(
-			`INSERT INTO deleted_posts (
-				notion_page_id, post_id, slug, title, deleted_at
+	if (post.source_type !== "local") {
+		await env.DB
+			.prepare(
+				`INSERT INTO deleted_posts (
+					notion_page_id, post_id, slug, title, deleted_at
+				)
+				VALUES (?, ?, ?, ?, ?)
+				ON CONFLICT(notion_page_id) DO UPDATE SET
+					post_id = excluded.post_id,
+					slug = excluded.slug,
+					title = excluded.title,
+					deleted_at = excluded.deleted_at`,
 			)
-			VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT(notion_page_id) DO UPDATE SET
-				post_id = excluded.post_id,
-				slug = excluded.slug,
-				title = excluded.title,
-				deleted_at = excluded.deleted_at`,
-		)
-		.bind(post.notion_page_id, post.id, post.slug, post.title, now)
-		.run();
+			.bind(post.notion_page_id, post.id, post.slug, post.title, now)
+			.run();
+	}
 	await env.DB.prepare("DELETE FROM posts WHERE id = ?").bind(post.id).run();
 
 	return json({ ok: true });

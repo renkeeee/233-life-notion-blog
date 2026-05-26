@@ -1,0 +1,431 @@
+import { useMemo, useRef, useState } from "react";
+import {
+	MDXEditor,
+	headingsPlugin,
+	linkPlugin,
+	listsPlugin,
+	markdownShortcutPlugin,
+	quotePlugin,
+	thematicBreakPlugin,
+	type MDXEditorMethods,
+} from "@mdxeditor/editor";
+import "@mdxeditor/editor/style.css";
+import { apiPost, apiPut } from "../../lib/api-client";
+
+export type LocalPostDraft = {
+	id: string;
+	postId: string | null;
+	title: string;
+	slug: string | null;
+	excerpt: string;
+	markdown: string;
+	coverUrl: string | null;
+	category: string | null;
+	tags: string[];
+	status: "draft" | "published" | "archived";
+	commentsEnabled: boolean | null;
+	publishedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+type LocalPostDraftResponse = {
+	draft: LocalPostDraft;
+};
+
+type UploadResponse = {
+	asset?: {
+		url?: string;
+	};
+	markdown?: string;
+	url?: string;
+};
+
+type LocalPostEditorProps = {
+	csrfToken: string;
+	draft: LocalPostDraft;
+	onBack: () => void;
+	onDraftChange: (draft: LocalPostDraft) => void;
+	onPublished: () => Promise<void> | void;
+};
+
+function inputDateTimeValue(value: string | null): string {
+	if (!value) {
+		return "";
+	}
+
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		return value.slice(0, 16);
+	}
+
+	const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+	return localDate.toISOString().slice(0, 16);
+}
+
+function apiDateTimeValue(value: string): string | null {
+	if (!value.trim()) {
+		return null;
+	}
+
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? value : date.toISOString();
+}
+
+function tagsInputValue(tags: string[]): string {
+	return tags.join(", ");
+}
+
+function tagsApiValue(value: string): string[] {
+	return value
+		.split(",")
+		.map((tag) => tag.trim())
+		.filter((tag) => tag.length > 0);
+}
+
+function uploadErrorMessage(body: unknown, fallback: string): string {
+	if (
+		typeof body === "object" &&
+		body !== null &&
+		"error" in body &&
+		typeof body.error === "object" &&
+		body.error !== null &&
+		"message" in body.error &&
+		typeof body.error.message === "string"
+	) {
+		return body.error.message;
+	}
+
+	return fallback;
+}
+
+function imageAltFromFileName(name: string): string {
+	return name.replace(/\.[^.]+$/, "").trim() || "Uploaded image";
+}
+
+export function LocalPostEditor({
+	csrfToken,
+	draft,
+	onBack,
+	onDraftChange,
+	onPublished,
+}: LocalPostEditorProps) {
+	const editorRef = useRef<MDXEditorMethods>(null);
+	const [title, setTitle] = useState(draft.title);
+	const [slug, setSlug] = useState(draft.slug ?? "");
+	const [publishedAt, setPublishedAt] = useState(
+		inputDateTimeValue(draft.publishedAt),
+	);
+	const [excerpt, setExcerpt] = useState(draft.excerpt ?? "");
+	const [category, setCategory] = useState(draft.category ?? "");
+	const [tags, setTags] = useState(tagsInputValue(draft.tags));
+	const [commentsEnabled, setCommentsEnabled] = useState(
+		draft.commentsEnabled ?? true,
+	);
+	const [markdown, setMarkdown] = useState(draft.markdown ?? "");
+	const [dirty, setDirty] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [publishing, setPublishing] = useState(false);
+	const [uploading, setUploading] = useState(false);
+	const [status, setStatus] = useState("Draft ready.");
+	const [error, setError] = useState<string | null>(null);
+
+	const editorPlugins = useMemo(
+		() => [
+			headingsPlugin(),
+			listsPlugin(),
+			linkPlugin(),
+			quotePlugin(),
+			thematicBreakPlugin(),
+			markdownShortcutPlugin(),
+		],
+		[],
+	);
+
+	function markDirty() {
+		setDirty(true);
+		setStatus("Unsaved changes.");
+	}
+
+	function draftPayload() {
+		return {
+			title,
+			slug: slug.trim() ? slug.trim() : null,
+			excerpt,
+			markdown,
+			coverUrl: draft.coverUrl,
+			category: category.trim() ? category.trim() : null,
+			tags: tagsApiValue(tags),
+			commentsEnabled,
+			publishedAt: apiDateTimeValue(publishedAt),
+		};
+	}
+
+	async function saveDraft(): Promise<boolean> {
+		setSaving(true);
+		setError(null);
+		setStatus("Saving draft...");
+
+		try {
+			const response = await apiPut<LocalPostDraftResponse>(
+				`/api/admin/local-posts/${encodeURIComponent(draft.id)}`,
+				draftPayload(),
+				csrfToken,
+			);
+			onDraftChange(response.draft);
+			setDirty(false);
+			setStatus("Draft saved.");
+			return true;
+		} catch (saveError) {
+			setError(
+				saveError instanceof Error ? saveError.message : "Draft could not be saved.",
+			);
+			setStatus("Draft was not saved.");
+			return false;
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	async function publishDraft() {
+		setPublishing(true);
+		setError(null);
+		setStatus("Publishing...");
+
+		const saved = await saveDraft();
+		if (!saved) {
+			setPublishing(false);
+			return;
+		}
+
+		try {
+			const response = await apiPost<LocalPostDraftResponse>(
+				`/api/admin/local-posts/${encodeURIComponent(draft.id)}/publish`,
+				{},
+				csrfToken,
+			);
+			onDraftChange(response.draft);
+			setDirty(false);
+			setStatus("Published.");
+			await onPublished();
+		} catch (publishError) {
+			setError(
+				publishError instanceof Error
+					? publishError.message
+					: "Draft could not be published.",
+			);
+			setStatus("Draft was not published.");
+		} finally {
+			setPublishing(false);
+		}
+	}
+
+	function setMarkdownValue(value: string) {
+		setMarkdown(value);
+		editorRef.current?.setMarkdown(value);
+		markDirty();
+	}
+
+	async function uploadImage(file: File) {
+		setUploading(true);
+		setError(null);
+		setStatus("Uploading image...");
+
+		try {
+			const response = await fetch("/api/admin/uploads", {
+				method: "POST",
+				credentials: "same-origin",
+				headers: {
+					"content-type": file.type || "application/octet-stream",
+					"x-csrf-token": csrfToken,
+				},
+				body: file,
+			});
+			const body = (await response.json()) as UploadResponse;
+			if (!response.ok) {
+				throw new Error(uploadErrorMessage(body, "Image could not be uploaded."));
+			}
+
+			const url = body.asset?.url ?? body.url;
+			const snippet =
+				body.markdown ??
+				(url ? `![${imageAltFromFileName(file.name)}](${url})` : null);
+			if (!snippet) {
+				throw new Error("Image upload response did not include a URL.");
+			}
+
+			const currentMarkdown = editorRef.current?.getMarkdown() ?? markdown;
+			const nextMarkdown = `${currentMarkdown.trimEnd()}${
+				currentMarkdown.trimEnd() ? "\n\n" : ""
+			}${snippet}`;
+			setMarkdownValue(nextMarkdown);
+			setStatus("Image added to draft.");
+		} catch (uploadError) {
+			setError(
+				uploadError instanceof Error
+					? uploadError.message
+					: "Image could not be uploaded.",
+			);
+			setStatus("Image was not uploaded.");
+		} finally {
+			setUploading(false);
+		}
+	}
+
+	const busy = saving || publishing || uploading;
+
+	return (
+		<div className="admin-stack admin-local-post-editor">
+			<div className="admin-section-heading">
+				<div>
+					<h2>New local post</h2>
+					<p className="admin-editor-subtitle">
+						{dirty ? "Unsaved changes" : `Status: ${draft.status}`}
+					</p>
+				</div>
+				<span className="admin-badge">Local draft</span>
+			</div>
+
+			<section className="admin-module">
+				<form
+					className="admin-form admin-editor-form"
+					onSubmit={(event) => event.preventDefault()}
+				>
+					<div className="admin-field-grid">
+						<label>
+							Title
+							<input
+								type="text"
+								value={title}
+								onChange={(event) => {
+									setTitle(event.currentTarget.value);
+									markDirty();
+								}}
+							/>
+						</label>
+						<label>
+							Slug
+							<input
+								type="text"
+								value={slug}
+								onChange={(event) => {
+									setSlug(event.currentTarget.value);
+									markDirty();
+								}}
+							/>
+						</label>
+						<label>
+							Published at
+							<input
+								type="datetime-local"
+								value={publishedAt}
+								onChange={(event) => {
+									setPublishedAt(event.currentTarget.value);
+									markDirty();
+								}}
+							/>
+						</label>
+						<label className="admin-field-card wide">
+							Summary
+							<textarea
+								rows={3}
+								value={excerpt}
+								onChange={(event) => {
+									setExcerpt(event.currentTarget.value);
+									markDirty();
+								}}
+							/>
+						</label>
+						<label>
+							Category
+							<input
+								type="text"
+								value={category}
+								onChange={(event) => {
+									setCategory(event.currentTarget.value);
+									markDirty();
+								}}
+							/>
+						</label>
+						<label>
+							Tags
+							<input
+								type="text"
+								value={tags}
+								onChange={(event) => {
+									setTags(event.currentTarget.value);
+									markDirty();
+								}}
+							/>
+						</label>
+						<label className="admin-checkbox">
+							<input
+								type="checkbox"
+								checked={commentsEnabled}
+								onChange={(event) => {
+									setCommentsEnabled(event.currentTarget.checked);
+									markDirty();
+								}}
+							/>
+							Enable comments
+						</label>
+					</div>
+				</form>
+			</section>
+
+			<section className="admin-module admin-editor-markdown">
+				<div className="admin-editor-toolbar">
+					<h3>Markdown</h3>
+					<label className="admin-upload-button">
+						{uploading ? "Uploading..." : "Upload image"}
+						<input
+							aria-label="Upload image"
+							type="file"
+							accept="image/*"
+							disabled={busy}
+							onChange={(event) => {
+								const file = event.currentTarget.files?.[0];
+								event.currentTarget.value = "";
+								if (file) {
+									void uploadImage(file);
+								}
+							}}
+						/>
+					</label>
+				</div>
+				<div className="admin-mdx-editor-shell">
+					<MDXEditor
+						ref={editorRef}
+						markdown={markdown}
+						plugins={editorPlugins}
+						contentEditableClassName="admin-mdx-editor-content"
+						onChange={(value) => {
+							setMarkdown(value);
+							markDirty();
+						}}
+					/>
+				</div>
+			</section>
+
+			{error ? <p className="admin-error">{error}</p> : null}
+			<p className="admin-note">{status}</p>
+
+			<div className="admin-editor-actions">
+				<button
+					type="button"
+					className="admin-secondary-button"
+					disabled={busy}
+					onClick={onBack}
+				>
+					Back
+				</button>
+				<button type="button" disabled={busy} onClick={() => void saveDraft()}>
+					{saving ? "Saving..." : "Save draft"}
+				</button>
+				<button type="button" disabled={busy} onClick={() => void publishDraft()}>
+					{publishing ? "Publishing..." : "Publish"}
+				</button>
+			</div>
+		</div>
+	);
+}

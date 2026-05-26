@@ -8,6 +8,28 @@ import { SyncPanel } from "../app/components/admin/SyncPanel";
 import Admin, { PasswordChangePanel } from "../app/routes/admin";
 import * as apiClient from "../app/lib/api-client";
 
+vi.mock("@mdxeditor/editor", () => ({
+	MDXEditor: ({
+		markdown,
+		onChange,
+	}: {
+		markdown: string;
+		onChange: (markdown: string) => void;
+	}) => (
+		<textarea
+			aria-label="Markdown"
+			value={markdown}
+			onChange={(event) => onChange(event.currentTarget.value)}
+		/>
+	),
+	headingsPlugin: () => ({}),
+	linkPlugin: () => ({}),
+	listsPlugin: () => ({}),
+	markdownShortcutPlugin: () => ({}),
+	quotePlugin: () => ({}),
+	thematicBreakPlugin: () => ({}),
+}));
+
 describe("AdminLogin", () => {
 	it("renders password login form", () => {
 		render(<AdminLogin onLogin={vi.fn()} />);
@@ -331,6 +353,226 @@ describe("SettingsPanel", () => {
 });
 
 describe("PostStatusTable", () => {
+	const commentSettingsResponse = {
+		defaultEnabled: true,
+		globalEnabled: true,
+		moderationEnabled: false,
+	};
+
+	const emptyPostsResponse = {
+		items: [],
+		total: 0,
+		page: 1,
+		limit: 20,
+	};
+
+	const newDraftResponse = {
+		draft: {
+			id: "draft-1",
+			postId: null,
+			title: "Untitled draft",
+			slug: null,
+			excerpt: "",
+			markdown: "",
+			coverUrl: null,
+			category: null,
+			tags: [],
+			status: "draft",
+			commentsEnabled: null,
+			publishedAt: null,
+			createdAt: "2026-05-27T00:00:00.000Z",
+			updatedAt: "2026-05-27T00:00:00.000Z",
+		},
+	};
+
+	function mockPostStatusGets(response = emptyPostsResponse) {
+		return vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(commentSettingsResponse);
+			}
+
+			return Promise.resolve(response);
+		});
+	}
+
+	it("creates a local draft and opens the Markdown editor", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+
+			await screen.findByRole("heading", { name: "New local post" });
+			expect(screen.getByLabelText("Title")).toHaveValue("Untitled draft");
+			expect(screen.getByLabelText("Markdown")).toBeTruthy();
+			expect(apiPost).toHaveBeenCalledWith(
+				"/api/admin/local-posts",
+				expect.objectContaining({
+					title: "Untitled draft",
+					markdown: "",
+				}),
+				"csrf-token",
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
+	it("saves a local draft with title, slug, and markdown", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+		const apiPut = vi
+			.spyOn(apiClient, "apiPut")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.change(screen.getByLabelText("Title"), {
+				target: { value: "Local Notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Slug"), {
+				target: { value: "local-notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Markdown"), {
+				target: { value: "# Local notes\n\nDraft body." },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/local-posts/draft-1",
+					expect.objectContaining({
+						title: "Local Notes",
+						slug: "local-notes",
+						markdown: "# Local notes\n\nDraft body.",
+					}),
+					"csrf-token",
+				),
+			);
+			await screen.findByText("Draft saved.");
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("publishes a saved draft, returns to the list, and refreshes posts", async () => {
+		const publishedPostsResponse = {
+			items: [
+				{
+					id: "post-1",
+					title: "Local Notes",
+					slug: "local-notes",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					sourceType: "local",
+					sourceId: "draft-1",
+					publishedAt: "2026-05-27T00:00:00.000Z",
+					notionLastEditedTime: null,
+					updatedAt: "2026-05-27T00:00:00.000Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		};
+		let listRequestCount = 0;
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(commentSettingsResponse);
+			}
+			if (path.startsWith("/api/admin/posts?")) {
+				listRequestCount += 1;
+				return Promise.resolve(
+					listRequestCount === 1 ? emptyPostsResponse : publishedPostsResponse,
+				);
+			}
+
+			return Promise.reject(new Error(`Unexpected GET ${path}`));
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockImplementation((path: string) => {
+			if (path === "/api/admin/local-posts") {
+				return Promise.resolve(newDraftResponse);
+			}
+			if (path === "/api/admin/local-posts/draft-1/publish") {
+				return Promise.resolve({
+					draft: {
+						...newDraftResponse.draft,
+						postId: "post-1",
+						status: "published",
+					},
+				});
+			}
+
+			return Promise.reject(new Error(`Unexpected POST ${path}`));
+		});
+		const apiPut = vi
+			.spyOn(apiClient, "apiPut")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.change(screen.getByLabelText("Title"), {
+				target: { value: "Local Notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Slug"), {
+				target: { value: "local-notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Markdown"), {
+				target: { value: "# Local notes" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/local-posts/draft-1",
+					expect.objectContaining({
+						title: "Local Notes",
+						slug: "local-notes",
+						markdown: "# Local notes",
+					}),
+					"csrf-token",
+				),
+			);
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/local-posts/draft-1/publish",
+					{},
+					"csrf-token",
+				),
+			);
+			expect(
+				await screen.findByRole("link", { name: "Local Notes" }),
+			).toHaveAttribute("href", "/post/local-notes");
+			expect(screen.queryByRole("heading", { name: "New local post" })).toBeNull();
+			expect(listRequestCount).toBeGreaterThanOrEqual(2);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
 	it("loads posts with pagination, filters, sorting, and title links", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [

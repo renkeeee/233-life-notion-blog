@@ -1842,6 +1842,14 @@ body {
 	gap: 14px;
 }
 
+.admin-section-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	justify-content: flex-end;
+}
+
 .admin-section-heading h2,
 .admin-stack h3 {
 	margin: 0;
@@ -2259,6 +2267,82 @@ body {
 .admin-inline-actions button {
 	min-height: 36px;
 	padding: 7px 12px;
+}
+
+.admin-local-post-editor {
+	max-width: 1120px;
+}
+
+.admin-editor-subtitle {
+	color: #6c675d;
+	font-size: 0.88rem;
+	font-weight: 650;
+	margin: 6px 0 0;
+}
+
+.admin-editor-form .admin-field-grid {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-editor-markdown {
+	display: grid;
+	gap: 12px;
+}
+
+.admin-editor-toolbar,
+.admin-editor-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	justify-content: space-between;
+}
+
+.admin-editor-toolbar h3 {
+	margin: 0;
+}
+
+.admin-upload-button {
+	align-items: center;
+	background: var(--button-bg);
+	border-radius: 999px;
+	color: var(--button-text);
+	cursor: pointer;
+	display: inline-flex;
+	font-size: 0.86rem;
+	font-weight: 750;
+	justify-content: center;
+	min-height: 38px;
+	padding: 8px 14px;
+}
+
+.admin-upload-button input {
+	clip: rect(0 0 0 0);
+	height: 1px;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
+
+.admin-mdx-editor-shell {
+	border: 1px solid #d2cdc1;
+	border-radius: 8px;
+	background: var(--surface-strong);
+	overflow: hidden;
+}
+
+.admin-mdx-editor-shell .mdxeditor {
+	min-height: 420px;
+}
+
+.admin-mdx-editor-content {
+	min-height: 360px;
+	padding: 18px;
+}
+
+.admin-editor-actions {
+	justify-content: flex-end;
 }
 
 .admin-post-table {
@@ -2863,6 +2947,13 @@ body {
 	.admin-section-heading {
 		align-items: stretch;
 		display: grid;
+	}
+
+	.admin-section-actions,
+	.admin-editor-actions,
+	.admin-editor-toolbar {
+		justify-content: flex-start;
+		width: 100%;
 	}
 
 	.admin-form.inline,

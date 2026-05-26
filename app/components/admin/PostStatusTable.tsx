@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { apiDelete, apiGet, apiPost, apiPut } from "../../lib/api-client";
+import {
+	LocalPostEditor,
+	type LocalPostDraft,
+} from "./LocalPostEditor";
 
 type AdminPostRecord = {
 	id: string;
@@ -67,6 +71,10 @@ type AdminPostCommentsResponse = {
 		commentsEnabled: boolean;
 	};
 	comments: AdminPostComment[];
+};
+
+type LocalPostDraftResponse = {
+	draft: LocalPostDraft;
 };
 
 const pageSize = 20;
@@ -275,6 +283,8 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		null,
 	);
 	const [postCommentsError, setPostCommentsError] = useState<string | null>(null);
+	const [editorDraft, setEditorDraft] = useState<LocalPostDraft | null>(null);
+	const [creatingDraft, setCreatingDraft] = useState(false);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -372,6 +382,75 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		setAppliedStatusFilter(statusFilter);
 		setAppliedSort(sort);
 		setPage(1);
+	}
+
+	async function refreshPostsForCurrentView() {
+		setStatus("Loading post status...");
+		setError(null);
+
+		try {
+			const response = await apiGet<PostsResponse>(
+				buildPostsPath({
+					page,
+					q: appliedTitleKeyword,
+					status: appliedStatusFilter,
+					sort: appliedSort,
+				}),
+			);
+			const items = responseItems(response);
+			const nextTotal = responseTotal(response, items);
+			setPosts(items);
+			setTotal(nextTotal);
+			setStatus(
+				rangeLabel(
+					Array.isArray(response) ? page : (response.page ?? page),
+					Array.isArray(response) ? pageSize : (response.limit ?? pageSize),
+					nextTotal,
+				),
+			);
+		} catch (loadError) {
+			setPosts([]);
+			setTotal(0);
+			setError(
+				loadError instanceof Error
+					? loadError.message
+					: "Post status endpoint is not available.",
+			);
+			setStatus("Posts could not be loaded.");
+		}
+	}
+
+	async function createLocalDraft() {
+		setCreatingDraft(true);
+		setError(null);
+		setToast(null);
+
+		try {
+			const response = await apiPost<LocalPostDraftResponse>(
+				"/api/admin/local-posts",
+				{
+					title: "Untitled draft",
+					slug: null,
+					excerpt: "",
+					markdown: "",
+					coverUrl: null,
+					category: null,
+					tags: [],
+					commentsEnabled: null,
+					publishedAt: null,
+				},
+				csrfToken,
+			);
+			setEditorDraft(response.draft);
+		} catch (createError) {
+			setError(
+				createError instanceof Error
+					? createError.message
+					: "Local draft could not be created.",
+			);
+		} finally {
+			setCreatingDraft(false);
+		}
 	}
 
 	async function saveCommentDefaults() {
@@ -613,25 +692,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				setDeleteDialogPost(null);
 				setPasswordDialogPost(null);
 			}
-			const response = await apiGet<PostsResponse>(
-				buildPostsPath({
-					page,
-					q: appliedTitleKeyword,
-					status: appliedStatusFilter,
-					sort: appliedSort,
-				}),
-			);
-			const items = responseItems(response);
-			const nextTotal = responseTotal(response, items);
-			setPosts(items);
-			setTotal(nextTotal);
-			setStatus(
-				rangeLabel(
-					Array.isArray(response) ? page : (response.page ?? page),
-					Array.isArray(response) ? pageSize : (response.limit ?? pageSize),
-					nextTotal,
-				),
-			);
+			await refreshPostsForCurrentView();
 		} catch (actionError) {
 			setError(
 				actionError instanceof Error ? actionError.message : "Post action failed.",
@@ -641,11 +702,36 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		}
 	}
 
+	if (editorDraft) {
+		return (
+			<LocalPostEditor
+				csrfToken={csrfToken}
+				draft={editorDraft}
+				onBack={() => setEditorDraft(null)}
+				onDraftChange={setEditorDraft}
+				onPublished={async () => {
+					setEditorDraft(null);
+					await refreshPostsForCurrentView();
+					setToast("Local post published.");
+				}}
+			/>
+		);
+	}
+
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
 				<h2>Post status</h2>
-				<span className="admin-badge">Database view</span>
+				<div className="admin-section-actions">
+					<span className="admin-badge">Database view</span>
+					<button
+						type="button"
+						disabled={creatingDraft}
+						onClick={() => void createLocalDraft()}
+					>
+						{creatingDraft ? "Creating..." : "New post"}
+					</button>
+				</div>
 			</div>
 
 			<section className="admin-module admin-post-comment-settings">

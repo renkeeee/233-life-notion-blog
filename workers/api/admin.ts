@@ -139,6 +139,7 @@ type AdminPostIdentityRow = {
 	id: string;
 	notion_page_id: string;
 	source_type: "notion" | "local" | null;
+	source_id: string | null;
 	slug: string;
 	title: string;
 };
@@ -2349,7 +2350,7 @@ async function handleAdminPostAction(
 
 	const now = new Date().toISOString();
 	const post = await env.DB.prepare(
-		`SELECT id, notion_page_id, source_type, slug, title
+		`SELECT id, notion_page_id, source_type, source_id, slug, title
 		 FROM posts
 		 WHERE id = ?
 		 LIMIT 1`,

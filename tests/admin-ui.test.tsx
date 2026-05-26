@@ -8,27 +8,65 @@ import { SyncPanel } from "../app/components/admin/SyncPanel";
 import Admin, { PasswordChangePanel } from "../app/routes/admin";
 import * as apiClient from "../app/lib/api-client";
 
-vi.mock("@mdxeditor/editor", () => ({
-	MDXEditor: ({
-		markdown,
-		onChange,
-	}: {
-		markdown: string;
-		onChange: (markdown: string) => void;
-	}) => (
-		<textarea
-			aria-label="Markdown"
-			value={markdown}
-			onChange={(event) => onChange(event.currentTarget.value)}
-		/>
-	),
-	headingsPlugin: () => ({}),
-	linkPlugin: () => ({}),
-	listsPlugin: () => ({}),
-	markdownShortcutPlugin: () => ({}),
-	quotePlugin: () => ({}),
-	thematicBreakPlugin: () => ({}),
-}));
+vi.mock("@mdxeditor/editor", async () => {
+	const React = await import("react");
+
+	return {
+		MDXEditor: React.forwardRef(
+			(
+				{
+					markdown,
+					onChange,
+					plugins = [],
+					readOnly,
+				}: {
+					markdown: string;
+					onChange: (markdown: string) => void;
+					plugins?: Array<{ name?: string }>;
+					readOnly?: boolean;
+				},
+				ref: React.ForwardedRef<{
+					getMarkdown: () => string;
+					setMarkdown: (value: string) => void;
+				}>,
+			) => {
+				const [value, setValue] = React.useState(markdown);
+				React.useImperativeHandle(
+					ref,
+					() => ({
+						getMarkdown: () => value,
+						setMarkdown: (nextValue: string) => setValue(nextValue),
+					}),
+					[value],
+				);
+
+				return (
+					<>
+						<div data-testid="mdx-editor-plugins">
+							{plugins.map((plugin) => plugin.name).join(",")}
+						</div>
+						<textarea
+							aria-label="Markdown"
+							readOnly={readOnly}
+							value={value}
+							onChange={(event) => {
+								setValue(event.currentTarget.value);
+								onChange(event.currentTarget.value);
+							}}
+						/>
+					</>
+				);
+			},
+		),
+		headingsPlugin: () => ({ name: "headings" }),
+		imagePlugin: () => ({ name: "image" }),
+		linkPlugin: () => ({ name: "link" }),
+		listsPlugin: () => ({ name: "lists" }),
+		markdownShortcutPlugin: () => ({ name: "markdownShortcut" }),
+		quotePlugin: () => ({ name: "quote" }),
+		thematicBreakPlugin: () => ({ name: "thematicBreak" }),
+	};
+});
 
 describe("AdminLogin", () => {
 	it("renders password login form", () => {
@@ -410,6 +448,7 @@ describe("PostStatusTable", () => {
 			await screen.findByRole("heading", { name: "New local post" });
 			expect(screen.getByLabelText("Title")).toHaveValue("Untitled draft");
 			expect(screen.getByLabelText("Markdown")).toBeTruthy();
+			expect(screen.getByTestId("mdx-editor-plugins")).toHaveTextContent("image");
 			expect(apiPost).toHaveBeenCalledWith(
 				"/api/admin/local-posts",
 				expect.objectContaining({
@@ -457,6 +496,7 @@ describe("PostStatusTable", () => {
 						title: "Local Notes",
 						slug: "local-notes",
 						markdown: "# Local notes\n\nDraft body.",
+						commentsEnabled: null,
 					}),
 					"csrf-token",
 				),
@@ -466,6 +506,133 @@ describe("PostStatusTable", () => {
 			apiGet.mockRestore();
 			apiPost.mockRestore();
 			apiPut.mockRestore();
+		}
+	});
+
+	it("disables editing controls while a draft save is in flight", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+		let resolveSave: (value: typeof newDraftResponse) => void = () => {};
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveSave = resolve;
+				}),
+		);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+			await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
+			expect(screen.getByLabelText("Title")).toBeDisabled();
+			expect(screen.getByLabelText("Slug")).toBeDisabled();
+			expect(screen.getByLabelText("Published at")).toBeDisabled();
+			expect(screen.getByLabelText("Summary")).toBeDisabled();
+			expect(screen.getByLabelText("Category")).toBeDisabled();
+			expect(screen.getByLabelText("Tags")).toBeDisabled();
+			expect(screen.getByLabelText("Enable comments")).toBeDisabled();
+			expect(screen.getByLabelText("Markdown")).toHaveAttribute("readonly");
+
+			resolveSave(newDraftResponse);
+			await screen.findByText("Draft saved.");
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("marks comments enabled as explicit only after the checkbox changes", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+		const apiPut = vi
+			.spyOn(apiClient, "apiPut")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.click(screen.getByLabelText("Enable comments"));
+			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/local-posts/draft-1",
+					expect.objectContaining({
+						commentsEnabled: false,
+					}),
+					"csrf-token",
+				),
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("uploads an image and inserts image markdown through the editor ref", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					asset: { url: "https://assets.example.com/assets/photo.png" },
+				}),
+				{
+					headers: { "content-type": "application/json" },
+					status: 200,
+				},
+			),
+		);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.change(screen.getByLabelText("Markdown"), {
+				target: { value: "# Local notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Upload image"), {
+				target: {
+					files: [new File(["image"], "photo.png", { type: "image/png" })],
+				},
+			});
+
+			await screen.findByText("Image added to draft.");
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/admin/uploads",
+				expect.objectContaining({
+					method: "POST",
+					headers: expect.objectContaining({
+						"content-type": "image/png",
+						"x-csrf-token": "csrf-token",
+					}),
+				}),
+			);
+			expect(screen.getByLabelText("Markdown")).toHaveValue(
+				"# Local notes\n\n![photo](https://assets.example.com/assets/photo.png)",
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			fetchMock.mockRestore();
 		}
 	});
 

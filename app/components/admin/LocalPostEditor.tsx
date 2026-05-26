@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
 	MDXEditor,
 	headingsPlugin,
+	imagePlugin,
 	linkPlugin,
 	listsPlugin,
 	markdownShortcutPlugin,
@@ -122,6 +123,7 @@ export function LocalPostEditor({
 	const [commentsEnabled, setCommentsEnabled] = useState(
 		draft.commentsEnabled ?? true,
 	);
+	const [commentsEnabledTouched, setCommentsEnabledTouched] = useState(false);
 	const [markdown, setMarkdown] = useState(draft.markdown ?? "");
 	const [dirty, setDirty] = useState(false);
 	const [saving, setSaving] = useState(false);
@@ -133,6 +135,7 @@ export function LocalPostEditor({
 	const editorPlugins = useMemo(
 		() => [
 			headingsPlugin(),
+			imagePlugin(),
 			listsPlugin(),
 			linkPlugin(),
 			quotePlugin(),
@@ -156,7 +159,10 @@ export function LocalPostEditor({
 			coverUrl: draft.coverUrl,
 			category: category.trim() ? category.trim() : null,
 			tags: tagsApiValue(tags),
-			commentsEnabled,
+			commentsEnabled:
+				commentsEnabledTouched || draft.commentsEnabled !== null
+					? commentsEnabled
+					: null,
 			publishedAt: apiDateTimeValue(publishedAt),
 		};
 	}
@@ -221,6 +227,10 @@ export function LocalPostEditor({
 	}
 
 	function setMarkdownValue(value: string) {
+		if (busy) {
+			return;
+		}
+
 		setMarkdown(value);
 		editorRef.current?.setMarkdown(value);
 		markDirty();
@@ -295,6 +305,7 @@ export function LocalPostEditor({
 						<label>
 							Title
 							<input
+								disabled={busy}
 								type="text"
 								value={title}
 								onChange={(event) => {
@@ -306,6 +317,7 @@ export function LocalPostEditor({
 						<label>
 							Slug
 							<input
+								disabled={busy}
 								type="text"
 								value={slug}
 								onChange={(event) => {
@@ -317,6 +329,7 @@ export function LocalPostEditor({
 						<label>
 							Published at
 							<input
+								disabled={busy}
 								type="datetime-local"
 								value={publishedAt}
 								onChange={(event) => {
@@ -328,6 +341,7 @@ export function LocalPostEditor({
 						<label className="admin-field-card wide">
 							Summary
 							<textarea
+								disabled={busy}
 								rows={3}
 								value={excerpt}
 								onChange={(event) => {
@@ -339,6 +353,7 @@ export function LocalPostEditor({
 						<label>
 							Category
 							<input
+								disabled={busy}
 								type="text"
 								value={category}
 								onChange={(event) => {
@@ -350,6 +365,7 @@ export function LocalPostEditor({
 						<label>
 							Tags
 							<input
+								disabled={busy}
 								type="text"
 								value={tags}
 								onChange={(event) => {
@@ -360,10 +376,12 @@ export function LocalPostEditor({
 						</label>
 						<label className="admin-checkbox">
 							<input
+								disabled={busy}
 								type="checkbox"
 								checked={commentsEnabled}
 								onChange={(event) => {
 									setCommentsEnabled(event.currentTarget.checked);
+									setCommentsEnabledTouched(true);
 									markDirty();
 								}}
 							/>
@@ -398,8 +416,12 @@ export function LocalPostEditor({
 						ref={editorRef}
 						markdown={markdown}
 						plugins={editorPlugins}
+						readOnly={busy}
 						contentEditableClassName="admin-mdx-editor-content"
 						onChange={(value) => {
+							if (busy) {
+								return;
+							}
 							setMarkdown(value);
 							markDirty();
 						}}

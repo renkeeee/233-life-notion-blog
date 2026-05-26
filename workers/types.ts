@@ -12,6 +12,7 @@ export interface AppEnv {
 }
 
 export type PostVisibility = "published" | "hidden" | "archived";
+export type PostSourceType = "notion" | "local";
 
 export interface PublicPostRecord {
 	id: string;
@@ -23,6 +24,7 @@ export interface PublicPostRecord {
 	tags: string[];
 	status: string;
 	visibility: PostVisibility;
+	sourceType?: PostSourceType;
 	locked?: boolean;
 	commentsEnabled?: boolean;
 	comments?: PublicPostComment[];

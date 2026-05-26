@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	extractMarkdownImageUrls,
 	normalizeLocalPostSlug,
+	validateLocalImageUpload,
 	validateLocalDraftInput,
 	validateLocalPublishInput,
 } from "../workers/local-posts";
@@ -102,5 +103,30 @@ describe("local post utilities", () => {
 			"https://cdn.example.com/two final.png",
 			"../assets/three.jpg",
 		]);
+	});
+
+	it.each([
+		["image/jpeg", "image/jpeg"],
+		["image/jpg", "image/jpeg"],
+		["image/png; charset=binary", "image/png"],
+		["image/webp", "image/webp"],
+		["image/gif", "image/gif"],
+	])("accepts %s local image uploads", (contentType, expected) => {
+		expect(validateLocalImageUpload(contentType, 4)).toEqual({
+			contentType: expected,
+			size: 4,
+		});
+	});
+
+	it("rejects unsupported local image upload types", () => {
+		expect(() => validateLocalImageUpload("application/pdf", 4)).toThrow(
+			"Unsupported image type",
+		);
+	});
+
+	it("rejects local image uploads larger than 10MB", () => {
+		expect(() =>
+			validateLocalImageUpload("image/png", 10 * 1024 * 1024 + 1),
+		).toThrow("Image must be at most 10MB");
 	});
 });

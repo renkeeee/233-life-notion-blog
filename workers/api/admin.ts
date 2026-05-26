@@ -51,6 +51,7 @@ import {
 	type LocalDraftInput,
 	unpublishLocalDraft,
 	updateLocalDraft,
+	uploadLocalPostImage,
 	validateLocalDraftInput,
 } from "../local-posts";
 
@@ -2207,6 +2208,42 @@ async function handleLocalDraftAction(
 	}
 }
 
+async function handleUploadLocalPostImage(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	try {
+		const asset = await uploadLocalPostImage(env, request);
+
+		return json({ asset });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "";
+		if (
+			message === "Unsupported image type" ||
+			message === "Image must be at most 10MB"
+		) {
+			return errorJson("BAD_REQUEST", message, 400);
+		}
+
+		if (message === "R2_UPLOAD_FAILED") {
+			return errorJson("R2_UPLOAD_FAILED", "Asset upload failed", 502);
+		}
+
+		return errorJson("INTERNAL_ERROR", "Asset could not be saved", 500);
+	}
+}
+
 async function handleListPosts(
 	request: Request,
 	env: AppEnv,
@@ -3387,6 +3424,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/local-posts" && request.method === "POST") {
 		return handleCreateLocalDraft(request, env);
+	}
+
+	if (url.pathname === "/api/admin/uploads" && request.method === "POST") {
+		return handleUploadLocalPostImage(request, env);
 	}
 
 	const localDraftAction = adminLocalDraftActionPath(url.pathname);

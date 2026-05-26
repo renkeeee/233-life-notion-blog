@@ -1,6 +1,13 @@
 import type { AppEnv } from "./types";
+import {
+	buildAssetKey,
+	cdnUrlForKey,
+	contentHashForBytes,
+	uploadAssetIfMissing,
+} from "./assets";
 import { loadCommentsDefaultEnabled } from "./comments";
 import { sha256Hex } from "./crypto";
+import { SettingsRepository } from "./db/d1";
 
 export type LocalDraftStatus = "draft" | "published" | "archived";
 
@@ -45,6 +52,19 @@ export interface LocalDraftRecord {
 	updatedAt: string;
 }
 
+export interface ValidLocalImageUpload {
+	contentType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+	size: number;
+}
+
+export interface LocalImageUploadResult {
+	url: string;
+	r2Key: string;
+	contentHash: string;
+	contentType: ValidLocalImageUpload["contentType"];
+	size: number;
+}
+
 type LocalDraftRow = {
 	id: string;
 	post_id: string | null;
@@ -65,6 +85,17 @@ type LocalDraftRow = {
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const slugValidationMessage =
 	"Slug must contain only lowercase letters, numbers, and hyphens";
+const maxLocalImageUploadBytes = 10 * 1024 * 1024;
+const localImageContentTypes = new Map<
+	string,
+	ValidLocalImageUpload["contentType"]
+>([
+	["image/jpeg", "image/jpeg"],
+	["image/jpg", "image/jpeg"],
+	["image/png", "image/png"],
+	["image/webp", "image/webp"],
+	["image/gif", "image/gif"],
+]);
 
 export function normalizeLocalPostSlug(value: string): string {
 	return value
@@ -125,6 +156,99 @@ export function parseTagsJson(value: string): string[] {
 	} catch {
 		return [];
 	}
+}
+
+export function validateLocalImageUpload(
+	contentType: string | null,
+	byteLength: number,
+): ValidLocalImageUpload {
+	if (byteLength > maxLocalImageUploadBytes) {
+		throw new Error("Image must be at most 10MB");
+	}
+
+	const normalizedContentType =
+		contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+	const validContentType = localImageContentTypes.get(normalizedContentType);
+
+	if (!validContentType) {
+		throw new Error("Unsupported image type");
+	}
+
+	return {
+		contentType: validContentType,
+		size: byteLength,
+	};
+}
+
+async function cdnBaseUrlForLocalUpload(env: AppEnv): Promise<string> {
+	const row = await new SettingsRepository(env.DB).get("cdnBaseUrl");
+
+	return row?.value ?? "https://assets.233.life";
+}
+
+export async function uploadLocalPostImage(
+	env: AppEnv,
+	request: Request,
+	now = new Date().toISOString(),
+): Promise<LocalImageUploadResult> {
+	const bytes = await request.arrayBuffer();
+	const upload = validateLocalImageUpload(
+		request.headers.get("content-type"),
+		bytes.byteLength,
+	);
+	const contentHash = await contentHashForBytes(bytes);
+	const r2Key = buildAssetKey(contentHash, upload.contentType);
+	const url = cdnUrlForKey(await cdnBaseUrlForLocalUpload(env), r2Key);
+
+	try {
+		await uploadAssetIfMissing(env.BLOG_ASSETS, r2Key, bytes, {
+			contentType: upload.contentType,
+			cacheControl: "public, max-age=31536000, immutable",
+		});
+	} catch {
+		throw new Error("R2_UPLOAD_FAILED");
+	}
+
+	await env.DB.prepare(
+		`INSERT INTO assets (
+			id, source_fingerprint, notion_file_json, content_hash, r2_key,
+			mime_type, size, cdn_url, created_at, last_seen_at
+		)
+		VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(source_fingerprint) DO UPDATE SET
+			content_hash = excluded.content_hash,
+			r2_key = excluded.r2_key,
+			mime_type = excluded.mime_type,
+			size = excluded.size,
+			cdn_url = excluded.cdn_url,
+			last_seen_at = excluded.last_seen_at
+		ON CONFLICT(r2_key) DO UPDATE SET
+			content_hash = excluded.content_hash,
+			mime_type = excluded.mime_type,
+			size = excluded.size,
+			cdn_url = excluded.cdn_url,
+			last_seen_at = excluded.last_seen_at`,
+	)
+		.bind(
+			`local-upload:${contentHash}`,
+			`local-upload:${contentHash}`,
+			contentHash,
+			r2Key,
+			upload.contentType,
+			upload.size,
+			url,
+			now,
+			now,
+		)
+		.run();
+
+	return {
+		url,
+		r2Key,
+		contentHash,
+		contentType: upload.contentType,
+		size: upload.size,
+	};
 }
 
 function mapDraftRow(row: LocalDraftRow): LocalDraftRecord {
@@ -322,6 +446,139 @@ export async function replacePostTags(
 	await runStatements(env.DB, prepareReplacePostTags(env, postId, tags, now));
 }
 
+type LocalPostMediaRecord = {
+	id: string;
+	url: string;
+	contentHash: string;
+	sortOrder: number;
+};
+
+export function thumbnailUrlForImage(url: string): string | null {
+	try {
+		const parsed = new URL(url);
+		return `${parsed.origin}/cdn-cgi/image/width=440,quality=82,format=auto${parsed.pathname}`;
+	} catch {
+		return null;
+	}
+}
+
+async function localPostMediaRecords(
+	postId: string,
+	markdown: string,
+): Promise<LocalPostMediaRecord[]> {
+	const urls = extractMarkdownImageUrls(markdown);
+
+	return Promise.all(
+		urls.map(async (url, index) => ({
+			id: `local-media:${await sha256Hex(`${postId}:${url}:${index}`)}`,
+			url,
+			contentHash: await sha256Hex(url),
+			sortOrder: index,
+		})),
+	);
+}
+
+function prepareHideMissingLocalAlbumItems(
+	env: AppEnv,
+	postId: string,
+	mediaRecords: LocalPostMediaRecord[],
+	now: string,
+): D1PreparedStatement {
+	if (mediaRecords.length === 0) {
+		return env.DB.prepare(
+			`UPDATE album_items
+			 SET visibility = 'hidden',
+				 updated_at = ?
+			 WHERE post_id = ?
+			 AND source_type = 'post_media'`,
+		).bind(now, postId);
+	}
+
+	const placeholders = mediaRecords.map(() => "?").join(", ");
+	return env.DB.prepare(
+		`UPDATE album_items
+		 SET visibility = 'hidden',
+			 updated_at = ?
+		 WHERE post_id = ?
+		 AND source_type = 'post_media'
+		 AND source_id NOT IN (${placeholders})`,
+	).bind(now, postId, ...mediaRecords.map((media) => media.id));
+}
+
+function prepareReplaceLocalPostMedia(
+	env: AppEnv,
+	postId: string,
+	postTitle: string,
+	publishedAt: string,
+	mediaRecords: LocalPostMediaRecord[],
+	now: string,
+): D1PreparedStatement[] {
+	const statements: D1PreparedStatement[] = [
+		prepareHideMissingLocalAlbumItems(env, postId, mediaRecords, now),
+		env.DB.prepare("DELETE FROM post_media WHERE post_id = ?").bind(postId),
+	];
+
+	for (const media of mediaRecords) {
+		statements.push(
+			env.DB.prepare(
+				`INSERT INTO post_media (
+					id, post_id, block_id, kind, url, caption, r2_key,
+					content_hash, sort_order, created_at, updated_at
+				)
+				VALUES (?, ?, NULL, 'image', ?, '', NULL, ?, ?, ?, ?)`,
+			)
+				.bind(
+					media.id,
+					postId,
+					media.url,
+					media.contentHash,
+					media.sortOrder,
+					now,
+					now,
+				),
+		);
+
+		statements.push(
+			env.DB.prepare(
+				`INSERT INTO album_items (
+					id, source_type, source_id, post_id, kind, url, thumbnail_url,
+					large_url, r2_key, title, description, caption, taken_at,
+					location_name, latitude, longitude, visibility, featured,
+					sort_order, source_content_hash, exif_json, created_at, updated_at
+				)
+				VALUES (?, 'post_media', ?, ?, 'image', ?, ?, ?, NULL, ?, '', '', ?,
+					'', NULL, NULL, 'visible', 0, ?, ?, NULL, ?, ?)
+				ON CONFLICT(source_type, source_id) DO UPDATE SET
+					post_id = excluded.post_id,
+					kind = excluded.kind,
+					url = excluded.url,
+					thumbnail_url = excluded.thumbnail_url,
+					large_url = excluded.large_url,
+					r2_key = excluded.r2_key,
+					sort_order = excluded.sort_order,
+					source_content_hash = excluded.source_content_hash,
+					updated_at = excluded.updated_at`,
+			)
+				.bind(
+					media.id,
+					media.id,
+					postId,
+					media.url,
+					thumbnailUrlForImage(media.url),
+					media.url,
+					postTitle,
+					publishedAt,
+					media.sortOrder,
+					media.contentHash,
+					now,
+					now,
+				),
+		);
+	}
+
+	return statements;
+}
+
 export async function publishLocalDraft(
 	env: AppEnv,
 	draftId: string,
@@ -344,6 +601,7 @@ export async function publishLocalDraft(
 	const publishedAt = input.publishedAt ?? draft.publishedAt ?? now;
 	const commentsEnabled =
 		input.commentsEnabled ?? (await loadCommentsDefaultEnabled(env.DB));
+	const mediaRecords = await localPostMediaRecords(postId, input.markdown);
 
 	await ensureUniqueSlug(env, slug, postId);
 
@@ -412,6 +670,14 @@ export async function publishLocalDraft(
 				now,
 			),
 		...prepareReplacePostTags(env, postId, input.tags, now),
+		...prepareReplaceLocalPostMedia(
+			env,
+			postId,
+			input.title,
+			publishedAt,
+			mediaRecords,
+			now,
+		),
 		env.DB.prepare(
 			`UPDATE post_drafts
 			 SET post_id = ?,

@@ -132,15 +132,34 @@ class SqliteD1PreparedStatement {
 	}
 }
 
-function fakeR2Bucket(): R2Bucket {
-	return {
-		async head() {
+type FakeR2Bucket = R2Bucket & {
+	heads: string[];
+	puts: Array<{
+		key: string;
+		body: ArrayBuffer;
+		options?: { httpMetadata?: Record<string, string> };
+	}>;
+};
+
+function fakeR2Bucket(): FakeR2Bucket {
+	const bucket = {
+		heads: [] as string[],
+		puts: [] as FakeR2Bucket["puts"],
+		async head(key: string) {
+			bucket.heads.push(key);
 			return null;
 		},
-		async put() {
+		async put(
+			key: string,
+			body: ArrayBuffer,
+			options?: { httpMetadata?: Record<string, string> },
+		) {
+			bucket.puts.push({ key, body, options });
 			return null;
 		},
-	} as unknown as R2Bucket;
+	};
+
+	return bucket as unknown as FakeR2Bucket;
 }
 
 class SqliteAdminD1 {
@@ -186,8 +205,13 @@ class SqliteAdminD1 {
 	}
 }
 
-function sqliteAdminEnv(): { db: SqliteAdminD1; env: AppEnv } {
+function sqliteAdminEnv(): {
+	bucket: FakeR2Bucket;
+	db: SqliteAdminD1;
+	env: AppEnv;
+} {
 	const db = new SqliteAdminD1();
+	const bucket = fakeR2Bucket();
 	const now = "2026-05-26T00:00:00.000Z";
 	db.prepare(
 		`INSERT INTO settings (key, value, encrypted, updated_at)
@@ -197,10 +221,11 @@ function sqliteAdminEnv(): { db: SqliteAdminD1; env: AppEnv } {
 		.run();
 
 	return {
+		bucket,
 		db,
 		env: {
 			DB: db.asD1(),
-			BLOG_ASSETS: fakeR2Bucket(),
+			BLOG_ASSETS: bucket,
 			CONFIG_ENCRYPTION_KEY: generateEncryptionKey(),
 		},
 	};
@@ -587,6 +612,141 @@ describe("admin API routes", () => {
 				content_hash: expect.any(String),
 				markdown: "Hello from **local** writing.",
 			},
+		]);
+	});
+
+	it("uploads local post images to R2", async () => {
+		const { bucket, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/uploads", {
+				body: new Uint8Array([1, 2, 3, 4]),
+				headers: {
+					"content-type": "image/png",
+					"x-csrf-token": session.csrfToken,
+					cookie: session.cookie,
+				},
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			asset: {
+				url: string;
+				r2Key: string;
+				contentHash: string;
+				contentType: string;
+				size: number;
+			};
+		};
+		expect(body.asset).toMatchObject({
+			url: expect.stringContaining("https://assets.233.life/assets/"),
+			r2Key: expect.stringContaining("assets/"),
+			contentType: "image/png",
+			size: 4,
+		});
+		expect(bucket.heads).toEqual([body.asset.r2Key]);
+		expect(bucket.puts).toEqual([
+			expect.objectContaining({
+				key: body.asset.r2Key,
+			}),
+		]);
+	});
+
+	it("publishes markdown images into post media and album items", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const draft = await createDraftThroughApi(env, session, "Local images");
+		await updateDraftThroughApi(env, session, draft.id, {
+			title: "Local images",
+			slug: "local-images",
+			markdown: [
+				"Intro",
+				"![First](https://assets.233.life/assets/aa/first.png)",
+				"![Second](<https://assets.233.life/assets/bb/second.webp>)",
+			].join("\n\n"),
+			commentsEnabled: true,
+			publishedAt: "2026-05-20",
+		});
+
+		const response = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(draft.id)}/publish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		const media = sqliteRows<{
+			id: string;
+			kind: string;
+			url: string;
+			sort_order: number;
+			content_hash: string | null;
+		}>(
+			db,
+			"SELECT id, kind, url, sort_order, content_hash FROM post_media ORDER BY sort_order",
+		);
+		const albumItems = sqliteRows<{
+			source_id: string;
+			post_id: string;
+			kind: string;
+			url: string;
+			thumbnail_url: string | null;
+			large_url: string | null;
+			title: string;
+			visibility: string;
+			featured: number;
+			sort_order: number;
+			source_content_hash: string | null;
+		}>(
+			db,
+			`SELECT
+				source_id, post_id, kind, url, thumbnail_url, large_url, title,
+				visibility, featured, sort_order, source_content_hash
+			 FROM album_items
+			 ORDER BY sort_order`,
+		);
+
+		expect(media).toEqual([
+			expect.objectContaining({
+				kind: "image",
+				url: "https://assets.233.life/assets/aa/first.png",
+				sort_order: 0,
+				content_hash: expect.any(String),
+			}),
+			expect.objectContaining({
+				kind: "image",
+				url: "https://assets.233.life/assets/bb/second.webp",
+				sort_order: 1,
+				content_hash: expect.any(String),
+			}),
+		]);
+		expect(albumItems).toEqual([
+			expect.objectContaining({
+				source_id: media[0].id,
+				kind: "image",
+				url: media[0].url,
+				thumbnail_url:
+					"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/aa/first.png",
+				large_url: media[0].url,
+				title: "Local images",
+				visibility: "visible",
+				featured: 0,
+				sort_order: 0,
+				source_content_hash: media[0].content_hash,
+			}),
+			expect.objectContaining({
+				source_id: media[1].id,
+				thumbnail_url:
+					"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/bb/second.webp",
+				sort_order: 1,
+				source_content_hash: media[1].content_hash,
+			}),
 		]);
 	});
 

@@ -206,6 +206,10 @@ class SqliteAdminD1 {
 		return this.db.prepare(sql).all(...values) as T[];
 	}
 
+	exec(sql: string): void {
+		this.db.exec(sql);
+	}
+
 	asD1(): D1Database {
 		return this as unknown as D1Database;
 	}
@@ -619,6 +623,70 @@ describe("admin API routes", () => {
 				markdown: "Hello from **local** writing.",
 			},
 		]);
+	});
+
+	it("normalizes legacy posts with null source type to notion in the admin list", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		db.exec("ALTER TABLE posts RENAME TO posts_strict");
+		db.exec(
+			`CREATE TABLE posts (
+				id TEXT PRIMARY KEY,
+				notion_page_id TEXT NOT NULL UNIQUE,
+				slug TEXT NOT NULL UNIQUE,
+				title TEXT NOT NULL,
+				cover_url TEXT,
+				status TEXT NOT NULL,
+				visibility TEXT NOT NULL CHECK (visibility IN ('published', 'hidden', 'archived')),
+				published_at TEXT,
+				notion_last_edited_time TEXT NOT NULL,
+				content_hash TEXT,
+				last_sync_error TEXT,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				excerpt TEXT NOT NULL DEFAULT '',
+				category TEXT,
+				manual_visibility TEXT NOT NULL DEFAULT 'visible' CHECK (manual_visibility IN ('visible', 'hidden')),
+				locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+				lock_password_encrypted TEXT,
+				comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1)),
+				source_type TEXT CHECK (source_type IN ('notion', 'local')),
+				source_id TEXT
+			)`,
+		);
+		db.prepare(
+			`INSERT INTO posts (
+				id, notion_page_id, slug, title, cover_url, status, visibility,
+				published_at, notion_last_edited_time, content_hash,
+				last_sync_error, created_at, updated_at, source_type, source_id
+			)
+			VALUES (
+				'legacy-post', 'notion-page-legacy', 'legacy-post', 'Legacy Post',
+				NULL, 'Published', 'published', '2026-05-20T00:00:00.000Z',
+				'2026-05-20T01:00:00.000Z', 'content-hash', NULL,
+				'2026-05-20T00:00:00.000Z', '2026-05-20T01:00:00.000Z',
+				NULL, NULL
+			)`,
+		).run();
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/posts", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toMatchObject({
+			items: [
+				expect.objectContaining({
+					id: "legacy-post",
+					sourceType: "notion",
+					sourceId: null,
+				}),
+			],
+		});
 	});
 
 	it("rejects resyncing a local post", async () => {

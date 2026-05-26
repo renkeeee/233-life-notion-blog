@@ -864,6 +864,83 @@ describe("runSync", () => {
 		}
 	});
 
+	it("does not overwrite a local post with the same Notion page id", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedSettings(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at, source_type, source_id
+				)
+				VALUES (
+					'local-post', 'notion-page-1', 'local-post', 'Local Post',
+					NULL, 'Published', 'published', '2026-05-18T00:00:00.000Z',
+					'2026-05-18T00:00:00.000Z', 'local-content-hash', NULL,
+					'2026-05-18T00:00:00.000Z', '2026-05-18T00:00:00.000Z',
+					'local', 'local-post'
+				)`,
+			);
+			let blocksListed = false;
+
+			await runSync(
+				envWithDb(db),
+				{
+					triggerType: "manual",
+					force: true,
+					notionPageId: "notion-page-1",
+				},
+				{
+					...syncDependencies([], pageBlocks()),
+					notionSource: {
+						async listPages() {
+							throw new Error("listPages should not be used for targeted resync");
+						},
+						async retrievePage(_settings: SiteSettings, pageId: string) {
+							expect(pageId).toBe("notion-page-1");
+							return syncPage();
+						},
+						async listBlocks() {
+							blocksListed = true;
+							throw new Error("Blocks should not be loaded for source conflicts");
+						},
+					} as SyncDependencies["notionSource"],
+				},
+			);
+
+			expect(blocksListed).toBe(false);
+			expect(
+				db.rows<{
+					id: string;
+					notion_page_id: string;
+					source_type: string;
+					source_id: string | null;
+					title: string;
+				}>(
+					`SELECT id, notion_page_id, source_type, source_id, title
+					 FROM posts`,
+				),
+			).toEqual([
+				{
+					id: "local-post",
+					notion_page_id: "notion-page-1",
+					source_type: "local",
+					source_id: "local-post",
+					title: "Local Post",
+				},
+			]);
+			expect(
+				db.row<{ status: string; failed_count: number; created_count: number }>(
+					"SELECT status, failed_count, created_count FROM sync_runs WHERE id = ?",
+					"run-1",
+				),
+			).toEqual({ status: "partial", failed_count: 1, created_count: 0 });
+		} finally {
+			db.close();
+		}
+	});
+
 	it("skips admin-deleted posts unless the sync is forced", async () => {
 		const db = new SqliteD1Database();
 		try {

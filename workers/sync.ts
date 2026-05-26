@@ -127,6 +127,12 @@ interface ExistingPostState {
 	published_at: string | null;
 }
 
+interface ConflictingPostSourceState {
+	id: string;
+	source_type: "local";
+	source_id: string | null;
+}
+
 interface ExistingContentState {
 	block_snapshot_hash: string;
 	content_hash: string;
@@ -425,6 +431,14 @@ async function syncPage(
 	let existingBeforeSync = false;
 
 	try {
+		const sourceConflict = await conflictingNonNotionPostState(env.DB, page.id);
+		if (sourceConflict) {
+			throw new SyncError(
+				"INTERNAL_ERROR",
+				"Notion page id conflicts with a local post",
+			);
+		}
+
 		const existing = await existingPostState(env.DB, page.id);
 		existingBeforeSync = existing !== null;
 		const deleted = existing ? null : await deletedPostState(env.DB, page.id);
@@ -662,6 +676,22 @@ async function existingPostState(
 		)
 		.bind(notionPageId)
 		.first<ExistingPostState>();
+}
+
+async function conflictingNonNotionPostState(
+	db: D1Database,
+	notionPageId: string,
+): Promise<ConflictingPostSourceState | null> {
+	return db
+		.prepare(
+			`SELECT id, source_type, source_id
+			 FROM posts
+			 WHERE notion_page_id = ?
+			 AND COALESCE(source_type, 'notion') <> 'notion'
+			 LIMIT 1`,
+		)
+		.bind(notionPageId)
+		.first<ConflictingPostSourceState>();
 }
 
 async function deletedPostState(
@@ -967,7 +997,8 @@ function prepareUpsertPost(
 				last_sync_error = NULL,
 				updated_at = excluded.updated_at,
 				source_type = excluded.source_type,
-				source_id = excluded.source_id`,
+				source_id = excluded.source_id
+				WHERE COALESCE(posts.source_type, 'notion') = 'notion'`,
 		)
 		.bind(
 			post.id,

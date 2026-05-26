@@ -2301,7 +2301,7 @@ async function handleListPosts(
 		const items = await Promise.all(
 			result.results.map(async (post) => ({
 				id: post.id,
-				sourceType: post.source_type,
+				sourceType: post.source_type ?? "notion",
 				sourceId: post.source_id,
 				title: post.title,
 				slug: post.slug,

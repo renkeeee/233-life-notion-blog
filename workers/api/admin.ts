@@ -47,6 +47,7 @@ import {
 	createLocalDraft,
 	createLocalDraftFromPublishedPost,
 	getLocalDraft,
+	listLocalDrafts,
 	localDraftResponse,
 	publishLocalDraft,
 	type LocalDraftInput,
@@ -2146,6 +2147,20 @@ async function handleGetLocalDraft(
 	return json({ draft: localDraftResponse(draft) });
 }
 
+async function handleListLocalDrafts(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const drafts = await listLocalDrafts(env);
+	return json({ items: drafts.map(localDraftResponse) });
+}
+
 async function handleUpdateLocalDraft(
 	request: Request,
 	env: AppEnv,
@@ -3477,6 +3492,10 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/local-posts" && request.method === "POST") {
 		return handleCreateLocalDraft(request, env);
+	}
+
+	if (url.pathname === "/api/admin/local-posts" && request.method === "GET") {
+		return handleListLocalDrafts(request, env);
 	}
 
 	if (url.pathname === "/api/admin/uploads" && request.method === "POST") {

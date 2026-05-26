@@ -806,6 +806,88 @@ describe("admin API routes", () => {
 		expect(sqliteRows(db, "SELECT * FROM posts")).toEqual([]);
 	});
 
+	it("lists pending local drafts newest first and excludes published drafts", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const older = await createDraftThroughApi(env, session, "Older draft");
+		const newer = await createDraftThroughApi(env, session, "Newer draft");
+		const published = await createDraftThroughApi(env, session, "Published draft");
+
+		await updateDraftThroughApi(env, session, older.id, {
+			title: "Older draft",
+			slug: "older-draft",
+			markdown: "Older body",
+			commentsEnabled: true,
+		});
+		await updateDraftThroughApi(env, session, newer.id, {
+			title: "Newer draft",
+			slug: "newer-draft",
+			markdown: "Newer body",
+			commentsEnabled: true,
+		});
+		await updateDraftThroughApi(env, session, published.id, {
+			title: "Published draft",
+			slug: "published-draft",
+			markdown: "Published body",
+			commentsEnabled: true,
+		});
+		db.prepare("UPDATE post_drafts SET updated_at = ? WHERE id = ?")
+			.bind("2026-05-20T00:00:00.000Z", older.id)
+			.run();
+		db.prepare("UPDATE post_drafts SET updated_at = ? WHERE id = ?")
+			.bind("2026-05-22T00:00:00.000Z", newer.id)
+			.run();
+		const publishResponse = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(published.id)}/publish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+		expect(publishResponse.status).toBe(200);
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			items: Array<{
+				id: string;
+				postId: string | null;
+				title: string;
+				slug: string | null;
+				status: string;
+				updatedAt: string;
+				createdAt: string;
+				publishedAt: string | null;
+			}>;
+		};
+		expect(body.items).toEqual([
+			expect.objectContaining({
+				id: newer.id,
+				postId: null,
+				title: "Newer draft",
+				slug: "newer-draft",
+				status: "draft",
+				updatedAt: "2026-05-22T00:00:00.000Z",
+				createdAt: expect.any(String),
+				publishedAt: null,
+			}),
+			expect.objectContaining({
+				id: older.id,
+				title: "Older draft",
+				slug: "older-draft",
+				status: "draft",
+				updatedAt: "2026-05-20T00:00:00.000Z",
+			}),
+		]);
+	});
+
 	it("publishes a local draft into public post tables", async () => {
 		const { db, env } = sqliteAdminEnv();
 		const session = await usableLogin(env);

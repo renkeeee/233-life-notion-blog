@@ -426,6 +426,21 @@ export async function getLocalDraft(
 	return row ? mapDraftRow(row) : null;
 }
 
+export async function listLocalDrafts(
+	env: AppEnv,
+): Promise<LocalDraftRecord[]> {
+	const result = await env.DB.prepare(
+		`SELECT
+			id, post_id, title, slug, excerpt, markdown, cover_url, category,
+			tags_json, status, comments_enabled, published_at, created_at, updated_at
+		 FROM post_drafts
+		 WHERE status = 'draft'
+		 ORDER BY updated_at DESC`,
+	).all<LocalDraftRow>();
+
+	return result.results.map(mapDraftRow);
+}
+
 async function tagsForPost(env: AppEnv, postId: string): Promise<string[]> {
 	const result = await env.DB.prepare(
 		`SELECT tag

@@ -77,6 +77,10 @@ type LocalPostDraftResponse = {
 	draft: LocalPostDraft;
 };
 
+type LocalPostDraftsResponse = {
+	items: LocalPostDraft[];
+};
+
 const pageSize = 20;
 const sortOptions: SortOption[] = [
 	{
@@ -142,6 +146,10 @@ function responseTotal(response: PostsResponse, items: AdminPostRecord[]): numbe
 
 function postTitle(post: AdminPostRecord): string {
 	return post.title?.trim() || "Untitled";
+}
+
+function draftTitle(draft: LocalPostDraft): string {
+	return draft.title?.trim() || "Untitled draft";
 }
 
 function postHref(post: AdminPostRecord): string {
@@ -284,6 +292,9 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	);
 	const [postCommentsError, setPostCommentsError] = useState<string | null>(null);
 	const [editorDraft, setEditorDraft] = useState<LocalPostDraft | null>(null);
+	const [localDrafts, setLocalDrafts] = useState<LocalPostDraft[]>([]);
+	const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
+	const [draftsError, setDraftsError] = useState<string | null>(null);
 	const [creatingDraft, setCreatingDraft] = useState(false);
 
 	const pageCount = useMemo(
@@ -368,6 +379,36 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	}, [page, appliedTitleKeyword, appliedStatusFilter, appliedSort]);
 
 	useEffect(() => {
+		let cancelled = false;
+
+		apiGet<LocalPostDraftsResponse>("/api/admin/local-posts")
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+
+				setLocalDrafts(
+					response.items.filter((draft) => draft.status === "draft"),
+				);
+				setDraftsError(null);
+			})
+			.catch((loadError: unknown) => {
+				if (!cancelled) {
+					setLocalDrafts([]);
+					setDraftsError(
+						loadError instanceof Error
+							? loadError.message
+							: "Local drafts could not be loaded.",
+					);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
 		if (!toast) {
 			return;
 		}
@@ -420,6 +461,37 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		}
 	}
 
+	async function refreshLocalDrafts() {
+		try {
+			const response =
+				await apiGet<LocalPostDraftsResponse>("/api/admin/local-posts");
+			setLocalDrafts(response.items.filter((draft) => draft.status === "draft"));
+			setDraftsError(null);
+		} catch (loadError) {
+			setLocalDrafts([]);
+			setDraftsError(
+				loadError instanceof Error
+					? loadError.message
+					: "Local drafts could not be loaded.",
+			);
+		}
+	}
+
+	function rememberLocalDraft(draft: LocalPostDraft) {
+		setLocalDrafts((current) => {
+			const next = current.filter((item) => item.id !== draft.id);
+			if (draft.status === "draft") {
+				next.unshift(draft);
+			}
+
+			return next.sort(
+				(left, right) =>
+					new Date(right.updatedAt).getTime() -
+					new Date(left.updatedAt).getTime(),
+			);
+		});
+	}
+
 	async function createLocalDraft() {
 		setCreatingDraft(true);
 		setError(null);
@@ -441,6 +513,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				},
 				csrfToken,
 			);
+			rememberLocalDraft(response.draft);
 			setEditorDraft(response.draft);
 		} catch (createError) {
 			setError(
@@ -450,6 +523,28 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 			);
 		} finally {
 			setCreatingDraft(false);
+		}
+	}
+
+	async function openLocalDraft(draftId: string) {
+		setOpeningDraftId(draftId);
+		setError(null);
+		setToast(null);
+
+		try {
+			const response = await apiGet<LocalPostDraftResponse>(
+				`/api/admin/local-posts/${encodeURIComponent(draftId)}`,
+			);
+			rememberLocalDraft(response.draft);
+			setEditorDraft(response.draft);
+		} catch (openError) {
+			setError(
+				openError instanceof Error
+					? openError.message
+					: "Local draft could not be opened.",
+			);
+		} finally {
+			setOpeningDraftId(null);
 		}
 	}
 
@@ -725,16 +820,27 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		}
 	}
 
+	function handleEditorDraftChange(draft: LocalPostDraft) {
+		setEditorDraft(draft);
+		rememberLocalDraft(draft);
+	}
+
 	if (editorDraft) {
 		return (
 			<LocalPostEditor
 				csrfToken={csrfToken}
 				draft={editorDraft}
-				onBack={() => setEditorDraft(null)}
-				onDraftChange={setEditorDraft}
+				onBack={() => {
+					setEditorDraft(null);
+					void refreshLocalDrafts();
+				}}
+				onDraftChange={handleEditorDraftChange}
 				onPublished={async () => {
 					setEditorDraft(null);
-					await refreshPostsForCurrentView();
+					await Promise.all([
+						refreshPostsForCurrentView(),
+						refreshLocalDrafts(),
+					]);
 					setToast("Local post published.");
 				}}
 			/>
@@ -756,6 +862,56 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					</button>
 				</div>
 			</div>
+
+			{localDrafts.length > 0 || draftsError ? (
+				<section className="admin-module">
+					<div className="admin-section-heading">
+						<div>
+							<h3>Local drafts</h3>
+							<p className="admin-note">
+								Saved drafts that have not been published yet.
+							</p>
+						</div>
+					</div>
+					{draftsError ? <p className="admin-error">{draftsError}</p> : null}
+					{localDrafts.length > 0 ? (
+						<div className="admin-table-scroll">
+							<table className="admin-table">
+								<thead>
+									<tr>
+										<th>Title</th>
+										<th>Slug</th>
+										<th>Updated</th>
+										<th>Action</th>
+									</tr>
+								</thead>
+								<tbody>
+									{localDrafts.map((draft) => {
+										const title = draftTitle(draft);
+										return (
+											<tr key={draft.id}>
+												<td>{title}</td>
+												<td>{draft.slug ?? "-"}</td>
+												<td>{formatDate(draft.updatedAt)}</td>
+												<td>
+													<button
+														type="button"
+														aria-label={`Open ${title}`}
+														disabled={openingDraftId === draft.id}
+														onClick={() => void openLocalDraft(draft.id)}
+													>
+														{openingDraftId === draft.id ? "Opening..." : "Open"}
+													</button>
+												</td>
+											</tr>
+										);
+									})}
+								</tbody>
+							</table>
+						</div>
+					) : null}
+				</section>
+			) : null}
 
 			<section className="admin-module admin-post-comment-settings">
 				<div>

@@ -780,6 +780,107 @@ describe("admin API routes", () => {
 		]);
 	});
 
+	it("preserves local image album fields when a different image is inserted before it", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const draft = await createDraftThroughApi(env, session, "Local reorder");
+		const imageA = "https://assets.233.life/assets/aa/a.png";
+		const imageB = "https://assets.233.life/assets/bb/b.png";
+		const imageNew = "https://assets.233.life/assets/cc/new.png";
+
+		await updateDraftThroughApi(env, session, draft.id, {
+			title: "Local reorder",
+			slug: "local-reorder",
+			markdown: [`![A](${imageA})`, `![B](${imageB})`].join("\n\n"),
+			commentsEnabled: true,
+			publishedAt: "2026-05-20",
+		});
+
+		const firstPublish = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(draft.id)}/publish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+		expect(firstPublish.status).toBe(200);
+
+		const originalA = db.rows<{
+			source_id: string;
+			sort_order: number;
+		}>(
+			"SELECT source_id, sort_order FROM album_items WHERE url = ?",
+			imageA,
+		)[0];
+		expect(originalA).toMatchObject({
+			source_id: expect.any(String),
+			sort_order: 0,
+		});
+
+		db.prepare(
+			`UPDATE album_items
+			 SET title = 'Manual A title',
+				 visibility = 'hidden'
+			 WHERE source_id = ?`,
+		)
+			.bind(originalA.source_id)
+			.run();
+
+		await updateDraftThroughApi(env, session, draft.id, {
+			title: "Local reorder",
+			slug: "local-reorder",
+			markdown: [
+				`![New](${imageNew})`,
+				`![A](${imageA})`,
+				`![B](${imageB})`,
+			].join("\n\n"),
+			commentsEnabled: true,
+			publishedAt: "2026-05-20",
+		});
+
+		const secondPublish = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(draft.id)}/publish`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+		expect(secondPublish.status).toBe(200);
+
+		const republishedA = db.rows<{
+			source_id: string;
+			title: string;
+			visibility: string;
+			sort_order: number;
+		}>(
+			`SELECT source_id, title, visibility, sort_order
+			 FROM album_items
+			 WHERE url = ?`,
+			imageA,
+		)[0];
+		const orders = db.rows<{ url: string; sort_order: number }>(
+			`SELECT url, sort_order
+			 FROM album_items
+			 WHERE url IN (?, ?, ?)
+			 ORDER BY sort_order`,
+			imageNew,
+			imageA,
+			imageB,
+		);
+
+		expect(republishedA).toEqual({
+			source_id: originalA.source_id,
+			title: "Manual A title",
+			visibility: "hidden",
+			sort_order: 1,
+		});
+		expect(orders).toEqual([
+			{ url: imageNew, sort_order: 0 },
+			{ url: imageA, sort_order: 1 },
+			{ url: imageB, sort_order: 2 },
+		]);
+	});
+
 	it("rejects publishing when slug already belongs to another post", async () => {
 		const { db, env } = sqliteAdminEnv();
 		insertPublicPost(db, {

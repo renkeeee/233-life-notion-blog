@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	extractMarkdownImageUrls,
 	normalizeLocalPostSlug,
+	thumbnailUrlForImage,
 	validateLocalImageUpload,
 	validateLocalDraftInput,
 	validateLocalPublishInput,
@@ -128,5 +129,13 @@ describe("local post utilities", () => {
 		expect(() =>
 			validateLocalImageUpload("image/png", 10 * 1024 * 1024 + 1),
 		).toThrow("Image must be at most 10MB");
+	});
+
+	it("preserves query strings in image thumbnail URLs", () => {
+		expect(
+			thumbnailUrlForImage("https://assets.233.life/assets/a.jpg?v=2"),
+		).toBe(
+			"https://assets.233.life/cdn-cgi/image/width=440,quality=82,format=auto/assets/a.jpg?v=2",
+		);
 	});
 });

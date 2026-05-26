@@ -456,7 +456,7 @@ type LocalPostMediaRecord = {
 export function thumbnailUrlForImage(url: string): string | null {
 	try {
 		const parsed = new URL(url);
-		return `${parsed.origin}/cdn-cgi/image/width=440,quality=82,format=auto${parsed.pathname}`;
+		return `${parsed.origin}/cdn-cgi/image/width=440,quality=82,format=auto${parsed.pathname}${parsed.search}`;
 	} catch {
 		return null;
 	}
@@ -467,15 +467,21 @@ async function localPostMediaRecords(
 	markdown: string,
 ): Promise<LocalPostMediaRecord[]> {
 	const urls = extractMarkdownImageUrls(markdown);
+	const occurrences = new Map<string, number>();
+	const records: LocalPostMediaRecord[] = [];
 
-	return Promise.all(
-		urls.map(async (url, index) => ({
-			id: `local-media:${await sha256Hex(`${postId}:${url}:${index}`)}`,
+	for (const [index, url] of urls.entries()) {
+		const occurrence = occurrences.get(url) ?? 0;
+		occurrences.set(url, occurrence + 1);
+		records.push({
+			id: `local-media:${await sha256Hex(`${postId}:${url}:${occurrence}`)}`,
 			url,
 			contentHash: await sha256Hex(url),
 			sortOrder: index,
-		})),
-	);
+		});
+	}
+
+	return records;
 }
 
 function prepareHideMissingLocalAlbumItems(

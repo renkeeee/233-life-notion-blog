@@ -567,6 +567,12 @@ type LocalPostMediaRecord = {
 	sortOrder: number;
 };
 
+type ExistingLocalPostIdentity = {
+	notion_page_id: string;
+	source_type: "notion" | "local" | null;
+	source_id: string | null;
+};
+
 export function thumbnailUrlForImage(url: string): string | null {
 	try {
 		const parsed = new URL(url);
@@ -712,7 +718,28 @@ export async function publishLocalDraft(
 
 	const input = validateLocalPublishInput(draft);
 	const postId = draft.postId ?? crypto.randomUUID();
-	const sourceId = draft.id;
+	const existingIdentity = draft.postId
+		? await env.DB.prepare(
+				`SELECT notion_page_id, source_type, source_id
+				 FROM posts
+				 WHERE id = ?
+				 LIMIT 1`,
+			)
+				.bind(draft.postId)
+				.first<ExistingLocalPostIdentity>()
+		: null;
+
+	if (
+		existingIdentity &&
+		(existingIdentity.source_type ?? "notion") !== "local"
+	) {
+		throw new Error("Only local posts can be published here");
+	}
+
+	const sourceId = existingIdentity ? existingIdentity.source_id : draft.id;
+	const notionPageId = existingIdentity
+		? existingIdentity.notion_page_id
+		: `local:${sourceId}`;
 	const slug = input.slug;
 	if (slug === null) {
 		throw new Error("Slug is required");
@@ -754,7 +781,7 @@ export async function publishLocalDraft(
 		)
 			.bind(
 				postId,
-				`local:${sourceId}`,
+				notionPageId,
 				slug,
 				input.title,
 				input.excerpt,

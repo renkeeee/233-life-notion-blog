@@ -2207,6 +2207,7 @@ function localDraftActionValidationMessage(error: unknown): string | null {
 		"Tags must contain only strings",
 		"Comments enabled must be a boolean",
 		"Published date must be a string",
+		"Only local posts can be published here",
 	]);
 
 	return validationMessages.has(error.message) ? error.message : null;

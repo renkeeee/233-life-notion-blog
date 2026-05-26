@@ -2135,6 +2135,7 @@ describe("handlePublicApi", () => {
 			await expect(lockedResponse.json()).resolves.toEqual({
 				locked: true,
 				slug: "locked-post",
+				sourceType: "notion",
 				title: "Locked post",
 			});
 			expect(badUnlockResponse.status).toBe(401);
@@ -2148,6 +2149,67 @@ describe("handlePublicApi", () => {
 		} finally {
 			db.close();
 		}
+	});
+
+	it("returns source type for local and legacy locked markers", async () => {
+		const localDb = new FakeD1Database((sql) => {
+			if (sql.includes("locked = 0")) {
+				return [];
+			}
+			if (sql.includes("locked = 1")) {
+				return [
+					{
+						id: "local-locked",
+						slug: "local-locked",
+						title: "Local locked",
+						source_type: "local",
+						lock_password_encrypted: null,
+					},
+				];
+			}
+			return [];
+		});
+		const legacyDb = new FakeD1Database((sql) => {
+			if (sql.includes("locked = 0")) {
+				return [];
+			}
+			if (sql.includes("locked = 1")) {
+				return [
+					{
+						id: "legacy-locked",
+						slug: "legacy-locked",
+						title: "Legacy locked",
+						source_type: null,
+						lock_password_encrypted: null,
+					},
+				];
+			}
+			return [];
+		});
+
+		const localResponse = await handlePublicApi(
+			publicRequest("/api/posts/local-locked"),
+			envWithDb(localDb.asD1()),
+		);
+		const legacyResponse = await handlePublicApi(
+			publicRequest("/api/posts/legacy-locked"),
+			envWithDb(legacyDb.asD1()),
+		);
+
+		expect(localResponse.status).toBe(200);
+		await expect(localResponse.json()).resolves.toEqual({
+			locked: true,
+			slug: "local-locked",
+			sourceType: "local",
+			title: "Local locked",
+		});
+		expect(legacyResponse.status).toBe(200);
+		await expect(legacyResponse.json()).resolves.toEqual({
+			locked: true,
+			slug: "legacy-locked",
+			sourceType: "notion",
+			title: "Legacy locked",
+		});
 	});
 
 	it("treats manually hidden posts as unavailable by slug", async () => {

@@ -820,7 +820,12 @@ async function handlePublicApiResponse(
 		if (locked) {
 			return cacheableJson(
 				request,
-				{ locked: true, slug: locked.slug, title: locked.title },
+				{
+					locked: true,
+					slug: locked.slug,
+					sourceType: locked.sourceType,
+					title: locked.title,
+				},
 				publicApiCacheControl,
 			);
 		}

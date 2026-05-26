@@ -166,6 +166,7 @@ export type LockedPostRecord = {
 	id: string;
 	slug: string;
 	title: string;
+	sourceType: PostSourceType;
 	lockPasswordEncrypted: string | null;
 };
 
@@ -486,7 +487,7 @@ export class PostsRepository {
 	async findLockedBySlug(slug: string): Promise<LockedPostRecord | null> {
 		const row = await this.db
 			.prepare(
-				`SELECT id, slug, title, lock_password_encrypted
+				`SELECT id, slug, title, source_type, lock_password_encrypted
 				 FROM posts p
 				 WHERE p.slug = ?
 				 AND p.visibility = 'published'
@@ -499,6 +500,7 @@ export class PostsRepository {
 				id: string;
 				slug: string;
 				title: string;
+				source_type: PostSourceType | null;
 				lock_password_encrypted: string | null;
 			}>();
 
@@ -507,6 +509,7 @@ export class PostsRepository {
 					id: row.id,
 					slug: row.slug,
 					title: row.title,
+					sourceType: row.source_type ?? "notion",
 					lockPasswordEncrypted: row.lock_password_encrypted,
 				}
 			: null;

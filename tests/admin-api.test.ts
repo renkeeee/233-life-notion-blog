@@ -655,6 +655,77 @@ describe("admin API routes", () => {
 		expect(sqliteRows(db, "SELECT id FROM post_drafts")).toHaveLength(1);
 	});
 
+	it("preserves local source identity when publishing an edited local post", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		await insertPublishedLocalPostWithContent(db, {
+			postId: "published-local-post",
+			sourceId: "original-local-source",
+			slug: "published-local-post",
+			title: "Published Local Post",
+			markdown: "# Original markdown",
+			tags: ["original"],
+		});
+		const createEditResponse = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ postId: "published-local-post" }),
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+		expect(createEditResponse.status).toBe(200);
+		const createEditBody = (await createEditResponse.json()) as {
+			draft: Record<string, unknown>;
+		};
+		await updateDraftThroughApi(env, session, createEditBody.draft.id, {
+			title: "Edited Local Post",
+			slug: "edited-local-post",
+			excerpt: "Edited excerpt",
+			markdown: "# Edited markdown",
+			tags: ["edited"],
+			commentsEnabled: true,
+		});
+
+		const publishResponse = await handleAdminApi(
+			adminRequest(
+				`/api/admin/local-posts/${String(createEditBody.draft.id)}/publish`,
+				{
+					headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+					method: "POST",
+				},
+			),
+			env,
+		);
+
+		expect(publishResponse.status).toBe(200);
+		expect(
+			sqliteRows(
+				db,
+				`SELECT id, source_id, notion_page_id, title, slug
+				 FROM posts
+				 ORDER BY id`,
+			),
+		).toEqual([
+			{
+				id: "published-local-post",
+				source_id: "original-local-source",
+				notion_page_id: "local:original-local-source",
+				title: "Edited Local Post",
+				slug: "edited-local-post",
+			},
+		]);
+		expect(
+			sqliteRows(
+				db,
+				"SELECT markdown FROM post_content WHERE post_id = 'published-local-post'",
+			),
+		).toEqual([{ markdown: "# Edited markdown" }]);
+		expect(
+			sqliteRows(db, "SELECT tag FROM post_tags ORDER BY sort_order"),
+		).toEqual([{ tag: "edited" }]);
+	});
+
 	it("rejects editing a published Notion post as a local post", async () => {
 		const { db, env } = sqliteAdminEnv();
 		const session = await usableLogin(env);

@@ -78,6 +78,30 @@ async function login(env: AppEnv): Promise<{
 	};
 }
 
+async function usableLogin(env: AppEnv): Promise<{
+	cookie: string;
+	csrfToken: string;
+}> {
+	const session = await login(env);
+	const response = await handleAdminApi(
+		adminRequest("/api/admin/password", {
+			body: JSON.stringify({
+				currentPassword: "123456",
+				newPassword: "changed-password",
+			}),
+			headers: {
+				...csrfHeaders(session.csrfToken),
+				cookie: session.cookie,
+			},
+			method: "POST",
+		}),
+		env,
+	);
+
+	expect(response.status).toBe(200);
+	return session;
+}
+
 class SqliteD1PreparedStatement {
 	private values: unknown[] = [];
 
@@ -314,7 +338,7 @@ describe("admin API routes", () => {
 
 	it("creates and loads a local post draft", async () => {
 		const { env } = sqliteAdminEnv();
-		const session = await login(env);
+		const session = await usableLogin(env);
 
 		const created = await createDraftThroughApi(env, session, "Local Draft");
 		const response = await handleAdminApi(
@@ -338,7 +362,7 @@ describe("admin API routes", () => {
 
 	it("updates a local post draft without creating a public post", async () => {
 		const { db, env } = sqliteAdminEnv();
-		const session = await login(env);
+		const session = await usableLogin(env);
 		const created = await createDraftThroughApi(env, session, "Original Title");
 
 		const response = await handleAdminApi(

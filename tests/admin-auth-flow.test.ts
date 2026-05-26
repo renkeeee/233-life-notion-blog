@@ -604,6 +604,28 @@ describe("admin settings API", () => {
 		});
 	});
 
+	it("blocks local draft creation for bootstrap-password sessions until the password changes", async () => {
+		const { env } = testEnv();
+		const session = await loginSession(env);
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/local-posts", {
+				body: JSON.stringify({ title: "Bootstrap Draft" }),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(403);
+		await expect(response.json()).resolves.toEqual({
+			error: { code: "FORBIDDEN", message: "Password change required" },
+		});
+	});
+
 	it("requires a session to read settings and returns redacted values", async () => {
 		const { env, rootKey } = testEnv();
 		const session = await usableAdminSession(env);

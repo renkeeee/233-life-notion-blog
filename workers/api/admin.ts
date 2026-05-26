@@ -47,7 +47,9 @@ import {
 	createLocalDraft,
 	getLocalDraft,
 	localDraftResponse,
+	type LocalDraftInput,
 	updateLocalDraft,
+	validateLocalDraftInput,
 } from "../local-posts";
 
 type LoginBody = {
@@ -2034,7 +2036,7 @@ async function handleCreateLocalDraft(
 	request: Request,
 	env: AppEnv,
 ): Promise<Response> {
-	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+	const session = await requireUsableAdminSession(request, env);
 
 	if (session instanceof Response) {
 		return session;
@@ -2045,15 +2047,24 @@ async function handleCreateLocalDraft(
 		return csrfError;
 	}
 
+	let body: LocalDraftInput;
+	let draftInput: ReturnType<typeof validateLocalDraftInput>;
 	try {
-		const draft = await createLocalDraft(env, await readJsonObject(request));
-		return json({ draft: localDraftResponse(draft) });
+		body = (await readJsonObject(request)) as unknown as LocalDraftInput;
+		draftInput = validateLocalDraftInput(body);
 	} catch (error) {
 		return errorJson(
 			"BAD_REQUEST",
 			error instanceof Error ? error.message : "Invalid request body",
 			400,
 		);
+	}
+
+	try {
+		const draft = await createLocalDraft(env, draftInput);
+		return json({ draft: localDraftResponse(draft) });
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Draft could not be saved", 500);
 	}
 }
 
@@ -2062,7 +2073,7 @@ async function handleGetLocalDraft(
 	env: AppEnv,
 	draftId: string,
 ): Promise<Response> {
-	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+	const session = await requireUsableAdminSession(request, env);
 
 	if (session instanceof Response) {
 		return session;
@@ -2081,7 +2092,7 @@ async function handleUpdateLocalDraft(
 	env: AppEnv,
 	draftId: string,
 ): Promise<Response> {
-	const session = await requireSession(request, env.CONFIG_ENCRYPTION_KEY);
+	const session = await requireUsableAdminSession(request, env);
 
 	if (session instanceof Response) {
 		return session;
@@ -2092,23 +2103,28 @@ async function handleUpdateLocalDraft(
 		return csrfError;
 	}
 
+	let body: LocalDraftInput;
+	let draftInput: ReturnType<typeof validateLocalDraftInput>;
 	try {
-		const draft = await updateLocalDraft(
-			env,
-			draftId,
-			await readJsonObject(request),
-		);
-		if (!draft) {
-			return errorJson("NOT_FOUND", "Local draft not found", 404);
-		}
-
-		return json({ draft: localDraftResponse(draft) });
+		body = (await readJsonObject(request)) as unknown as LocalDraftInput;
+		draftInput = validateLocalDraftInput(body);
 	} catch (error) {
 		return errorJson(
 			"BAD_REQUEST",
 			error instanceof Error ? error.message : "Invalid request body",
 			400,
 		);
+	}
+
+	try {
+		const draft = await updateLocalDraft(env, draftId, draftInput);
+		if (!draft) {
+			return errorJson("NOT_FOUND", "Local draft not found", 404);
+		}
+
+		return json({ draft: localDraftResponse(draft) });
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Draft could not be saved", 500);
 	}
 }
 

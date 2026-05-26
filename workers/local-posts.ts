@@ -121,8 +121,12 @@ function optionalNullableString(
 }
 
 function optionalSlug(value: unknown): string | null {
-	if (typeof value !== "string") {
+	if (value === undefined || value === null) {
 		return null;
+	}
+
+	if (typeof value !== "string") {
+		throw new Error("Slug must be a string");
 	}
 
 	return value.trim().length === 0 ? null : value;

@@ -33,6 +33,15 @@ describe("local post utilities", () => {
 		).toThrow("Slug must contain only lowercase letters, numbers, and hyphens");
 	});
 
+	it("rejects draft input with a non-string slug", () => {
+		expect(() =>
+			validateLocalDraftInput({
+				title: "Draft",
+				slug: 123,
+			}),
+		).toThrow("Slug must be a string");
+	});
+
 	it("accepts draft input with empty optional content", () => {
 		expect(
 			validateLocalDraftInput({

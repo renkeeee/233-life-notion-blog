@@ -1942,6 +1942,13 @@ describe("admin posts API", () => {
 				}),
 				env,
 			);
+			const nicknameSearched = await handleAdminApi(
+				adminRequest("/api/admin/comments?status=all&q=Grace&page=1&limit=5", {
+					headers: cookieHeaders,
+					method: "GET",
+				}),
+				env,
+			);
 			const secondPage = await handleAdminApi(
 				adminRequest("/api/admin/comments?status=all&page=2&limit=2", {
 					headers: cookieHeaders,
@@ -2009,6 +2016,13 @@ describe("admin posts API", () => {
 			});
 			expect(searched.status).toBe(200);
 			await expect(searched.json()).resolves.toMatchObject({
+				items: [{ id: "comment-2" }],
+				total: 1,
+				page: 1,
+				limit: 5,
+			});
+			expect(nicknameSearched.status).toBe(200);
+			await expect(nicknameSearched.json()).resolves.toMatchObject({
 				items: [{ id: "comment-2" }],
 				total: 1,
 				page: 1,

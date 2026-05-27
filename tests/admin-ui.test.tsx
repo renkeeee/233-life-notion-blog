@@ -1036,6 +1036,54 @@ describe("CommentManagementPanel", () => {
 		}
 	});
 
+	it("populates the active tab when its list response follows an unrelated delete", async () => {
+		let resolveDelete: (value: { ok: boolean }) => void = () => {};
+		let resolveApprovedList: (value: typeof approvedResponse) => void = () => {};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return new Promise((resolve) => {
+					resolveApprovedList = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveDelete = resolve;
+				});
+			}
+			throw new Error(`Unexpected DELETE ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			resolveDelete({ ok: true });
+			resolveApprovedList(approvedResponse);
+
+			await screen.findByText("An approved note.");
+			expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			expect(screen.getByText("1 shown")).toBeTruthy();
+			expect(screen.getByText("1-1 of 1 comments")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
 	it("disables the reply textarea while that reply save is pending", async () => {
 		let resolveReply: (value: {
 			comment: {

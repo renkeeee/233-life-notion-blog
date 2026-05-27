@@ -85,8 +85,22 @@ function postHref(comment: AdminComment): string {
 function visibleCommentAfterUpdate(
 	currentStatus: CommentStatusFilter,
 	comment: AdminComment,
+	currentQuery: string,
 ): boolean {
-	return currentStatus === "all" || comment.moderationStatus === currentStatus;
+	const statusMatches =
+		currentStatus === "all" || comment.moderationStatus === currentStatus;
+	if (!statusMatches) {
+		return false;
+	}
+
+	const query = currentQuery.trim().toLowerCase();
+	if (!query) {
+		return true;
+	}
+
+	return [comment.nickname, comment.body, comment.post.title].some((value) =>
+		value.toLowerCase().includes(query),
+	);
 }
 
 export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
@@ -103,13 +117,13 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const [appliedQuery, setAppliedQuery] = useState("");
 	const [page, setPage] = useState(1);
 	const [total, setTotal] = useState(0);
-	const [listStatus, setListStatus] = useState("Loading comments...");
 	const [listError, setListError] = useState<string | null>(null);
 	const [listPending, setListPending] = useState(false);
 	const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>({});
 	const [toast, setToast] = useState<string | null>(null);
 	const commentsStatusRef = useRef(commentsStatus);
+	const appliedQueryRef = useRef(appliedQuery);
 	const commentsRef = useRef(comments);
 	const totalRef = useRef(total);
 
@@ -117,10 +131,30 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		() => Math.max(1, Math.ceil(total / pageSize)),
 		[total],
 	);
+	const listSummary = useMemo(() => {
+		if (listPending) {
+			return "Loading comments...";
+		}
+		if (listError) {
+			return "Comments could not be loaded.";
+		}
+		if (total === 0) {
+			return "No comments";
+		}
+
+		const effectivePage = Math.min(page, pageCount);
+		const start = (effectivePage - 1) * pageSize + 1;
+		const end = Math.min(effectivePage * pageSize, total);
+		return `${start}-${end} of ${total} comments`;
+	}, [listError, listPending, page, pageCount, total]);
 
 	useEffect(() => {
 		commentsStatusRef.current = commentsStatus;
 	}, [commentsStatus]);
+
+	useEffect(() => {
+		appliedQueryRef.current = appliedQuery;
+	}, [appliedQuery]);
 
 	useEffect(() => {
 		commentsRef.current = comments;
@@ -161,7 +195,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	useEffect(() => {
 		let cancelled = false;
 		setListPending(true);
-		setListStatus("Loading comments...");
 		setListError(null);
 
 		apiGet<AdminCommentsResponse>(
@@ -181,14 +214,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 						response.items.map((comment) => [comment.id, comment.replyBody ?? ""]),
 					),
 				);
-				setListStatus(
-					response.total === 0
-						? "No comments"
-						: `${(response.page - 1) * response.limit + 1}-${Math.min(
-								response.page * response.limit,
-								response.total,
-							)} of ${response.total} comments`,
-				);
 				setListPending(false);
 			})
 			.catch((error: unknown) => {
@@ -197,7 +222,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					setComments([]);
 					totalRef.current = 0;
 					setTotal(0);
-					setListStatus("Comments could not be loaded.");
 					setListError(errorMessage(error, "Comments could not be loaded."));
 					setListPending(false);
 				}
@@ -305,7 +329,12 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 
 	function replaceComment(comment: AdminComment) {
 		const currentStatus = commentsStatusRef.current;
-		const remainsVisible = visibleCommentAfterUpdate(currentStatus, comment);
+		const currentQuery = appliedQueryRef.current;
+		const remainsVisible = visibleCommentAfterUpdate(
+			currentStatus,
+			comment,
+			currentQuery,
+		);
 		const currentComments = commentsRef.current;
 		const isInCurrentList = currentComments.some((item) => item.id === comment.id);
 
@@ -479,7 +508,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 						<button type="submit">Search</button>
 					</form>
 				</div>
-				<p className="admin-note">{listStatus}</p>
+				<p className="admin-note">{listSummary}</p>
 				{listError ? <p className="admin-error">{listError}</p> : null}
 				{comments.length > 0 ? (
 					<ol className="admin-comment-management-list">

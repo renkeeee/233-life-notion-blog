@@ -681,6 +681,8 @@ describe("CommentManagementPanel", () => {
 				{
 					...pendingResponse.items[0],
 					moderationStatus: "approved",
+					replyBody: "",
+					replyCreatedAt: "",
 				},
 			],
 			total: 1,
@@ -761,6 +763,20 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		const sameCommentApproved = {
+			items: [
+				{
+					...pendingResponse.items[0],
+					moderationStatus: "approved",
+					replyBody: "",
+					replyCreatedAt: "",
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		};
+		let approvedRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -769,7 +785,12 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
-				return Promise.resolve(emptyApprovedResponse);
+				approvedRequestCount += 1;
+				return Promise.resolve(
+					approvedRequestCount === 1
+						? emptyApprovedResponse
+						: sameCommentApproved,
+				);
 			}
 			throw new Error(`Unexpected GET ${path}`);
 		});
@@ -829,7 +850,13 @@ describe("CommentManagementPanel", () => {
 				createdAt: string;
 			};
 		}) => void = () => {};
-		let resolveApprovedList: (value: {
+		let resolveStaleApprovedList: (value: {
+			items: typeof approvedResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshApprovedList: (value: {
 			items: typeof approvedResponse.items;
 			total: number;
 			page: number;
@@ -841,6 +868,20 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		const sameCommentApproved = {
+			items: [
+				{
+					...pendingResponse.items[0],
+					moderationStatus: "approved",
+					replyBody: "",
+					replyCreatedAt: "",
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		};
+		let approvedRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -849,8 +890,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				approvedRequestCount += 1;
 				return new Promise((resolve) => {
-					resolveApprovedList = resolve;
+					if (approvedRequestCount === 1) {
+						resolveStaleApprovedList = resolve;
+					} else {
+						resolveFreshApprovedList = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -893,7 +939,9 @@ describe("CommentManagementPanel", () => {
 				"true",
 			);
 
-			resolveApprovedList(emptyApprovedResponse);
+			await waitFor(() => expect(approvedRequestCount).toBe(2));
+			resolveStaleApprovedList(emptyApprovedResponse);
+			resolveFreshApprovedList(sameCommentApproved);
 			await waitFor(() =>
 				expect(screen.getByText("A pending hello.")).toBeTruthy(),
 			);
@@ -918,7 +966,13 @@ describe("CommentManagementPanel", () => {
 				createdAt: string;
 			};
 		}) => void = () => {};
-		let resolveAllList: (value: {
+		let resolveStaleAllList: (value: {
+			items: typeof approvedResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshAllList: (value: {
 			items: typeof approvedResponse.items;
 			total: number;
 			page: number;
@@ -930,6 +984,7 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		let allRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -938,8 +993,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=all&page=1&limit=20") {
+				allRequestCount += 1;
 				return new Promise((resolve) => {
-					resolveAllList = resolve;
+					if (allRequestCount === 1) {
+						resolveStaleAllList = resolve;
+					} else {
+						resolveFreshAllList = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -973,7 +1033,9 @@ describe("CommentManagementPanel", () => {
 					createdAt: "2026-05-22T10:00:00.000Z",
 				},
 			});
-			resolveAllList(allOffPageResponse);
+			await waitFor(() => expect(allRequestCount).toBe(2));
+			resolveStaleAllList(allOffPageResponse);
+			resolveFreshAllList(allOffPageResponse);
 
 			await screen.findByText("An approved note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
@@ -998,7 +1060,13 @@ describe("CommentManagementPanel", () => {
 				createdAt: string;
 			};
 		}) => void = () => {};
-		let resolvePendingSearch: (value: {
+		let resolveStalePendingSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshPendingSearch: (value: {
 			items: typeof pendingResponse.items;
 			total: number;
 			page: number;
@@ -1017,6 +1085,11 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		const freshPendingSearchResponse = {
+			...pendingSearchResponse,
+			total: 20,
+		};
+		let pendingSearchRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -1025,8 +1098,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=pending&page=1&limit=20&q=Ada") {
+				pendingSearchRequestCount += 1;
 				return new Promise((resolve) => {
-					resolvePendingSearch = resolve;
+					if (pendingSearchRequestCount === 1) {
+						resolveStalePendingSearch = resolve;
+					} else {
+						resolveFreshPendingSearch = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -1060,7 +1138,9 @@ describe("CommentManagementPanel", () => {
 					createdAt: "2026-05-22T10:00:00.000Z",
 				},
 			});
-			resolvePendingSearch(pendingSearchResponse);
+			await waitFor(() => expect(pendingSearchRequestCount).toBe(2));
+			resolveStalePendingSearch(pendingSearchResponse);
+			resolveFreshPendingSearch(freshPendingSearchResponse);
 
 			await screen.findByText("Another pending note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
@@ -1085,7 +1165,13 @@ describe("CommentManagementPanel", () => {
 				createdAt: string;
 			};
 		}) => void = () => {};
-		let resolveApprovedList: (value: {
+		let resolveStaleApprovedList: (value: {
+			items: typeof approvedResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshApprovedList: (value: {
 			items: typeof approvedResponse.items;
 			total: number;
 			page: number;
@@ -1097,6 +1183,7 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		let approvedRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -1105,8 +1192,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				approvedRequestCount += 1;
 				return new Promise((resolve) => {
-					resolveApprovedList = resolve;
+					if (approvedRequestCount === 1) {
+						resolveStaleApprovedList = resolve;
+					} else {
+						resolveFreshApprovedList = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -1137,7 +1229,9 @@ describe("CommentManagementPanel", () => {
 					createdAt: "2026-05-22T10:00:00.000Z",
 				},
 			});
-			resolveApprovedList(alreadyCountedApprovedResponse);
+			await waitFor(() => expect(approvedRequestCount).toBe(2));
+			resolveStaleApprovedList(alreadyCountedApprovedResponse);
+			resolveFreshApprovedList(alreadyCountedApprovedResponse);
 
 			await screen.findByText("An approved note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
@@ -1162,7 +1256,13 @@ describe("CommentManagementPanel", () => {
 				createdAt: string;
 			};
 		}) => void = () => {};
-		let resolvePendingSearch: (value: {
+		let resolveStalePendingSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshPendingSearch: (value: {
 			items: typeof pendingResponse.items;
 			total: number;
 			page: number;
@@ -1181,6 +1281,7 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		let pendingSearchRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -1189,8 +1290,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=pending&page=1&limit=20&q=Ada") {
+				pendingSearchRequestCount += 1;
 				return new Promise((resolve) => {
-					resolvePendingSearch = resolve;
+					if (pendingSearchRequestCount === 1) {
+						resolveStalePendingSearch = resolve;
+					} else {
+						resolveFreshPendingSearch = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -1224,13 +1330,223 @@ describe("CommentManagementPanel", () => {
 					createdAt: "2026-05-22T10:00:00.000Z",
 				},
 			});
-			resolvePendingSearch(alreadyExcludedPendingResponse);
+			await waitFor(() => expect(pendingSearchRequestCount).toBe(2));
+			resolveStalePendingSearch(alreadyExcludedPendingResponse);
+			resolveFreshPendingSearch(alreadyExcludedPendingResponse);
 
 			await screen.findByText("Another pending note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
 			expect(screen.getByText("20 shown")).toBeTruthy();
 			expect(screen.getByText("1-1 of 20 comments")).toBeTruthy();
 			expect(screen.queryByText("19 shown")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("refreshes the active search after an off-page matching delete resolves", async () => {
+		let resolveDelete: (value: { ok: boolean }) => void = () => {};
+		let resolveStaleSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let searchRequestCount = 0;
+		const searchItem = {
+			...pendingResponse.items[0],
+			id: "comment-3",
+			nickname: "Ada B.",
+			body: "Another matching note.",
+		};
+		const staleSearchResponse = {
+			items: [searchItem],
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const freshSearchResponse = {
+			items: [searchItem],
+			total: 20,
+			page: 1,
+			limit: 20,
+		};
+		const searchPath = "/api/admin/comments?status=all&page=1&limit=20&q=Ada";
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=all&page=1&limit=20") {
+				return Promise.resolve({
+					items: [],
+					total: 0,
+					page: 1,
+					limit: 20,
+				});
+			}
+			if (path === searchPath) {
+				searchRequestCount += 1;
+				if (searchRequestCount === 1) {
+					return new Promise((resolve) => {
+						resolveStaleSearch = resolve;
+					});
+				}
+				return new Promise((resolve) => {
+					resolveFreshSearch = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveDelete = resolve;
+				});
+			}
+			throw new Error(`Unexpected DELETE ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			fireEvent.click(screen.getByRole("button", { name: "All" }));
+			fireEvent.change(screen.getByLabelText("Search comments"), {
+				target: { value: "Ada" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Search" }));
+			resolveStaleSearch(staleSearchResponse);
+			await screen.findByText("Another matching note.");
+			expect(screen.getByText("21 shown")).toBeTruthy();
+
+			resolveDelete({ ok: true });
+			await waitFor(() => expect(searchRequestCount).toBe(2));
+			resolveFreshSearch(freshSearchResponse);
+
+			await waitFor(() => expect(screen.getByText("20 shown")).toBeTruthy());
+			expect(screen.getByText("1-1 of 20 comments")).toBeTruthy();
+			expect(screen.queryByText("21 shown")).toBeNull();
+			expect(apiGet).toHaveBeenCalledWith(searchPath);
+		} finally {
+			apiGet.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
+	it("uses the refreshed pending search total when a stale response already excluded an approval", async () => {
+		let resolveApproval: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "approved";
+				replyBody: string | null;
+				replyCreatedAt: string | null;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		let resolveStaleSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let resolveFreshSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let searchRequestCount = 0;
+		const searchItem = {
+			...pendingResponse.items[0],
+			id: "comment-3",
+			nickname: "Ada B.",
+			body: "Another pending note.",
+		};
+		const alreadyExcludedResponse = {
+			items: [searchItem],
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const freshSearchResponse = {
+			items: [searchItem],
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const searchPath = "/api/admin/comments?status=pending&page=1&limit=20&q=Ada";
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === searchPath) {
+				searchRequestCount += 1;
+				if (searchRequestCount === 1) {
+					return new Promise((resolve) => {
+						resolveStaleSearch = resolve;
+					});
+				}
+				return new Promise((resolve) => {
+					resolveFreshSearch = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveApproval = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+			fireEvent.change(screen.getByLabelText("Search comments"), {
+				target: { value: "Ada" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+			resolveApproval({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "approved",
+					replyBody: null,
+					replyCreatedAt: null,
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+			await waitFor(() => expect(searchRequestCount).toBe(2));
+			resolveStaleSearch(alreadyExcludedResponse);
+			resolveFreshSearch(freshSearchResponse);
+
+			await screen.findByText("Another pending note.");
+			expect(screen.queryByText("A pending hello.")).toBeNull();
+			expect(screen.getByText("21 shown")).toBeTruthy();
+			expect(screen.getByText("1-1 of 21 comments")).toBeTruthy();
+			expect(screen.queryByText("20 shown")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();
@@ -1250,12 +1566,6 @@ describe("CommentManagementPanel", () => {
 			};
 		}) => void = () => {};
 		let resolveDelete: (value: { ok: boolean }) => void = () => {};
-		let resolveApprovedList: (value: {
-			items: typeof approvedResponse.items;
-			total: number;
-			page: number;
-			limit: number;
-		}) => void = () => {};
 		let pendingRequestCount = 0;
 		let approvedRequestCount = 0;
 		const emptyResponse = {
@@ -1267,6 +1577,12 @@ describe("CommentManagementPanel", () => {
 		const approvedOffPageResponse = {
 			items: approvedResponse.items,
 			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const approvedAfterDeleteResponse = {
+			items: approvedResponse.items,
+			total: 20,
 			page: 1,
 			limit: 20,
 		};
@@ -1285,9 +1601,24 @@ describe("CommentManagementPanel", () => {
 				if (approvedRequestCount === 1) {
 					return Promise.resolve(emptyResponse);
 				}
-				return new Promise((resolve) => {
-					resolveApprovedList = resolve;
-				});
+				if (approvedRequestCount === 2) {
+					return Promise.resolve({
+						items: [
+							{
+								...pendingResponse.items[0],
+								moderationStatus: "approved",
+							},
+						],
+						total: 1,
+						page: 1,
+						limit: 20,
+					});
+				}
+				return Promise.resolve(
+					approvedRequestCount === 3
+						? approvedOffPageResponse
+						: approvedAfterDeleteResponse,
+				);
 			}
 			throw new Error(`Unexpected GET ${path}`);
 		});
@@ -1341,11 +1672,10 @@ describe("CommentManagementPanel", () => {
 			fireEvent.click(screen.getByRole("button", { name: "Pending" }));
 			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
 			resolveDelete({ ok: true });
-			resolveApprovedList(approvedOffPageResponse);
 
 			await screen.findByText("An approved note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
-			expect(screen.getByText("20 shown")).toBeTruthy();
+			await waitFor(() => expect(screen.getByText("20 shown")).toBeTruthy());
 			expect(screen.getByText("1-1 of 20 comments")).toBeTruthy();
 			expect(screen.queryByText("21 shown")).toBeNull();
 		} finally {
@@ -1373,7 +1703,9 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
-		let resolveSearch: (value: typeof emptyApprovedResponse) => void = () => {};
+		let resolveStaleSearch: (value: typeof emptyApprovedResponse) => void = () => {};
+		let resolveFreshSearch: (value: typeof emptyApprovedResponse) => void = () => {};
+		let searchRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -1385,8 +1717,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(emptyApprovedResponse);
 			}
 			if (path === "/api/admin/comments?status=approved&page=1&limit=20&q=Grace") {
+				searchRequestCount += 1;
 				return new Promise((resolve) => {
-					resolveSearch = resolve;
+					if (searchRequestCount === 1) {
+						resolveStaleSearch = resolve;
+					} else {
+						resolveFreshSearch = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -1427,7 +1764,9 @@ describe("CommentManagementPanel", () => {
 			await waitFor(() => expect(screen.queryByText("A pending hello.")).toBeNull());
 			expect(screen.getByText("0 shown")).toBeTruthy();
 			expect(screen.getByRole("status")).toHaveTextContent("Comment approved.");
-			resolveSearch(emptyApprovedResponse);
+			await waitFor(() => expect(searchRequestCount).toBe(2));
+			resolveStaleSearch(emptyApprovedResponse);
+			resolveFreshSearch(emptyApprovedResponse);
 			await screen.findByText("No comments");
 			expect(screen.getByText("No comments in this view.")).toBeTruthy();
 		} finally {
@@ -1487,7 +1826,9 @@ describe("CommentManagementPanel", () => {
 
 	it("populates the active tab when its list response follows an unrelated delete", async () => {
 		let resolveDelete: (value: { ok: boolean }) => void = () => {};
-		let resolveApprovedList: (value: typeof approvedResponse) => void = () => {};
+		let resolveStaleApprovedList: (value: typeof approvedResponse) => void = () => {};
+		let resolveFreshApprovedList: (value: typeof approvedResponse) => void = () => {};
+		let approvedRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -1496,8 +1837,13 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(pendingResponse);
 			}
 			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				approvedRequestCount += 1;
 				return new Promise((resolve) => {
-					resolveApprovedList = resolve;
+					if (approvedRequestCount === 1) {
+						resolveStaleApprovedList = resolve;
+					} else {
+						resolveFreshApprovedList = resolve;
+					}
 				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
@@ -1518,7 +1864,9 @@ describe("CommentManagementPanel", () => {
 			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
 			resolveDelete({ ok: true });
-			resolveApprovedList(approvedResponse);
+			await waitFor(() => expect(approvedRequestCount).toBe(2));
+			resolveStaleApprovedList(approvedResponse);
+			resolveFreshApprovedList(approvedResponse);
 
 			await screen.findByText("An approved note.");
 			expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute(
@@ -1710,12 +2058,22 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		const afterDeleteResponse = {
+			items: firstPageItems.slice(1),
+			total: 20,
+			page: 1,
+			limit: 20,
+		};
+		let pendingRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
 			}
 			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
-				return Promise.resolve(firstPageResponse);
+				pendingRequestCount += 1;
+				return Promise.resolve(
+					pendingRequestCount === 1 ? firstPageResponse : afterDeleteResponse,
+				);
 			}
 			throw new Error(`Unexpected GET ${path}`);
 		});
@@ -1769,6 +2127,13 @@ describe("CommentManagementPanel", () => {
 			page: 2,
 			limit: 20,
 		};
+		const afterDeleteSecondPageResponse = {
+			items: [],
+			total: 20,
+			page: 2,
+			limit: 20,
+		};
+		let secondPageRequestCount = 0;
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -1777,7 +2142,12 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(firstPageResponse);
 			}
 			if (path === "/api/admin/comments?status=pending&page=2&limit=20") {
-				return Promise.resolve(secondPageResponse);
+				secondPageRequestCount += 1;
+				return Promise.resolve(
+					secondPageRequestCount === 1
+						? secondPageResponse
+						: afterDeleteSecondPageResponse,
+				);
 			}
 			throw new Error(`Unexpected GET ${path}`);
 		});

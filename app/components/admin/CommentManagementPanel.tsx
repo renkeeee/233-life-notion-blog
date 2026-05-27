@@ -33,12 +33,6 @@ type AdminCommentsResponse = {
 	limit: number;
 };
 
-type LocalCommentMutation = {
-	afterComment: AdminComment | null;
-	beforeComment: AdminComment;
-	version: number;
-};
-
 const pageSize = 20;
 const commentViews: Array<{ id: CommentStatusFilter; label: string }> = [
 	{ id: "pending", label: "Pending" },
@@ -127,16 +121,16 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const [listPending, setListPending] = useState(false);
 	const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>({});
+	const [refreshNonce, setRefreshNonce] = useState(0);
 	const [toast, setToast] = useState<string | null>(null);
 	const commentsStatusRef = useRef(commentsStatus);
 	const appliedQueryRef = useRef(appliedQuery);
 	const pageRef = useRef(page);
 	const commentsRef = useRef(comments);
 	const totalRef = useRef(total);
-	const mutationVersionRef = useRef(0);
-	const localCommentMutationsRef = useRef<
-		Record<string, LocalCommentMutation[]>
-	>({});
+	const listRequestIdRef = useRef(0);
+	const listInvalidationRef = useRef(0);
+	const backgroundRefreshRef = useRef(false);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -210,11 +204,17 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
-		const requestMutationVersion = mutationVersionRef.current;
+		const requestId = listRequestIdRef.current + 1;
+		listRequestIdRef.current = requestId;
+		const requestInvalidation = listInvalidationRef.current;
 		const requestPage = page;
 		const requestQuery = appliedQuery;
 		const requestStatus = commentsStatus;
-		setListPending(true);
+		const isBackgroundRefresh = backgroundRefreshRef.current;
+		backgroundRefreshRef.current = false;
+		if (!isBackgroundRefresh) {
+			setListPending(true);
+		}
 		setListError(null);
 
 		apiGet<AdminCommentsResponse>(
@@ -226,6 +226,8 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				}
 
 				if (
+					requestId !== listRequestIdRef.current ||
+					requestInvalidation !== listInvalidationRef.current ||
 					requestStatus !== commentsStatusRef.current ||
 					requestQuery !== appliedQueryRef.current ||
 					requestPage !== pageRef.current
@@ -233,19 +235,24 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					return;
 				}
 
-				const reconciled = reconcileListResponse(
-					response,
-					requestMutationVersion,
-					requestStatus,
-					requestQuery,
-				);
-				commentsRef.current = reconciled.items;
-				setComments(reconciled.items);
-				totalRef.current = reconciled.total;
-				setTotal(reconciled.total);
+				const nextPageCount = Math.max(1, Math.ceil(response.total / pageSize));
+				const nextPage = Math.min(requestPage, nextPageCount);
+				if (nextPage !== requestPage) {
+					totalRef.current = response.total;
+					setTotal(response.total);
+					pageRef.current = nextPage;
+					setPage(nextPage);
+					setListPending(false);
+					return;
+				}
+
+				commentsRef.current = response.items;
+				setComments(response.items);
+				totalRef.current = response.total;
+				setTotal(response.total);
 				setReplyDrafts(
 					Object.fromEntries(
-						reconciled.items.map((comment) => [
+						response.items.map((comment) => [
 							comment.id,
 							comment.replyBody ?? "",
 						]),
@@ -256,15 +263,12 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			.catch((error: unknown) => {
 				if (!cancelled) {
 					if (
+						requestId !== listRequestIdRef.current ||
+						requestInvalidation !== listInvalidationRef.current ||
 						requestStatus !== commentsStatusRef.current ||
 						requestQuery !== appliedQueryRef.current ||
 						requestPage !== pageRef.current
 					) {
-						return;
-					}
-
-					if (requestMutationVersion < mutationVersionRef.current) {
-						setListPending(false);
 						return;
 					}
 
@@ -280,7 +284,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [appliedQuery, commentsStatus, page]);
+	}, [appliedQuery, commentsStatus, page, refreshNonce]);
 
 	useEffect(() => {
 		if (!toast) {
@@ -386,135 +390,10 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		);
 	}
 
-	function hasMutationAfter(
-		mutations: LocalCommentMutation[],
-		version: number,
-	): boolean {
-		return mutations.some((mutation) => mutation.version > version);
-	}
-
-	function latestCommentAfterMutations(
-		mutations: LocalCommentMutation[],
-	): AdminComment | null {
-		return mutations[mutations.length - 1]?.afterComment ?? null;
-	}
-
-	function commentAtMutationVersion(
-		mutations: LocalCommentMutation[],
-		version: number,
-	): AdminComment | null {
-		let comment: AdminComment | null | undefined;
-
-		for (const mutation of mutations) {
-			if (mutation.version <= version) {
-				comment = mutation.afterComment;
-				continue;
-			}
-
-			if (comment === undefined) {
-				comment = mutation.beforeComment;
-			}
-			break;
-		}
-
-		return comment ?? null;
-	}
-
-	function responseHasLaterPage(response: AdminCommentsResponse): boolean {
-		return response.total > response.page * pageSize;
-	}
-
-	function responseHasRoomOnPage(
-		response: AdminCommentsResponse,
-		renderedCount: number,
-	): boolean {
-		return (
-			renderedCount < pageSize &&
-			response.total < response.page * pageSize
-		);
-	}
-
-	function reconcileListResponse(
-		response: AdminCommentsResponse,
-		requestMutationVersion: number,
-		status: CommentStatusFilter,
-		searchQuery: string,
-	): Pick<AdminCommentsResponse, "items" | "total"> {
-		const seenIds = new Set<string>();
-		let totalAdjustment = 0;
-		const nextItems: AdminComment[] = [];
-
-		for (const item of response.items) {
-			const localMutations = localCommentMutationsRef.current[item.id] ?? [];
-			if (hasMutationAfter(localMutations, requestMutationVersion)) {
-				seenIds.add(item.id);
-				const afterComment = latestCommentAfterMutations(localMutations);
-				const afterVisible =
-					afterComment !== null &&
-					visibleCommentAfterUpdate(
-						status,
-						afterComment,
-						searchQuery,
-					);
-				if (afterVisible && afterComment !== null) {
-					nextItems.push(afterComment);
-				} else {
-					totalAdjustment -= 1;
-				}
-				continue;
-			}
-
-			seenIds.add(item.id);
-			nextItems.push(item);
-		}
-
-		for (const [commentId, localMutations] of Object.entries(
-			localCommentMutationsRef.current,
-		)) {
-			if (
-				!hasMutationAfter(localMutations, requestMutationVersion) ||
-				seenIds.has(commentId)
-			) {
-				continue;
-			}
-
-			const beforeComment = commentAtMutationVersion(
-				localMutations,
-				requestMutationVersion,
-			);
-			const afterComment = latestCommentAfterMutations(localMutations);
-			const beforeVisible =
-				beforeComment !== null &&
-				visibleCommentAfterUpdate(status, beforeComment, searchQuery);
-			const afterVisible =
-				afterComment !== null &&
-				visibleCommentAfterUpdate(
-					status,
-					afterComment,
-					searchQuery,
-				);
-
-			if (
-				!beforeVisible &&
-				afterVisible &&
-				afterComment !== null &&
-				responseHasRoomOnPage(response, nextItems.length)
-			) {
-				nextItems.push(afterComment);
-				totalAdjustment += 1;
-			} else if (
-				beforeVisible &&
-				!afterVisible &&
-				responseHasLaterPage(response)
-			) {
-				totalAdjustment -= 1;
-			}
-		}
-
-		return {
-			items: nextItems,
-			total: Math.max(0, response.total + totalAdjustment),
-		};
+	function refreshCommentList() {
+		listInvalidationRef.current += 1;
+		backgroundRefreshRef.current = true;
+		setRefreshNonce((current) => current + 1);
 	}
 
 	function replaceComment(previousComment: AdminComment, comment: AdminComment) {
@@ -533,11 +412,15 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		const currentComments = commentsRef.current;
 		const isInCurrentList = currentComments.some((item) => item.id === comment.id);
 
-		if (!isInCurrentList && !wasVisible && remainsVisible) {
+		if (
+			!isInCurrentList &&
+			!wasVisible &&
+			remainsVisible &&
+			currentComments.length < pageSize &&
+			totalRef.current <= currentComments.length
+		) {
 			setCommentList([comment, ...currentComments]);
 			incrementVisibleTotal();
-		} else if (!isInCurrentList && wasVisible && !remainsVisible) {
-			decrementVisibleTotal();
 		} else if (isInCurrentList && !remainsVisible) {
 			setCommentList(currentComments.filter((item) => item.id !== comment.id));
 			decrementVisibleTotal();
@@ -553,42 +436,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			...current,
 			[comment.id]: comment.replyBody ?? current[comment.id] ?? "",
 		}));
-	}
-
-	function recordLocalCommentMutation(
-		beforeComment: AdminComment,
-		afterComment: AdminComment,
-	) {
-		const existingMutations =
-			localCommentMutationsRef.current[afterComment.id] ?? [];
-		mutationVersionRef.current += 1;
-		localCommentMutationsRef.current = {
-			...localCommentMutationsRef.current,
-			[afterComment.id]: [
-				...existingMutations,
-				{
-					afterComment,
-					beforeComment,
-					version: mutationVersionRef.current,
-				},
-			],
-		};
-	}
-
-	function recordLocalCommentDelete(comment: AdminComment) {
-		const existingMutations = localCommentMutationsRef.current[comment.id] ?? [];
-		mutationVersionRef.current += 1;
-		localCommentMutationsRef.current = {
-			...localCommentMutationsRef.current,
-			[comment.id]: [
-				...existingMutations,
-				{
-					afterComment: null,
-					beforeComment: comment,
-					version: mutationVersionRef.current,
-				},
-			],
-		};
 	}
 
 	function commentFromUpdate(
@@ -620,7 +467,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			);
 			const updatedComment = commentFromUpdate(comment, response.comment);
 			replaceComment(comment, updatedComment);
-			recordLocalCommentMutation(comment, updatedComment);
+			refreshCommentList();
 			setToast(successMessage);
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be updated."));
@@ -645,7 +492,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				setCommentList(currentComments.filter((item) => item.id !== comment.id));
 				decrementVisibleTotal();
 			}
-			recordLocalCommentDelete(comment);
+			refreshCommentList();
 			setToast("Comment deleted.");
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be deleted."));

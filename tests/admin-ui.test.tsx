@@ -817,6 +817,78 @@ describe("CommentManagementPanel", () => {
 		}
 	});
 
+	it("uses the clicked tab for an approval that resolves before the tab fetch", async () => {
+		let resolveApproval: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "approved";
+				replyBody: string | null;
+				replyCreatedAt: string | null;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		let resolveApprovedList: (value: typeof approvedResponse) => void = () => {};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return new Promise((resolve) => {
+					resolveApprovedList = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveApproval = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			resolveApproval({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "approved",
+					replyBody: null,
+					replyCreatedAt: null,
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+
+			const row = await screen.findByText("A pending hello.");
+			const commentRow = row.closest("li");
+			if (!commentRow) {
+				throw new Error("Expected approved comment row");
+			}
+			await waitFor(() => expect(within(commentRow).getByText("Approved")).toBeTruthy());
+			expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+
+			resolveApprovedList(approvedResponse);
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
 	it("does not insert a late approved comment that misses the active search", async () => {
 		let resolveApproval: (value: {
 			comment: {
@@ -835,6 +907,7 @@ describe("CommentManagementPanel", () => {
 			page: 1,
 			limit: 20,
 		};
+		let resolveSearch: (value: typeof emptyApprovedResponse) => void = () => {};
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -846,7 +919,9 @@ describe("CommentManagementPanel", () => {
 				return Promise.resolve(emptyApprovedResponse);
 			}
 			if (path === "/api/admin/comments?status=approved&page=1&limit=20&q=Grace") {
-				return Promise.resolve(emptyApprovedResponse);
+				return new Promise((resolve) => {
+					resolveSearch = resolve;
+				});
 			}
 			throw new Error(`Unexpected GET ${path}`);
 		});
@@ -870,11 +945,6 @@ describe("CommentManagementPanel", () => {
 				target: { value: "Grace" },
 			});
 			fireEvent.click(screen.getByRole("button", { name: "Search" }));
-			await waitFor(() =>
-				expect(apiGet).toHaveBeenCalledWith(
-					"/api/admin/comments?status=approved&page=1&limit=20&q=Grace",
-				),
-			);
 
 			resolveApproval({
 				comment: {
@@ -890,7 +960,9 @@ describe("CommentManagementPanel", () => {
 
 			await waitFor(() => expect(screen.queryByText("A pending hello.")).toBeNull());
 			expect(screen.getByText("0 shown")).toBeTruthy();
-			expect(screen.getByText("No comments")).toBeTruthy();
+			expect(screen.getByRole("status")).toHaveTextContent("Comment approved.");
+			resolveSearch(emptyApprovedResponse);
+			await screen.findByText("No comments");
 			expect(screen.getByText("No comments in this view.")).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();

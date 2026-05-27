@@ -269,13 +269,16 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	}
 
 	function switchStatus(nextStatus: CommentStatusFilter) {
+		commentsStatusRef.current = nextStatus;
 		setCommentsStatus(nextStatus);
 		setPage(1);
 	}
 
 	function search(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
-		setAppliedQuery(query);
+		const nextQuery = query;
+		appliedQueryRef.current = nextQuery;
+		setAppliedQuery(nextQuery);
 		setPage(1);
 	}
 

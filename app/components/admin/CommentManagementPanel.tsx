@@ -110,7 +110,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const [actionPending, setActionPending] = useState<string | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
 	const commentsStatusRef = useRef(commentsStatus);
-	const commentsRef = useRef(comments);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -120,10 +119,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	useEffect(() => {
 		commentsStatusRef.current = commentsStatus;
 	}, [commentsStatus]);
-
-	useEffect(() => {
-		commentsRef.current = comments;
-	}, [comments]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -259,19 +254,28 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		});
 	}
 
+	function incrementVisibleTotal() {
+		setTotal((currentTotal) => currentTotal + 1);
+	}
+
 	function replaceComment(comment: AdminComment) {
 		const currentStatus = commentsStatusRef.current;
-		const isInCurrentList = commentsRef.current.some(
-			(item) => item.id === comment.id,
-		);
 		const remainsVisible = visibleCommentAfterUpdate(currentStatus, comment);
 
 		setComments((current) => {
-			if (!current.some((item) => item.id === comment.id)) {
+			const isInCurrentList = current.some((item) => item.id === comment.id);
+
+			if (!isInCurrentList) {
+				if (remainsVisible) {
+					incrementVisibleTotal();
+					return [comment, ...current];
+				}
+
 				return current;
 			}
 
 			if (!remainsVisible) {
+				decrementVisibleTotal();
 				return current.filter((item) => item.id !== comment.id);
 			}
 
@@ -281,9 +285,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			...current,
 			[comment.id]: comment.replyBody ?? current[comment.id] ?? "",
 		}));
-		if (isInCurrentList && !remainsVisible) {
-			decrementVisibleTotal();
-		}
 	}
 
 	function commentFromUpdate(

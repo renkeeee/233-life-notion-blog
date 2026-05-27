@@ -447,6 +447,7 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 					Keyword
 					<input
 						type="search"
+						placeholder="Search title or caption"
 						value={keyword}
 						onChange={(event) => setKeyword(event.currentTarget.value)}
 					/>

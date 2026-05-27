@@ -266,28 +266,28 @@ function Overview({
 					) : null}
 				</section>
 			) : null}
-			<div className="admin-overview-grid">
-				<div>
+			<div className="admin-overview-grid" aria-busy={state.status === "loading"}>
+				<div className="admin-stat-card">
 					<strong>Total posts</strong>
 					<span>{data ? data.counts.totalPosts : "-"}</span>
 				</div>
-				<div>
+				<div className="admin-stat-card">
 					<strong>Published</strong>
 					<span>{data ? data.counts.publishedPosts : "-"}</span>
 				</div>
-				<div>
+				<div className="admin-stat-card">
 					<strong>Hidden</strong>
 					<span>{data ? data.counts.hiddenPosts : "-"}</span>
 				</div>
-				<div>
+				<div className="admin-stat-card">
 					<strong>Locked</strong>
 					<span>{data ? data.counts.lockedPosts : "-"}</span>
 				</div>
-				<div>
+				<div className="admin-stat-card">
 					<strong>Comments</strong>
 					<span>{data ? data.counts.comments : "-"}</span>
 				</div>
-				<div>
+				<div className="admin-stat-card wide">
 					<strong>Last sync</strong>
 					<span>
 						{latestSync

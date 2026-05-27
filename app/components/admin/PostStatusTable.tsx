@@ -968,6 +968,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					Title keyword
 					<input
 						type="search"
+						placeholder="Search title"
 						value={titleKeyword}
 						onChange={(event) => setTitleKeyword(event.currentTarget.value)}
 					/>
@@ -976,6 +977,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					Status
 					<input
 						type="search"
+						placeholder="Published, draft, hidden"
 						value={statusFilter}
 						onChange={(event) => setStatusFilter(event.currentTarget.value)}
 					/>

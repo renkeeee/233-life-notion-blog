@@ -618,6 +618,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 							Search comments
 							<input
 								type="search"
+								placeholder="Nickname, post, or comment"
 								value={query}
 								onChange={(event) => setQuery(event.currentTarget.value)}
 							/>

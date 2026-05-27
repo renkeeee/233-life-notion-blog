@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
 
 export type AdminSection =
 	| "overview"
@@ -21,6 +21,22 @@ const settingsSections: Array<{ id: AdminSection; label: string; path: string }>
 	{ id: "comments", label: "Comments", path: "/admin/comments" },
 ];
 
+const sectionTitles: Record<AdminSection, { eyebrow: string; title: string }> = {
+	overview: { eyebrow: "Admin console", title: "Dashboard" },
+	settings: { eyebrow: "Admin console", title: "Settings" },
+	sync: { eyebrow: "Admin console", title: "Sync management" },
+	posts: { eyebrow: "Admin console", title: "Posts" },
+	album: { eyebrow: "Admin console", title: "Album" },
+	comments: { eyebrow: "Admin console", title: "Comments" },
+};
+
+function sectionForPath(pathname: string): AdminSection {
+	const allSections = [...siteSections, ...settingsSections];
+	const match = allSections.find((section) => pathname.startsWith(section.path));
+
+	return match?.id ?? "overview";
+}
+
 export function AdminShell({
 	onLogout,
 	children,
@@ -30,6 +46,9 @@ export function AdminShell({
 	children: ReactNode;
 	mustChangePassword?: boolean;
 }) {
+	const location = useLocation();
+	const currentSection = sectionTitles[sectionForPath(location.pathname)];
+
 	return (
 		<main className="admin-shell">
 			<div className="admin-layout">
@@ -41,6 +60,10 @@ export function AdminShell({
 							<strong>233.life</strong>
 						</div>
 					</div>
+					<div className="admin-sidebar-status" aria-live="polite">
+						<span />
+						{mustChangePassword ? "Password change required" : "Secure session"}
+					</div>
 
 					<nav className="admin-side-nav" aria-label="Admin sections">
 						<div className="admin-nav-group">
@@ -51,7 +74,8 @@ export function AdminShell({
 									to={section.path}
 									className={({ isActive }) => (isActive ? "active" : undefined)}
 								>
-									{section.label}
+									<span className="admin-nav-dot" aria-hidden="true" />
+									<span>{section.label}</span>
 								</NavLink>
 							))}
 						</div>
@@ -63,7 +87,8 @@ export function AdminShell({
 									to={section.path}
 									className={({ isActive }) => (isActive ? "active" : undefined)}
 								>
-									{section.label}
+									<span className="admin-nav-dot" aria-hidden="true" />
+									<span>{section.label}</span>
 								</NavLink>
 							))}
 						</div>
@@ -81,9 +106,12 @@ export function AdminShell({
 				<section className="admin-main">
 					<header className="admin-topbar">
 						<div>
-							<p className="admin-eyebrow">Admin console</p>
-							<h1>Dashboard</h1>
+							<p className="admin-eyebrow">{currentSection.eyebrow}</p>
+							<h1>{currentSection.title}</h1>
 						</div>
+						<a className="admin-topbar-link" href="/">
+							View site
+						</a>
 					</header>
 
 					{mustChangePassword ? (

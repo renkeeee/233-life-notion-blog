@@ -817,7 +817,7 @@ describe("CommentManagementPanel", () => {
 		}
 	});
 
-	it("uses the clicked tab for an approval that resolves before the tab fetch", async () => {
+	it("keeps a local approval when the older tab fetch resolves afterward", async () => {
 		let resolveApproval: (value: {
 			comment: {
 				id: string;
@@ -829,7 +829,18 @@ describe("CommentManagementPanel", () => {
 				createdAt: string;
 			};
 		}) => void = () => {};
-		let resolveApprovedList: (value: typeof approvedResponse) => void = () => {};
+		let resolveApprovedList: (value: {
+			items: typeof approvedResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		const emptyApprovedResponse = {
+			items: [],
+			total: 0,
+			page: 1,
+			limit: 20,
+		};
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(settingsResponse);
@@ -882,7 +893,13 @@ describe("CommentManagementPanel", () => {
 				"true",
 			);
 
-			resolveApprovedList(approvedResponse);
+			resolveApprovedList(emptyApprovedResponse);
+			await waitFor(() =>
+				expect(screen.getByText("A pending hello.")).toBeTruthy(),
+			);
+			expect(screen.getByText("1 shown")).toBeTruthy();
+			expect(screen.getByText("1-1 of 1 comments")).toBeTruthy();
+			expect(screen.queryByText("No comments in this view.")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();

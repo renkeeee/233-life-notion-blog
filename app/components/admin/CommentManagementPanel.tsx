@@ -126,6 +126,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const appliedQueryRef = useRef(appliedQuery);
 	const commentsRef = useRef(comments);
 	const totalRef = useRef(total);
+	const mutationVersionRef = useRef(0);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -194,6 +195,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
+		const requestMutationVersion = mutationVersionRef.current;
 		setListPending(true);
 		setListError(null);
 
@@ -202,6 +204,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		)
 			.then((response) => {
 				if (cancelled) {
+					return;
+				}
+
+				if (requestMutationVersion < mutationVersionRef.current) {
+					setListPending(false);
 					return;
 				}
 
@@ -218,6 +225,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) {
+					if (requestMutationVersion < mutationVersionRef.current) {
+						setListPending(false);
+						return;
+					}
+
 					commentsRef.current = [];
 					setComments([]);
 					totalRef.current = 0;
@@ -361,6 +373,10 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		}));
 	}
 
+	function markLocalMutationComplete() {
+		mutationVersionRef.current += 1;
+	}
+
 	function commentFromUpdate(
 		current: AdminComment,
 		update: Omit<AdminComment, "post">,
@@ -389,6 +405,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				csrfToken,
 			);
 			replaceComment(commentFromUpdate(comment, response.comment));
+			markLocalMutationComplete();
 			setToast(successMessage);
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be updated."));
@@ -413,6 +430,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				setCommentList(currentComments.filter((item) => item.id !== comment.id));
 				decrementVisibleTotal();
 			}
+			markLocalMutationComplete();
 			setToast("Comment deleted.");
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be deleted."));

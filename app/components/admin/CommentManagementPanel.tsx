@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { apiDelete, apiGet, apiPut } from "../../lib/api-client";
 
@@ -105,14 +105,25 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const [total, setTotal] = useState(0);
 	const [listStatus, setListStatus] = useState("Loading comments...");
 	const [listError, setListError] = useState<string | null>(null);
+	const [listPending, setListPending] = useState(false);
 	const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 	const [actionPending, setActionPending] = useState<string | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
+	const commentsStatusRef = useRef(commentsStatus);
+	const commentsRef = useRef(comments);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
 		[total],
 	);
+
+	useEffect(() => {
+		commentsStatusRef.current = commentsStatus;
+	}, [commentsStatus]);
+
+	useEffect(() => {
+		commentsRef.current = comments;
+	}, [comments]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -144,6 +155,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
+		setListPending(true);
 		setListStatus("Loading comments...");
 		setListError(null);
 
@@ -170,6 +182,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 								response.total,
 							)} of ${response.total} comments`,
 				);
+				setListPending(false);
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) {
@@ -177,6 +190,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					setTotal(0);
 					setListStatus("Comments could not be loaded.");
 					setListError(errorMessage(error, "Comments could not be loaded."));
+					setListPending(false);
 				}
 			});
 
@@ -232,9 +246,32 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		setPage(1);
 	}
 
-	function replaceComment(comment: AdminComment, replyDraft?: string) {
+	function clampPageForTotal(nextTotal: number) {
+		const nextPageCount = Math.max(1, Math.ceil(nextTotal / pageSize));
+		setPage((currentPage) => Math.min(currentPage, nextPageCount));
+	}
+
+	function decrementVisibleTotal() {
+		setTotal((currentTotal) => {
+			const nextTotal = Math.max(0, currentTotal - 1);
+			clampPageForTotal(nextTotal);
+			return nextTotal;
+		});
+	}
+
+	function replaceComment(comment: AdminComment) {
+		const currentStatus = commentsStatusRef.current;
+		const isInCurrentList = commentsRef.current.some(
+			(item) => item.id === comment.id,
+		);
+		const remainsVisible = visibleCommentAfterUpdate(currentStatus, comment);
+
 		setComments((current) => {
-			if (!visibleCommentAfterUpdate(commentsStatus, comment)) {
+			if (!current.some((item) => item.id === comment.id)) {
+				return current;
+			}
+
+			if (!remainsVisible) {
 				return current.filter((item) => item.id !== comment.id);
 			}
 
@@ -242,8 +279,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		});
 		setReplyDrafts((current) => ({
 			...current,
-			[comment.id]: replyDraft ?? current[comment.id] ?? "",
+			[comment.id]: comment.replyBody ?? current[comment.id] ?? "",
 		}));
+		if (isInCurrentList && !remainsVisible) {
+			decrementVisibleTotal();
+		}
 	}
 
 	function commentFromUpdate(
@@ -272,13 +312,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				body,
 				csrfToken,
 			);
-			replaceComment(
-				commentFromUpdate(comment, response.comment),
-				"replyBody" in body ? "" : undefined,
-			);
-			if (commentsStatus === "pending" && body.moderationStatus === "approved") {
-				setTotal((current) => Math.max(0, current - 1));
-			}
+			replaceComment(commentFromUpdate(comment, response.comment));
 			setToast(successMessage);
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be updated."));
@@ -298,7 +332,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				csrfToken,
 			);
 			setComments((current) => current.filter((item) => item.id !== comment.id));
-			setTotal((current) => Math.max(0, current - 1));
+			decrementVisibleTotal();
 			setToast("Comment deleted.");
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be deleted."));
@@ -378,6 +412,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 								type="button"
 								key={view.id}
 								className={commentsStatus === view.id ? "active" : undefined}
+								aria-pressed={commentsStatus === view.id}
 								onClick={() => switchStatus(view.id)}
 							>
 								{view.label}
@@ -421,7 +456,10 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 										{comment.moderationStatus === "pending" ? (
 											<button
 												type="button"
-												disabled={actionPending?.startsWith(`${comment.id}:`)}
+												disabled={
+													listPending ||
+													actionPending?.startsWith(`${comment.id}:`)
+												}
 												onClick={() =>
 													updateComment(
 														comment,
@@ -436,7 +474,9 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 										<button
 											type="button"
 											className="danger-link"
-											disabled={actionPending === `${comment.id}:delete`}
+											disabled={
+												listPending || actionPending === `${comment.id}:delete`
+											}
 											onClick={() => deleteComment(comment)}
 										>
 											{actionPending === `${comment.id}:delete`
@@ -475,7 +515,10 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 								<div className="admin-comment-reply-actions">
 									<button
 										type="button"
-										disabled={actionPending?.startsWith(`${comment.id}:`)}
+										disabled={
+											listPending ||
+											actionPending?.startsWith(`${comment.id}:`)
+										}
 										onClick={() =>
 											updateComment(
 												comment,
@@ -496,7 +539,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				<div className="admin-pagination">
 					<button
 						type="button"
-						disabled={page <= 1}
+						disabled={listPending || page <= 1}
 						onClick={() => setPage((current) => Math.max(1, current - 1))}
 					>
 						Previous
@@ -506,7 +549,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					</span>
 					<button
 						type="button"
-						disabled={page >= pageCount}
+						disabled={listPending || page >= pageCount}
 						onClick={() => setPage((current) => current + 1)}
 					>
 						Next

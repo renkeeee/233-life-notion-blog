@@ -482,6 +482,10 @@ describe("CommentManagementPanel", () => {
 
 			await screen.findByRole("heading", { name: "Comment management" });
 			expect(screen.getByRole("button", { name: "Pending" })).toHaveClass("active");
+			expect(screen.getByRole("button", { name: "Pending" })).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
 			expect(screen.getByText("A pending hello.")).toBeTruthy();
 			expect(screen.getByRole("link", { name: "Commented Post" })).toHaveAttribute(
 				"href",
@@ -606,7 +610,10 @@ describe("CommentManagementPanel", () => {
 					"csrf-token",
 				),
 			);
-			expect(screen.getByText("Thanks for the note.")).toBeTruthy();
+			expect(screen.getByLabelText("Reply to Ada")).toHaveValue(
+				"Thanks for the note.",
+			);
+			expect(screen.getAllByText("Thanks for the note.").length).toBeGreaterThan(0);
 
 			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 			await waitFor(() =>
@@ -619,6 +626,176 @@ describe("CommentManagementPanel", () => {
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
+	it("keeps stale row actions disabled while a new list is loading", async () => {
+		let resolveApproved: (value: typeof approvedResponse) => void = () => {};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return new Promise((resolve) => {
+					resolveApproved = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+
+			await waitFor(() =>
+				expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled(),
+			);
+			expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+			resolveApproved(approvedResponse);
+			await screen.findByText("An approved note.");
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("does not let a late approval response remove the current approved list", async () => {
+		let resolveApproval: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "approved";
+				replyBody: string | null;
+				replyCreatedAt: string | null;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		const sameCommentApproved = {
+			items: [
+				{
+					...pendingResponse.items[0],
+					moderationStatus: "approved",
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return Promise.resolve(sameCommentApproved);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveApproval = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			await screen.findByText("A pending hello.");
+
+			resolveApproval({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "approved",
+					replyBody: null,
+					replyCreatedAt: null,
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+
+			await waitFor(() =>
+				expect(screen.getByText("A pending hello.")).toBeTruthy(),
+			);
+			expect(screen.queryByText("No comments in this view.")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("clamps to an available page after removing the last comment on a later page", async () => {
+		const firstPageResponse = {
+			items: [
+				{
+					...pendingResponse.items[0],
+					id: "comment-page-1",
+					body: "First page comment.",
+				},
+			],
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const secondPageResponse = {
+			items: [
+				{
+					...pendingResponse.items[0],
+					id: "comment-page-2",
+					body: "Last page comment.",
+				},
+			],
+			total: 21,
+			page: 2,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(firstPageResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=2&limit=20") {
+				return Promise.resolve(secondPageResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockResolvedValue({ ok: true });
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("First page comment.");
+			fireEvent.click(screen.getByRole("button", { name: "Next" }));
+			await screen.findByText("Last page comment.");
+			expect(screen.getByText("Page 2 of 2")).toBeTruthy();
+
+			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			await waitFor(() =>
+				expect(apiDelete).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-page-2",
+					"csrf-token",
+				),
+			);
+			await waitFor(() => expect(screen.getByText("Page 1 of 1")).toBeTruthy());
+			expect(screen.queryByText("Page 2 of 1")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
 			apiDelete.mockRestore();
 		}
 	});

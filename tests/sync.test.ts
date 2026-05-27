@@ -1908,7 +1908,7 @@ describe("admin posts API", () => {
 					NULL, NULL, '2026-05-22T10:00:00.000Z'
 				),
 				(
-					'comment-2', 'post-2', 'Grace', 'An approved quiet note.', 'approved',
+					'comment-2', 'post-2', 'Grace', 'An approved note.', 'approved',
 					'Thanks for reading.', '2026-05-23T10:00:00.000Z',
 					'2026-05-21T09:00:00.000Z'
 				),
@@ -1940,6 +1940,16 @@ describe("admin posts API", () => {
 					headers: cookieHeaders,
 					method: "GET",
 				}),
+				env,
+			);
+			const bodySearched = await handleAdminApi(
+				adminRequest(
+					"/api/admin/comments?status=all&q=approved&page=1&limit=5",
+					{
+						headers: cookieHeaders,
+						method: "GET",
+					},
+				),
 				env,
 			);
 			const nicknameSearched = await handleAdminApi(
@@ -2016,6 +2026,13 @@ describe("admin posts API", () => {
 			});
 			expect(searched.status).toBe(200);
 			await expect(searched.json()).resolves.toMatchObject({
+				items: [{ id: "comment-2" }],
+				total: 1,
+				page: 1,
+				limit: 5,
+			});
+			expect(bodySearched.status).toBe(200);
+			await expect(bodySearched.json()).resolves.toMatchObject({
 				items: [{ id: "comment-2" }],
 				total: 1,
 				page: 1,

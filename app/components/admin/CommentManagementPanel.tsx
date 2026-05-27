@@ -109,6 +109,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const [moderationCommentsEnabled, setModerationCommentsEnabled] =
 		useState(false);
 	const [settingsStatus, setSettingsStatus] = useState("Loading comment settings...");
+	const [settingsLoaded, setSettingsLoaded] = useState(false);
 	const [settingsPending, setSettingsPending] = useState(false);
 	const [comments, setComments] = useState<AdminComment[]>([]);
 	const [commentsStatus, setCommentsStatus] =
@@ -128,9 +129,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const pageRef = useRef(page);
 	const commentsRef = useRef(comments);
 	const totalRef = useRef(total);
+	const dirtyReplyDraftsRef = useRef<Record<string, boolean>>({});
 	const listRequestIdRef = useRef(0);
 	const listInvalidationRef = useRef(0);
 	const backgroundRefreshRef = useRef(false);
+	const settingsControlsDisabled = !settingsLoaded || settingsPending;
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -176,6 +179,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 
 	useEffect(() => {
 		let cancelled = false;
+		setSettingsLoaded(false);
 		setSettingsStatus("Loading comment settings...");
 
 		apiGet<CommentSettingsResponse>("/api/admin/posts/comment-settings")
@@ -187,10 +191,12 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				setGlobalCommentsEnabled(response.globalEnabled);
 				setDefaultCommentsEnabled(response.defaultEnabled);
 				setModerationCommentsEnabled(response.moderationEnabled === true);
+				setSettingsLoaded(true);
 				setSettingsStatus("Comment settings loaded.");
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) {
+					setSettingsLoaded(false);
 					setSettingsStatus(
 						errorMessage(error, "Comment settings could not be loaded."),
 					);
@@ -251,12 +257,15 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				totalRef.current = response.total;
 				setTotal(response.total);
 				setReplyDrafts(
-					Object.fromEntries(
-						response.items.map((comment) => [
-							comment.id,
-							comment.replyBody ?? "",
-						]),
-					),
+					(currentDrafts) =>
+						Object.fromEntries(
+							response.items.map((comment) => [
+								comment.id,
+								dirtyReplyDraftsRef.current[comment.id]
+									? currentDrafts[comment.id] ?? ""
+									: comment.replyBody ?? "",
+							]),
+						),
 				);
 				setListPending(false);
 			})
@@ -296,6 +305,10 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	}, [toast]);
 
 	async function saveCommentSettings() {
+		if (!settingsLoaded || settingsPending) {
+			return;
+		}
+
 		setSettingsPending(true);
 		setSettingsStatus("Saving comment settings...");
 		try {
@@ -311,6 +324,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			setGlobalCommentsEnabled(response.globalEnabled);
 			setDefaultCommentsEnabled(response.defaultEnabled);
 			setModerationCommentsEnabled(response.moderationEnabled === true);
+			setSettingsLoaded(true);
 			setSettingsStatus("Comment settings saved.");
 			setToast("Comment settings saved.");
 		} catch (error) {
@@ -396,6 +410,19 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		setRefreshNonce((current) => current + 1);
 	}
 
+	function markReplyDraftDirty(commentId: string) {
+		dirtyReplyDraftsRef.current = {
+			...dirtyReplyDraftsRef.current,
+			[commentId]: true,
+		};
+	}
+
+	function clearReplyDraftDirty(commentId: string) {
+		const { [commentId]: _removed, ...nextDirtyDrafts } =
+			dirtyReplyDraftsRef.current;
+		dirtyReplyDraftsRef.current = nextDirtyDrafts;
+	}
+
 	function replaceComment(previousComment: AdminComment, comment: AdminComment) {
 		const currentStatus = commentsStatusRef.current;
 		const currentQuery = appliedQueryRef.current;
@@ -466,6 +493,9 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				csrfToken,
 			);
 			const updatedComment = commentFromUpdate(comment, response.comment);
+			if (Object.prototype.hasOwnProperty.call(body, "replyBody")) {
+				clearReplyDraftDirty(comment.id);
+			}
 			replaceComment(comment, updatedComment);
 			refreshCommentList();
 			setToast(successMessage);
@@ -492,6 +522,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				setCommentList(currentComments.filter((item) => item.id !== comment.id));
 				decrementVisibleTotal();
 			}
+			clearReplyDraftDirty(comment.id);
 			refreshCommentList();
 			setToast("Comment deleted.");
 		} catch (error) {
@@ -522,6 +553,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					<input
 						type="checkbox"
 						checked={globalCommentsEnabled}
+						disabled={settingsControlsDisabled}
 						onChange={(event) =>
 							setGlobalCommentsEnabled(event.currentTarget.checked)
 						}
@@ -532,6 +564,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					<input
 						type="checkbox"
 						checked={defaultCommentsEnabled}
+						disabled={settingsControlsDisabled}
 						onChange={(event) =>
 							setDefaultCommentsEnabled(event.currentTarget.checked)
 						}
@@ -542,6 +575,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					<input
 						type="checkbox"
 						checked={moderationCommentsEnabled}
+						disabled={settingsControlsDisabled}
 						onChange={(event) =>
 							setModerationCommentsEnabled(event.currentTarget.checked)
 						}
@@ -551,7 +585,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				<div className="admin-inline-actions">
 					<button
 						type="button"
-						disabled={settingsPending}
+						disabled={settingsControlsDisabled}
 						onClick={saveCommentSettings}
 					>
 						{settingsPending ? "Saving..." : "Save settings"}
@@ -670,6 +704,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 										}
 										onChange={(event) => {
 											const nextReply = event.currentTarget.value;
+											markReplyDraftDirty(comment.id);
 											setReplyDrafts((current) => ({
 												...current,
 												[comment.id]: nextReply,

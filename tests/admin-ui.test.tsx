@@ -630,6 +630,83 @@ describe("CommentManagementPanel", () => {
 		}
 	});
 
+	it("does not save comment settings before the initial settings load", async () => {
+		let resolveSettings: (value: typeof settingsResponse) => void = () => {};
+		let resolveSave: (value: typeof settingsResponse) => void = () => {};
+		const loadedSettings = {
+			defaultEnabled: false,
+			globalEnabled: false,
+			moderationEnabled: true,
+		};
+		const savedSettings = {
+			defaultEnabled: true,
+			globalEnabled: false,
+			moderationEnabled: true,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return new Promise((resolve) => {
+					resolveSettings = resolve;
+				});
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return new Promise((resolve) => {
+					resolveSave = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			const saveButton = screen.getByRole("button", { name: "Save settings" });
+			expect(saveButton).toBeDisabled();
+			expect(screen.getByLabelText("Allow new comments across all posts")).toBeDisabled();
+			fireEvent.click(saveButton);
+			expect(apiPut).not.toHaveBeenCalled();
+
+			resolveSettings(loadedSettings);
+			await screen.findByText("Comment settings loaded.");
+			expect(saveButton).not.toBeDisabled();
+			expect(screen.getByLabelText("Allow new comments across all posts")).not.toBeDisabled();
+
+			fireEvent.click(screen.getByLabelText("Enable comments for newly synced posts"));
+			fireEvent.click(saveButton);
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/comment-settings",
+					{
+						defaultEnabled: true,
+						globalEnabled: false,
+						moderationEnabled: true,
+					},
+					"csrf-token",
+				),
+			);
+			expect(saveButton).toBeDisabled();
+			expect(screen.getByLabelText("Enable comments for newly synced posts")).toBeDisabled();
+
+			resolveSave(savedSettings);
+			await waitFor(() =>
+				expect(screen.getByRole("status")).toHaveTextContent(
+					"Comment settings saved.",
+				),
+			);
+			expect(saveButton).not.toBeDisabled();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
 	it("keeps stale row actions disabled while a new list is loading", async () => {
 		let resolveApproved: (value: typeof approvedResponse) => void = () => {};
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
@@ -1875,6 +1952,80 @@ describe("CommentManagementPanel", () => {
 			);
 			expect(screen.getByText("1 shown")).toBeTruthy();
 			expect(screen.getByText("1-1 of 1 comments")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
+	it("preserves an unsaved reply draft when another row refreshes the list", async () => {
+		let resolveDelete: (value: { ok: boolean }) => void = () => {};
+		let pendingRequestCount = 0;
+		const initialResponse = {
+			items: [
+				pendingResponse.items[0],
+				{
+					...pendingResponse.items[0],
+					id: "comment-2",
+					nickname: "Lin",
+					body: "Second pending hello.",
+				},
+			],
+			total: 2,
+			page: 1,
+			limit: 20,
+		};
+		const refreshedAda = {
+			...pendingResponse.items[0],
+			body: "A pending hello after refresh.",
+		};
+		const refreshedResponse = {
+			items: [refreshedAda],
+			total: 1,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				pendingRequestCount += 1;
+				return Promise.resolve(
+					pendingRequestCount === 1 ? initialResponse : refreshedResponse,
+				);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-2") {
+				return new Promise((resolve) => {
+					resolveDelete = resolve;
+				});
+			}
+			throw new Error(`Unexpected DELETE ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			const adaRow = screen.getByText("A pending hello.").closest("li");
+			const linRow = screen.getByText("Second pending hello.").closest("li");
+			if (!adaRow || !linRow) {
+				throw new Error("Expected comment rows");
+			}
+
+			fireEvent.change(within(adaRow).getByLabelText("Reply to Ada"), {
+				target: { value: "Draft that should survive." },
+			});
+			fireEvent.click(within(linRow).getByRole("button", { name: "Delete" }));
+			resolveDelete({ ok: true });
+
+			await screen.findByText("A pending hello after refresh.");
+			expect(screen.getByLabelText("Reply to Ada")).toHaveValue(
+				"Draft that should survive.",
+			);
 		} finally {
 			apiGet.mockRestore();
 			apiDelete.mockRestore();

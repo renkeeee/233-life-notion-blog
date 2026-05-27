@@ -978,7 +978,7 @@ describe("CommentManagementPanel", () => {
 			await screen.findByText("An approved note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
 			expect(screen.getByText("21 shown")).toBeTruthy();
-			expect(screen.getByText("1-20 of 21 comments")).toBeTruthy();
+			expect(screen.getByText("1-1 of 21 comments")).toBeTruthy();
 			expect(screen.queryByText("22 shown")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
@@ -1065,8 +1065,172 @@ describe("CommentManagementPanel", () => {
 			await screen.findByText("Another pending note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
 			expect(screen.getByText("20 shown")).toBeTruthy();
-			expect(screen.getByText("1-20 of 20 comments")).toBeTruthy();
+			expect(screen.getByText("1-1 of 20 comments")).toBeTruthy();
 			expect(screen.queryByText("21 shown")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("does not double-count when an off-page approved response already includes a late approval", async () => {
+		let resolveApproval: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "approved";
+				replyBody: string | null;
+				replyCreatedAt: string | null;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		let resolveApprovedList: (value: {
+			items: typeof approvedResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		const alreadyCountedApprovedResponse = {
+			items: approvedResponse.items,
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return new Promise((resolve) => {
+					resolveApprovedList = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveApproval = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			resolveApproval({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "approved",
+					replyBody: null,
+					replyCreatedAt: null,
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+			resolveApprovedList(alreadyCountedApprovedResponse);
+
+			await screen.findByText("An approved note.");
+			expect(screen.queryByText("A pending hello.")).toBeNull();
+			expect(screen.getByText("21 shown")).toBeTruthy();
+			expect(screen.getByText("1-1 of 21 comments")).toBeTruthy();
+			expect(screen.queryByText("22 shown")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("does not double-subtract when a pending response already excludes a late approval", async () => {
+		let resolveApproval: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "approved";
+				replyBody: string | null;
+				replyCreatedAt: string | null;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		let resolvePendingSearch: (value: {
+			items: typeof pendingResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		const alreadyExcludedPendingResponse = {
+			items: [
+				{
+					...pendingResponse.items[0],
+					id: "comment-3",
+					nickname: "Ada B.",
+					body: "Another pending note.",
+				},
+			],
+			total: 20,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20&q=Ada") {
+				return new Promise((resolve) => {
+					resolvePendingSearch = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveApproval = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+			fireEvent.change(screen.getByLabelText("Search comments"), {
+				target: { value: "Ada" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Search" }));
+			resolveApproval({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "approved",
+					replyBody: null,
+					replyCreatedAt: null,
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+			resolvePendingSearch(alreadyExcludedPendingResponse);
+
+			await screen.findByText("Another pending note.");
+			expect(screen.queryByText("A pending hello.")).toBeNull();
+			expect(screen.getByText("20 shown")).toBeTruthy();
+			expect(screen.getByText("1-1 of 20 comments")).toBeTruthy();
+			expect(screen.queryByText("19 shown")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();
@@ -1182,7 +1346,7 @@ describe("CommentManagementPanel", () => {
 			await screen.findByText("An approved note.");
 			expect(screen.queryByText("A pending hello.")).toBeNull();
 			expect(screen.getByText("20 shown")).toBeTruthy();
-			expect(screen.getByText("1-20 of 20 comments")).toBeTruthy();
+			expect(screen.getByText("1-1 of 20 comments")).toBeTruthy();
 			expect(screen.queryByText("21 shown")).toBeNull();
 		} finally {
 			apiGet.mockRestore();
@@ -1529,6 +1693,53 @@ describe("CommentManagementPanel", () => {
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
+	it("summarizes the rendered row range after removing a visible comment", async () => {
+		const firstPageItems = Array.from({ length: 20 }, (_, index) => ({
+			...pendingResponse.items[0],
+			id: `comment-visible-${index + 1}`,
+			nickname: `User ${index + 1}`,
+			body: `Visible pending note ${index + 1}.`,
+		}));
+		const firstPageResponse = {
+			items: firstPageItems,
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(firstPageResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockResolvedValue({ ok: true });
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("Visible pending note 1.");
+			expect(screen.getByText("1-20 of 21 comments")).toBeTruthy();
+			const firstRow = screen.getByText("Visible pending note 1.").closest("li");
+			if (!firstRow) {
+				throw new Error("Expected first comment row");
+			}
+			fireEvent.click(within(firstRow).getByRole("button", { name: "Delete" }));
+
+			await waitFor(() =>
+				expect(screen.queryByText("Visible pending note 1.")).toBeNull(),
+			);
+			expect(screen.getByText("20 shown")).toBeTruthy();
+			expect(screen.getByText("1-19 of 20 comments")).toBeTruthy();
+			expect(screen.queryByText("1-20 of 20 comments")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
 			apiDelete.mockRestore();
 		}
 	});

@@ -154,10 +154,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		}
 
 		const effectivePage = Math.min(page, pageCount);
-		const start = (effectivePage - 1) * pageSize + 1;
-		const end = Math.min(effectivePage * pageSize, total);
+		const renderedCount = comments.length;
+		const start = renderedCount > 0 ? (effectivePage - 1) * pageSize + 1 : 0;
+		const end = renderedCount > 0 ? start + renderedCount - 1 : 0;
 		return `${start}-${end} of ${total} comments`;
-	}, [listError, listPending, page, pageCount, total]);
+	}, [comments.length, listError, listPending, page, pageCount, total]);
 
 	useEffect(() => {
 		commentsStatusRef.current = commentsStatus;
@@ -419,6 +420,20 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		return comment ?? null;
 	}
 
+	function responseHasLaterPage(response: AdminCommentsResponse): boolean {
+		return response.total > response.page * pageSize;
+	}
+
+	function responseHasRoomOnPage(
+		response: AdminCommentsResponse,
+		renderedCount: number,
+	): boolean {
+		return (
+			renderedCount < pageSize &&
+			response.total < response.page * pageSize
+		);
+	}
+
 	function reconcileListResponse(
 		response: AdminCommentsResponse,
 		requestMutationVersion: number,
@@ -482,11 +497,16 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			if (
 				!beforeVisible &&
 				afterVisible &&
-				afterComment !== null
+				afterComment !== null &&
+				responseHasRoomOnPage(response, nextItems.length)
 			) {
 				nextItems.push(afterComment);
 				totalAdjustment += 1;
-			} else if (beforeVisible && !afterVisible) {
+			} else if (
+				beforeVisible &&
+				!afterVisible &&
+				responseHasLaterPage(response)
+			) {
 				totalAdjustment -= 1;
 			}
 		}

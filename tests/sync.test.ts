@@ -1873,6 +1873,207 @@ describe("admin posts API", () => {
 		}
 	});
 
+	it("lists full-site comments with status filters, search, pagination, and post metadata", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at, comments_enabled
+				)
+				VALUES
+				(
+					'post-1', 'notion-page-1', 'commented-post', 'Commented Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-19T03:44:00.000Z', 'content-hash-1', NULL,
+					'2026-05-19T03:41:00.000Z', '2026-05-19T03:51:24.214Z', 1
+				),
+				(
+					'post-2', 'notion-page-2', 'quiet-post', 'Quiet Post',
+					NULL, 'Published', 'published', '2026-05-20T02:00:00.000Z',
+					'2026-05-20T03:44:00.000Z', 'content-hash-2', NULL,
+					'2026-05-20T03:41:00.000Z', '2026-05-20T03:51:24.214Z', 0
+				)`,
+			);
+			db.exec(
+				`INSERT INTO post_comments (
+					id, post_id, nickname, body, moderation_status,
+					reply_body, reply_created_at, created_at
+				)
+				VALUES
+				(
+					'comment-1', 'post-1', 'Ada', 'A pending hello.', 'pending',
+					NULL, NULL, '2026-05-22T10:00:00.000Z'
+				),
+				(
+					'comment-2', 'post-2', 'Grace', 'An approved quiet note.', 'approved',
+					'Thanks for reading.', '2026-05-23T10:00:00.000Z',
+					'2026-05-21T09:00:00.000Z'
+				),
+				(
+					'comment-3', 'post-1', 'Linus', 'Another pending thought.', 'pending',
+					NULL, NULL, '2026-05-20T08:00:00.000Z'
+				)`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+			const cookieHeaders = { cookie: session.cookie };
+
+			const pending = await handleAdminApi(
+				adminRequest("/api/admin/comments", {
+					headers: cookieHeaders,
+					method: "GET",
+				}),
+				env,
+			);
+			const approved = await handleAdminApi(
+				adminRequest("/api/admin/comments?status=approved", {
+					headers: cookieHeaders,
+					method: "GET",
+				}),
+				env,
+			);
+			const searched = await handleAdminApi(
+				adminRequest("/api/admin/comments?status=all&q=quiet&page=1&limit=5", {
+					headers: cookieHeaders,
+					method: "GET",
+				}),
+				env,
+			);
+			const secondPage = await handleAdminApi(
+				adminRequest("/api/admin/comments?status=all&page=2&limit=2", {
+					headers: cookieHeaders,
+					method: "GET",
+				}),
+				env,
+			);
+
+			expect(pending.status).toBe(200);
+			await expect(pending.json()).resolves.toEqual({
+				items: [
+					{
+						id: "comment-1",
+						nickname: "Ada",
+						body: "A pending hello.",
+						moderationStatus: "pending",
+						replyBody: null,
+						replyCreatedAt: null,
+						createdAt: "2026-05-22T10:00:00.000Z",
+						post: {
+							id: "post-1",
+							title: "Commented Post",
+							slug: "commented-post",
+							commentsEnabled: true,
+						},
+					},
+					{
+						id: "comment-3",
+						nickname: "Linus",
+						body: "Another pending thought.",
+						moderationStatus: "pending",
+						replyBody: null,
+						replyCreatedAt: null,
+						createdAt: "2026-05-20T08:00:00.000Z",
+						post: {
+							id: "post-1",
+							title: "Commented Post",
+							slug: "commented-post",
+							commentsEnabled: true,
+						},
+					},
+				],
+				total: 2,
+				page: 1,
+				limit: 20,
+			});
+			expect(approved.status).toBe(200);
+			await expect(approved.json()).resolves.toMatchObject({
+				items: [
+					{
+						id: "comment-2",
+						moderationStatus: "approved",
+						replyBody: "Thanks for reading.",
+						post: {
+							id: "post-2",
+							title: "Quiet Post",
+							slug: "quiet-post",
+							commentsEnabled: false,
+						},
+					},
+				],
+				total: 1,
+				page: 1,
+				limit: 20,
+			});
+			expect(searched.status).toBe(200);
+			await expect(searched.json()).resolves.toMatchObject({
+				items: [{ id: "comment-2" }],
+				total: 1,
+				page: 1,
+				limit: 5,
+			});
+			expect(secondPage.status).toBe(200);
+			await expect(secondPage.json()).resolves.toMatchObject({
+				items: [{ id: "comment-3" }],
+				total: 3,
+				page: 2,
+				limit: 2,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("protects the full-site comments endpoint with admin session and changed password", async () => {
+		const unauthenticatedDb = new SqliteD1Database();
+		const bootstrapDb = new SqliteD1Database();
+		try {
+			await seedChangedPassword(unauthenticatedDb);
+			const unauthenticated = await handleAdminApi(
+				adminRequest("/api/admin/comments", { method: "GET" }),
+				envWithDb(unauthenticatedDb),
+			);
+
+			bootstrapDb.insertSetting({
+				key: "adminPasswordHash",
+				value: await hashPassword("123456"),
+				encrypted: 0,
+				updated_at: fixedNow,
+			});
+			const bootstrapEnv = envWithDb(bootstrapDb);
+			const login = await handleAdminApi(
+				adminRequest("/api/admin/login", {
+					body: JSON.stringify({ password: "123456" }),
+					headers: { "content-type": "application/json" },
+					method: "POST",
+				}),
+				bootstrapEnv,
+			);
+			const bootstrapCookie = login.headers.get("set-cookie")?.split(";")[0] ?? "";
+			const passwordRequired = await handleAdminApi(
+				adminRequest("/api/admin/comments", {
+					headers: { cookie: bootstrapCookie },
+					method: "GET",
+				}),
+				bootstrapEnv,
+			);
+
+			expect(unauthenticated.status).toBe(401);
+			await expect(unauthenticated.json()).resolves.toEqual({
+				error: { code: "UNAUTHORIZED", message: "Authentication required" },
+			});
+			expect(passwordRequired.status).toBe(403);
+			await expect(passwordRequired.json()).resolves.toEqual({
+				error: { code: "FORBIDDEN", message: "Password change required" },
+			});
+		} finally {
+			unauthenticatedDb.close();
+			bootstrapDb.close();
+		}
+	});
+
 	it("saves global and default comment settings for authenticated admins", async () => {
 		const db = new SqliteD1Database();
 		try {

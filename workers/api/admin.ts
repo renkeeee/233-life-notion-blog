@@ -260,6 +260,22 @@ type AdminOverviewCommentRow = {
 	post_slug: string;
 };
 
+type AdminCommentListRow = {
+	id: string;
+	nickname: string;
+	body: string;
+	moderation_status: "pending" | "approved";
+	reply_body: string | null;
+	reply_created_at: string | null;
+	created_at: string;
+	post_id: string;
+	post_title: string;
+	post_slug: string;
+	post_comments_enabled: number;
+};
+
+type AdminCommentStatusFilter = "pending" | "approved" | "all";
+
 type NotionSchemaBody = {
 	notionDatabaseId: string;
 	notionToken?: string;
@@ -1596,6 +1612,69 @@ async function handleOverview(
 	}
 }
 
+async function handleListAdminComments(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	try {
+		const url = new URL(request.url);
+		const pagination = parseAdminCommentsPagination(url.searchParams);
+		if (!pagination) {
+			return errorJson("BAD_REQUEST", "Invalid pagination", 400);
+		}
+		const filters = adminCommentsFilters(url.searchParams);
+		if (!filters) {
+			return errorJson("BAD_REQUEST", "Invalid comment status", 400);
+		}
+
+		const offset = (pagination.page - 1) * pagination.limit;
+		const result = await env.DB.prepare(
+			`SELECT
+				pc.id,
+				pc.nickname,
+				pc.body,
+				pc.moderation_status,
+				pc.reply_body,
+				pc.reply_created_at,
+				pc.created_at,
+				p.id AS post_id,
+				p.title AS post_title,
+				p.slug AS post_slug,
+				p.comments_enabled AS post_comments_enabled
+			 FROM post_comments pc
+			 JOIN posts p ON p.id = pc.post_id
+			 ${filters.where}
+			 ORDER BY pc.created_at DESC
+			 LIMIT ? OFFSET ?`,
+		)
+			.bind(...filters.values, pagination.limit, offset)
+			.all<AdminCommentListRow>();
+		const countRow = await env.DB.prepare(
+			`SELECT COUNT(*) AS total
+			 FROM post_comments pc
+			 JOIN posts p ON p.id = pc.post_id
+			 ${filters.where}`,
+		)
+			.bind(...filters.values)
+			.first<{ total: number }>();
+
+		return json({
+			items: result.results.map(adminCommentListResponse),
+			total: Number(countRow?.total ?? 0),
+			page: pagination.page,
+			limit: pagination.limit,
+		});
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Comments could not be loaded", 500);
+	}
+}
+
 async function handleGetPostCommentSettings(
 	request: Request,
 	env: AppEnv,
@@ -1995,6 +2074,93 @@ function parseAdminPostsPagination(params: URLSearchParams): {
 	};
 }
 
+function parseAdminCommentsPagination(params: URLSearchParams): {
+	page: number;
+	limit: number;
+} | null {
+	const page = params.get("page") ?? "1";
+	const limit = params.get("limit") ?? "20";
+
+	if (!/^[1-9]\d*$/.test(page) || !/^[1-9]\d*$/.test(limit)) {
+		return null;
+	}
+
+	return {
+		page: Number(page),
+		limit: Math.min(Number(limit), 100),
+	};
+}
+
+function adminCommentsStatus(
+	params: URLSearchParams,
+): AdminCommentStatusFilter | null {
+	const status = params.get("status") ?? "pending";
+
+	if (status === "pending" || status === "approved" || status === "all") {
+		return status;
+	}
+
+	return null;
+}
+
+function likePattern(value: string): string {
+	return `%${value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
+
+function adminCommentsFilters(params: URLSearchParams): {
+	where: string;
+	values: unknown[];
+	status: AdminCommentStatusFilter;
+	q: string;
+} | null {
+	const status = adminCommentsStatus(params);
+	if (!status) {
+		return null;
+	}
+
+	const clauses: string[] = [];
+	const values: unknown[] = [];
+	const q = (params.get("q") ?? "").trim();
+
+	if (status !== "all") {
+		clauses.push("pc.moderation_status = ?");
+		values.push(status);
+	}
+
+	if (q) {
+		clauses.push(
+			"(pc.body LIKE ? ESCAPE '\\' OR pc.nickname LIKE ? ESCAPE '\\' OR p.title LIKE ? ESCAPE '\\')",
+		);
+		const pattern = likePattern(q);
+		values.push(pattern, pattern, pattern);
+	}
+
+	return {
+		where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+		values,
+		status,
+		q,
+	};
+}
+
+function adminCommentListResponse(row: AdminCommentListRow) {
+	return {
+		id: row.id,
+		nickname: row.nickname,
+		body: row.body,
+		moderationStatus: row.moderation_status,
+		replyBody: row.reply_body,
+		replyCreatedAt: row.reply_created_at,
+		createdAt: row.created_at,
+		post: {
+			id: row.post_id,
+			title: row.post_title,
+			slug: row.post_slug,
+			commentsEnabled: row.post_comments_enabled === 1,
+		},
+	};
+}
+
 function adminPostsSort(params: URLSearchParams): {
 	column: string;
 	direction: "ASC" | "DESC";
@@ -2031,7 +2197,7 @@ function adminPostsFilters(params: URLSearchParams): {
 
 	if (q) {
 		clauses.push("(title LIKE ? ESCAPE '\\' OR slug LIKE ? ESCAPE '\\')");
-		const pattern = `%${q.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+		const pattern = likePattern(q);
 		values.push(pattern, pattern);
 	}
 
@@ -3577,6 +3743,10 @@ export async function handleAdminApi(
 	const albumItem = adminAlbumItemPath(url.pathname);
 	if (albumItem && request.method === "PUT") {
 		return handleUpdateAdminAlbumItem(request, env, albumItem.itemId);
+	}
+
+	if (url.pathname === "/api/admin/comments" && request.method === "GET") {
+		return handleListAdminComments(request, env);
 	}
 
 	if (

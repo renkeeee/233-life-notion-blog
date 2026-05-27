@@ -524,7 +524,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 											className="danger-link"
 											disabled={
 												listPending ||
-												isActionPending(actionKey(comment, "delete"))
+												isRowPending(comment.id)
 											}
 											onClick={() => deleteComment(comment)}
 										>

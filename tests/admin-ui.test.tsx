@@ -905,6 +905,7 @@ describe("CommentManagementPanel", () => {
 
 			expect(screen.getByLabelText("Reply to Ada")).toBeDisabled();
 			expect(screen.getByRole("button", { name: "Save reply" })).toBeDisabled();
+			expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
 
 			resolveReply({
 				comment: {

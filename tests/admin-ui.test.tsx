@@ -1073,6 +1073,124 @@ describe("CommentManagementPanel", () => {
 		}
 	});
 
+	it("uses the latest mutation baseline for chained approve then delete reconciliation", async () => {
+		let resolveApproval: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "approved";
+				replyBody: string | null;
+				replyCreatedAt: string | null;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		let resolveDelete: (value: { ok: boolean }) => void = () => {};
+		let resolveApprovedList: (value: {
+			items: typeof approvedResponse.items;
+			total: number;
+			page: number;
+			limit: number;
+		}) => void = () => {};
+		let pendingRequestCount = 0;
+		let approvedRequestCount = 0;
+		const emptyResponse = {
+			items: [],
+			total: 0,
+			page: 1,
+			limit: 20,
+		};
+		const approvedOffPageResponse = {
+			items: approvedResponse.items,
+			total: 21,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				pendingRequestCount += 1;
+				return Promise.resolve(
+					pendingRequestCount === 1 ? pendingResponse : emptyResponse,
+				);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				approvedRequestCount += 1;
+				if (approvedRequestCount === 1) {
+					return Promise.resolve(emptyResponse);
+				}
+				return new Promise((resolve) => {
+					resolveApprovedList = resolve;
+				});
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveApproval = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveDelete = resolve;
+				});
+			}
+			throw new Error(`Unexpected DELETE ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			await screen.findByText("No comments in this view.");
+
+			resolveApproval({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "approved",
+					replyBody: null,
+					replyCreatedAt: null,
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+
+			const rowText = await screen.findByText("A pending hello.");
+			const approvedRow = rowText.closest("li");
+			if (!approvedRow) {
+				throw new Error("Expected approved comment row");
+			}
+			await waitFor(() =>
+				expect(within(approvedRow).getByText("Approved")).toBeTruthy(),
+			);
+
+			fireEvent.click(within(approvedRow).getByRole("button", { name: "Delete" }));
+			fireEvent.click(screen.getByRole("button", { name: "Pending" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			resolveDelete({ ok: true });
+			resolveApprovedList(approvedOffPageResponse);
+
+			await screen.findByText("An approved note.");
+			expect(screen.queryByText("A pending hello.")).toBeNull();
+			expect(screen.getByText("20 shown")).toBeTruthy();
+			expect(screen.getByText("1-20 of 20 comments")).toBeTruthy();
+			expect(screen.queryByText("21 shown")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
 	it("does not insert a late approved comment that misses the active search", async () => {
 		let resolveApproval: (value: {
 			comment: {

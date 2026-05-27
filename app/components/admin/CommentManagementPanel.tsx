@@ -134,7 +134,9 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const commentsRef = useRef(comments);
 	const totalRef = useRef(total);
 	const mutationVersionRef = useRef(0);
-	const localCommentMutationsRef = useRef<Record<string, LocalCommentMutation>>({});
+	const localCommentMutationsRef = useRef<
+		Record<string, LocalCommentMutation[]>
+	>({});
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -383,6 +385,40 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		);
 	}
 
+	function hasMutationAfter(
+		mutations: LocalCommentMutation[],
+		version: number,
+	): boolean {
+		return mutations.some((mutation) => mutation.version > version);
+	}
+
+	function latestCommentAfterMutations(
+		mutations: LocalCommentMutation[],
+	): AdminComment | null {
+		return mutations[mutations.length - 1]?.afterComment ?? null;
+	}
+
+	function commentAtMutationVersion(
+		mutations: LocalCommentMutation[],
+		version: number,
+	): AdminComment | null {
+		let comment: AdminComment | null | undefined;
+
+		for (const mutation of mutations) {
+			if (mutation.version <= version) {
+				comment = mutation.afterComment;
+				continue;
+			}
+
+			if (comment === undefined) {
+				comment = mutation.beforeComment;
+			}
+			break;
+		}
+
+		return comment ?? null;
+	}
+
 	function reconcileListResponse(
 		response: AdminCommentsResponse,
 		requestMutationVersion: number,
@@ -394,21 +430,19 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		const nextItems: AdminComment[] = [];
 
 		for (const item of response.items) {
-			const localMutation = localCommentMutationsRef.current[item.id];
-			if (localMutation && localMutation.version > requestMutationVersion) {
+			const localMutations = localCommentMutationsRef.current[item.id] ?? [];
+			if (hasMutationAfter(localMutations, requestMutationVersion)) {
 				seenIds.add(item.id);
+				const afterComment = latestCommentAfterMutations(localMutations);
 				const afterVisible =
-					localMutation.afterComment !== null &&
+					afterComment !== null &&
 					visibleCommentAfterUpdate(
 						status,
-						localMutation.afterComment,
+						afterComment,
 						searchQuery,
 					);
-				if (
-					afterVisible &&
-					localMutation.afterComment !== null
-				) {
-					nextItems.push(localMutation.afterComment);
+				if (afterVisible && afterComment !== null) {
+					nextItems.push(afterComment);
 				} else {
 					totalAdjustment -= 1;
 				}
@@ -419,33 +453,38 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			nextItems.push(item);
 		}
 
-		for (const localMutation of Object.values(localCommentMutationsRef.current)) {
+		for (const [commentId, localMutations] of Object.entries(
+			localCommentMutationsRef.current,
+		)) {
 			if (
-				localMutation.version <= requestMutationVersion ||
-				seenIds.has(localMutation.beforeComment.id)
+				!hasMutationAfter(localMutations, requestMutationVersion) ||
+				seenIds.has(commentId)
 			) {
 				continue;
 			}
 
-			const beforeVisible = visibleCommentAfterUpdate(
-				status,
-				localMutation.beforeComment,
-				searchQuery,
+			const beforeComment = commentAtMutationVersion(
+				localMutations,
+				requestMutationVersion,
 			);
+			const afterComment = latestCommentAfterMutations(localMutations);
+			const beforeVisible =
+				beforeComment !== null &&
+				visibleCommentAfterUpdate(status, beforeComment, searchQuery);
 			const afterVisible =
-				localMutation.afterComment !== null &&
+				afterComment !== null &&
 				visibleCommentAfterUpdate(
 					status,
-					localMutation.afterComment,
+					afterComment,
 					searchQuery,
 				);
 
 			if (
 				!beforeVisible &&
 				afterVisible &&
-				localMutation.afterComment !== null
+				afterComment !== null
 			) {
-				nextItems.push(localMutation.afterComment);
+				nextItems.push(afterComment);
 				totalAdjustment += 1;
 			} else if (beforeVisible && !afterVisible) {
 				totalAdjustment -= 1;
@@ -500,29 +539,35 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		beforeComment: AdminComment,
 		afterComment: AdminComment,
 	) {
-		const existingMutation =
-			localCommentMutationsRef.current[afterComment.id];
+		const existingMutations =
+			localCommentMutationsRef.current[afterComment.id] ?? [];
 		mutationVersionRef.current += 1;
 		localCommentMutationsRef.current = {
 			...localCommentMutationsRef.current,
-			[afterComment.id]: {
-				afterComment,
-				beforeComment: existingMutation?.beforeComment ?? beforeComment,
-				version: mutationVersionRef.current,
-			},
+			[afterComment.id]: [
+				...existingMutations,
+				{
+					afterComment,
+					beforeComment,
+					version: mutationVersionRef.current,
+				},
+			],
 		};
 	}
 
 	function recordLocalCommentDelete(comment: AdminComment) {
-		const existingMutation = localCommentMutationsRef.current[comment.id];
+		const existingMutations = localCommentMutationsRef.current[comment.id] ?? [];
 		mutationVersionRef.current += 1;
 		localCommentMutationsRef.current = {
 			...localCommentMutationsRef.current,
-			[comment.id]: {
-				afterComment: null,
-				beforeComment: existingMutation?.beforeComment ?? comment,
-				version: mutationVersionRef.current,
-			},
+			[comment.id]: [
+				...existingMutations,
+				{
+					afterComment: null,
+					beforeComment: comment,
+					version: mutationVersionRef.current,
+				},
+			],
 		};
 	}
 

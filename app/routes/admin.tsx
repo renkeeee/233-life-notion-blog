@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router";
 import "react-datepicker/dist/react-datepicker.css";
@@ -217,14 +217,24 @@ function Overview({
 		latestSync?.status === "partial" ||
 		(latestSync?.failedCount ?? 0) > 0 ||
 		(data?.failedPosts.length ?? 0) > 0;
+	const syncAttentionSummary = latestSync
+		? `Latest sync: ${latestSync.status}${
+				latestSync.failedCount
+					? `, ${latestSync.failedCount} failed item${
+							latestSync.failedCount === 1 ? "" : "s"
+						}`
+					: ""
+			}${latestSync.errorMessage ? ` (${latestSync.errorMessage})` : ""}`
+		: "Latest sync: no sync runs";
+	const latestComment = data?.recentComments[0] ?? null;
 
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
 				<h2>Operations</h2>
-				<span className={mustChangePassword ? "admin-badge warning" : "admin-badge"}>
-					{mustChangePassword ? "Password required" : "Ready"}
-				</span>
+				{mustChangePassword ? (
+					<span className="admin-badge warning">Password required</span>
+				) : null}
 			</div>
 			{state.status === "locked" ? (
 				<p className="admin-warning">
@@ -238,33 +248,20 @@ function Overview({
 				<p className="admin-error">{state.message}</p>
 			) : null}
 			{data && needsAttention ? (
-				<section className="admin-module admin-warning-module">
-					<div className="admin-section-heading compact">
-						<h3>Sync attention</h3>
-						<span className="admin-badge warning">Review</span>
-					</div>
-					{latestSync ? (
-						<p className="admin-note">
-							Latest sync: {latestSync.status}
-							{latestSync.failedCount
-								? `, ${latestSync.failedCount} failed item${
-										latestSync.failedCount === 1 ? "" : "s"
-									}`
-								: ""}
-							{latestSync.errorMessage ? ` (${latestSync.errorMessage})` : ""}
-						</p>
-					) : null}
-					{data.failedPosts.length > 0 ? (
-						<ul className="admin-compact-list">
-							{data.failedPosts.map((post) => (
-								<li key={post.id}>
-									<strong>{post.title}</strong>
-									<span>{post.lastSyncError}</span>
-								</li>
-							))}
-						</ul>
-					) : null}
-				</section>
+				<p className="admin-sync-tip" role="status">
+					<strong>Sync attention</strong>
+					<span>
+						{syncAttentionSummary}
+						{data.failedPosts.length > 0
+							? data.failedPosts.map((post) => (
+									<Fragment key={post.id}>
+										{" / "}
+										{post.title}: <em>{post.lastSyncError}</em>
+									</Fragment>
+								))
+							: null}
+					</span>
+				</p>
 			) : null}
 			<div className="admin-overview-grid" aria-busy={state.status === "loading"}>
 				<div className="admin-stat-card">
@@ -295,29 +292,28 @@ function Overview({
 							: "No sync runs"}
 					</span>
 				</div>
+				<NavLink
+					className="admin-stat-card admin-stat-card-link wide"
+					to="/admin/comments"
+				>
+					<strong>Recent comments</strong>
+					<span>
+						{data
+							? `${data.counts.comments} total comment${
+									data.counts.comments === 1 ? "" : "s"
+								}`
+							: "-"}
+					</span>
+					{latestComment ? (
+						<small>
+							{latestComment.nickname || "Anonymous"} on{" "}
+							{latestComment.postTitle}: <em>{latestComment.body}</em>
+						</small>
+					) : data ? (
+						<small>No comments yet.</small>
+					) : null}
+				</NavLink>
 			</div>
-			{data ? (
-				<section className="admin-module">
-					<div className="admin-section-heading compact">
-						<h3>Recent comments</h3>
-						<span className="admin-badge">{data.recentComments.length}</span>
-					</div>
-					{data.recentComments.length > 0 ? (
-						<ul className="admin-compact-list">
-							{data.recentComments.map((comment) => (
-								<li key={comment.id}>
-									<strong>
-										{comment.nickname || "Anonymous"} on {comment.postTitle}
-									</strong>
-									<span>{comment.body}</span>
-								</li>
-							))}
-						</ul>
-					) : (
-						<p className="admin-note">No comments yet.</p>
-					)}
-				</section>
-			) : null}
 		</div>
 	);
 }
@@ -408,7 +404,7 @@ export default function Admin() {
 
 	if (session.status === "checking") {
 		return (
-			<main className="admin-shell">
+			<main className="admin-shell admin-checking-shell">
 				<p className="admin-note">Checking admin session...</p>
 			</main>
 		);

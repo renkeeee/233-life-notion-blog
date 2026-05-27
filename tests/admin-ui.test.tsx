@@ -731,7 +731,123 @@ describe("CommentManagementPanel", () => {
 			await waitFor(() =>
 				expect(screen.getByText("A pending hello.")).toBeTruthy(),
 			);
+			expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			expect(screen.getByText("1 shown")).toBeTruthy();
 			expect(screen.queryByText("No comments in this view.")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("does not let a late delete response decrement the current approved list", async () => {
+		let resolveDelete: (value: { ok: boolean }) => void = () => {};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return Promise.resolve(approvedResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveDelete = resolve;
+				});
+			}
+			throw new Error(`Unexpected DELETE ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			await screen.findByText("An approved note.");
+			expect(screen.getByText("1 shown")).toBeTruthy();
+
+			resolveDelete({ ok: true });
+
+			await waitFor(() =>
+				expect(screen.getByText("An approved note.")).toBeTruthy(),
+			);
+			expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute(
+				"aria-pressed",
+				"true",
+			);
+			expect(screen.getByText("1 shown")).toBeTruthy();
+			expect(screen.queryByText("0 shown")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
+	it("disables the reply textarea while that reply save is pending", async () => {
+		let resolveReply: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "pending";
+				replyBody: string;
+				replyCreatedAt: string;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveReply = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			fireEvent.change(screen.getByLabelText("Reply to Ada"), {
+				target: { value: "Holding this thought." },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Save reply" }));
+
+			expect(screen.getByLabelText("Reply to Ada")).toBeDisabled();
+			expect(screen.getByRole("button", { name: "Save reply" })).toBeDisabled();
+
+			resolveReply({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "pending",
+					replyBody: "Holding this thought.",
+					replyCreatedAt: "2026-05-23T10:00:00.000Z",
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+			await waitFor(() =>
+				expect(screen.getByLabelText("Reply to Ada")).not.toBeDisabled(),
+			);
 		} finally {
 			apiGet.mockRestore();
 			apiPut.mockRestore();

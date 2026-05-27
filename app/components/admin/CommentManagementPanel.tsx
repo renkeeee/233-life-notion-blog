@@ -331,8 +331,14 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				)}/comments/${encodeURIComponent(comment.id)}`,
 				csrfToken,
 			);
-			setComments((current) => current.filter((item) => item.id !== comment.id));
-			decrementVisibleTotal();
+			setComments((current) => {
+				if (!current.some((item) => item.id === comment.id)) {
+					return current;
+				}
+
+				decrementVisibleTotal();
+				return current.filter((item) => item.id !== comment.id);
+			});
 			setToast("Comment deleted.");
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be deleted."));
@@ -503,6 +509,10 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 										value={replyDrafts[comment.id] ?? ""}
 										rows={3}
 										maxLength={2000}
+										disabled={
+											listPending ||
+											actionPending?.startsWith(`${comment.id}:`)
+										}
 										onChange={(event) => {
 											const nextReply = event.currentTarget.value;
 											setReplyDrafts((current) => ({

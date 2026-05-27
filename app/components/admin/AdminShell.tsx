@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 
-export type AdminSection = "overview" | "settings" | "sync" | "posts" | "album";
+export type AdminSection =
+	| "overview"
+	| "settings"
+	| "sync"
+	| "posts"
+	| "album"
+	| "comments";
 
 const siteSections: Array<{ id: AdminSection; label: string; path: string }> = [
 	{ id: "overview", label: "Overview", path: "/admin/overview" },
@@ -12,6 +18,7 @@ const siteSections: Array<{ id: AdminSection; label: string; path: string }> = [
 
 const settingsSections: Array<{ id: AdminSection; label: string; path: string }> = [
 	{ id: "settings", label: "Settings", path: "/admin/settings" },
+	{ id: "comments", label: "Comments", path: "/admin/comments" },
 ];
 
 export function AdminShell({

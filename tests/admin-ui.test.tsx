@@ -3658,6 +3658,27 @@ describe("SyncPanel", () => {
 });
 
 describe("Admin", () => {
+	const existingSettingsResponse = {
+		siteTitle: "233 Life",
+		notionDatabaseUrl:
+			"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+		notionToken: "",
+		hasNotionToken: true,
+		cdnBaseUrl: "https://cdn.example.com",
+		fieldMapping: {
+			title: "Name",
+			status: "Status",
+			publishedStatusValues: ["Published", "已发布"],
+		},
+	};
+	const emptyCommentsResponse = {
+		items: [],
+		total: 0,
+		page: 1,
+		limit: 20,
+	};
+
 	it("loads overview dashboard metrics and recent sync warnings", async () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
@@ -3734,6 +3755,100 @@ describe("Admin", () => {
 			expect(screen.getByText("3")).toBeTruthy();
 			expect(screen.getByText(/Latest sync:\s*partial/)).toBeTruthy();
 			expect(screen.getByText("A small hello.")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("shows comment management from settings and sidebar navigation", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+				if (path === "/api/admin/settings") {
+					return existingSettingsResponse;
+				}
+				if (path === "/api/admin/posts/comment-settings") {
+					return {
+						defaultEnabled: true,
+						globalEnabled: true,
+						moderationEnabled: false,
+					};
+				}
+				if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+					return emptyCommentsResponse;
+				}
+				throw new Error(`Unexpected GET ${path}`);
+			});
+
+		try {
+			renderAdmin("/admin/settings");
+
+			const entryLink = await screen.findByRole("link", {
+				name: "Comment management",
+			});
+			expect(entryLink).toHaveAttribute("href", "/admin/comments");
+			expect(screen.getByRole("link", { name: "Comments" })).toBeTruthy();
+
+			fireEvent.click(entryLink);
+
+			expect(
+				await screen.findByRole("heading", { name: "Comment management" }),
+			).toBeTruthy();
+			expect(screen.getByRole("link", { name: "Comments" })).toHaveClass(
+				"active",
+			);
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/comments",
+			);
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("loads comment management from a direct admin section path", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+				if (path === "/api/admin/posts/comment-settings") {
+					return {
+						defaultEnabled: true,
+						globalEnabled: true,
+						moderationEnabled: false,
+					};
+				}
+				if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+					return emptyCommentsResponse;
+				}
+				throw new Error(`Unexpected GET ${path}`);
+			});
+
+		try {
+			renderAdmin("/admin/comments");
+
+			expect(
+				await screen.findByRole("heading", { name: "Comment management" }),
+			).toBeTruthy();
+			expect(screen.getByRole("link", { name: "Comments" })).toHaveClass(
+				"active",
+			);
+			expect(screen.getByText("No comments in this view.")).toBeTruthy();
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/comments",
+			);
 		} finally {
 			apiGet.mockRestore();
 		}

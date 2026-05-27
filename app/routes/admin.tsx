@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, NavLink, Route, Routes } from "react-router";
 import "react-datepicker/dist/react-datepicker.css";
 import { AlbumPanel } from "../components/admin/AlbumPanel";
 import { AdminLogin } from "../components/admin/AdminLogin";
 import { AdminShell } from "../components/admin/AdminShell";
+import { CommentManagementPanel } from "../components/admin/CommentManagementPanel";
 import { PostStatusTable } from "../components/admin/PostStatusTable";
 import { SettingsPanel } from "../components/admin/SettingsPanel";
 import { SyncPanel } from "../components/admin/SyncPanel";
@@ -454,6 +455,22 @@ export default function Admin() {
 									headingId="admin-data-source-heading"
 								/>
 							</section>
+							<section
+								className="admin-module admin-settings-entry-card"
+								aria-labelledby="admin-comments-entry-heading"
+							>
+								<div className="admin-section-heading compact">
+									<h2 id="admin-comments-entry-heading">Comment management</h2>
+									<span className="admin-badge">Comments</span>
+								</div>
+								<p className="admin-note">
+									Review pending comments, reply to visitors, delete comments,
+									and adjust comment settings from one dedicated page.
+								</p>
+								<NavLink className="admin-secondary-button" to="/admin/comments">
+									Comment management
+								</NavLink>
+							</section>
 						</div>
 					}
 				/>
@@ -471,6 +488,10 @@ export default function Admin() {
 					element={<PostStatusTable csrfToken={session.csrfToken} />}
 				/>
 				<Route path="album" element={<AlbumPanel csrfToken={session.csrfToken} />} />
+				<Route
+					path="comments"
+					element={<CommentManagementPanel csrfToken={session.csrfToken} />}
+				/>
 				<Route path="*" element={<Navigate to="/admin/overview" replace />} />
 			</Routes>
 		</AdminShell>

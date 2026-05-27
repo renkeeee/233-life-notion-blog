@@ -34,7 +34,8 @@ type AdminCommentsResponse = {
 };
 
 type LocalCommentMutation = {
-	comment: AdminComment;
+	afterComment: AdminComment | null;
+	beforeComment: AdminComment;
 	version: number;
 };
 
@@ -134,7 +135,6 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const totalRef = useRef(total);
 	const mutationVersionRef = useRef(0);
 	const localCommentMutationsRef = useRef<Record<string, LocalCommentMutation>>({});
-	const deletedCommentMutationsRef = useRef<Record<string, LocalCommentMutation>>({});
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -394,20 +394,21 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		const nextItems: AdminComment[] = [];
 
 		for (const item of response.items) {
-			const deletedMutation = deletedCommentMutationsRef.current[item.id];
-			if (deletedMutation && deletedMutation.version > requestMutationVersion) {
-				seenIds.add(item.id);
-				totalAdjustment -= 1;
-				continue;
-			}
-
 			const localMutation = localCommentMutationsRef.current[item.id];
 			if (localMutation && localMutation.version > requestMutationVersion) {
 				seenIds.add(item.id);
+				const afterVisible =
+					localMutation.afterComment !== null &&
+					visibleCommentAfterUpdate(
+						status,
+						localMutation.afterComment,
+						searchQuery,
+					);
 				if (
-					visibleCommentAfterUpdate(status, localMutation.comment, searchQuery)
+					afterVisible &&
+					localMutation.afterComment !== null
 				) {
-					nextItems.push(localMutation.comment);
+					nextItems.push(localMutation.afterComment);
 				} else {
 					totalAdjustment -= 1;
 				}
@@ -418,26 +419,36 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			nextItems.push(item);
 		}
 
-		for (const deletedMutation of Object.values(
-			deletedCommentMutationsRef.current,
-		)) {
-			if (
-				deletedMutation.version > requestMutationVersion &&
-				!seenIds.has(deletedMutation.comment.id) &&
-				visibleCommentAfterUpdate(status, deletedMutation.comment, searchQuery)
-			) {
-				totalAdjustment -= 1;
-			}
-		}
-
 		for (const localMutation of Object.values(localCommentMutationsRef.current)) {
 			if (
-				localMutation.version > requestMutationVersion &&
-				!seenIds.has(localMutation.comment.id) &&
-				visibleCommentAfterUpdate(status, localMutation.comment, searchQuery)
+				localMutation.version <= requestMutationVersion ||
+				seenIds.has(localMutation.beforeComment.id)
 			) {
-				nextItems.push(localMutation.comment);
+				continue;
+			}
+
+			const beforeVisible = visibleCommentAfterUpdate(
+				status,
+				localMutation.beforeComment,
+				searchQuery,
+			);
+			const afterVisible =
+				localMutation.afterComment !== null &&
+				visibleCommentAfterUpdate(
+					status,
+					localMutation.afterComment,
+					searchQuery,
+				);
+
+			if (
+				!beforeVisible &&
+				afterVisible &&
+				localMutation.afterComment !== null
+			) {
+				nextItems.push(localMutation.afterComment);
 				totalAdjustment += 1;
+			} else if (beforeVisible && !afterVisible) {
+				totalAdjustment -= 1;
 			}
 		}
 
@@ -447,9 +458,14 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		};
 	}
 
-	function replaceComment(comment: AdminComment) {
+	function replaceComment(previousComment: AdminComment, comment: AdminComment) {
 		const currentStatus = commentsStatusRef.current;
 		const currentQuery = appliedQueryRef.current;
+		const wasVisible = visibleCommentAfterUpdate(
+			currentStatus,
+			previousComment,
+			currentQuery,
+		);
 		const remainsVisible = visibleCommentAfterUpdate(
 			currentStatus,
 			comment,
@@ -458,9 +474,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		const currentComments = commentsRef.current;
 		const isInCurrentList = currentComments.some((item) => item.id === comment.id);
 
-		if (!isInCurrentList && remainsVisible) {
+		if (!isInCurrentList && !wasVisible && remainsVisible) {
 			setCommentList([comment, ...currentComments]);
 			incrementVisibleTotal();
+		} else if (!isInCurrentList && wasVisible && !remainsVisible) {
+			decrementVisibleTotal();
 		} else if (isInCurrentList && !remainsVisible) {
 			setCommentList(currentComments.filter((item) => item.id !== comment.id));
 			decrementVisibleTotal();
@@ -478,32 +496,34 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		}));
 	}
 
-	function recordLocalCommentMutation(comment: AdminComment) {
+	function recordLocalCommentMutation(
+		beforeComment: AdminComment,
+		afterComment: AdminComment,
+	) {
+		const existingMutation =
+			localCommentMutationsRef.current[afterComment.id];
+		mutationVersionRef.current += 1;
+		localCommentMutationsRef.current = {
+			...localCommentMutationsRef.current,
+			[afterComment.id]: {
+				afterComment,
+				beforeComment: existingMutation?.beforeComment ?? beforeComment,
+				version: mutationVersionRef.current,
+			},
+		};
+	}
+
+	function recordLocalCommentDelete(comment: AdminComment) {
+		const existingMutation = localCommentMutationsRef.current[comment.id];
 		mutationVersionRef.current += 1;
 		localCommentMutationsRef.current = {
 			...localCommentMutationsRef.current,
 			[comment.id]: {
-				comment,
+				afterComment: null,
+				beforeComment: existingMutation?.beforeComment ?? comment,
 				version: mutationVersionRef.current,
 			},
 		};
-		const { [comment.id]: _removed, ...nextDeleted } =
-			deletedCommentMutationsRef.current;
-		deletedCommentMutationsRef.current = nextDeleted;
-	}
-
-	function recordLocalCommentDelete(comment: AdminComment) {
-		mutationVersionRef.current += 1;
-		deletedCommentMutationsRef.current = {
-			...deletedCommentMutationsRef.current,
-			[comment.id]: {
-				comment,
-				version: mutationVersionRef.current,
-			},
-		};
-		const { [comment.id]: _removed, ...nextMutations } =
-			localCommentMutationsRef.current;
-		localCommentMutationsRef.current = nextMutations;
 	}
 
 	function commentFromUpdate(
@@ -534,8 +554,8 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				csrfToken,
 			);
 			const updatedComment = commentFromUpdate(comment, response.comment);
-			replaceComment(updatedComment);
-			recordLocalCommentMutation(updatedComment);
+			replaceComment(comment, updatedComment);
+			recordLocalCommentMutation(comment, updatedComment);
 			setToast(successMessage);
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be updated."));

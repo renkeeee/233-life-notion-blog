@@ -3515,7 +3515,10 @@ describe("AlbumPanel", () => {
 				),
 			);
 
-			fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+			fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+			const inspector = screen.getByLabelText("Album item management");
+			expect(within(inspector).getByRole("heading", { name: "Window light" })).toBeTruthy();
+			fireEvent.click(within(inspector).getByRole("button", { name: "Edit details" }));
 			const editDialog = screen.getByRole("dialog", { name: "Edit album item" });
 			fireEvent.change(within(editDialog).getByLabelText("Title"), {
 				target: { value: "Edited window" },

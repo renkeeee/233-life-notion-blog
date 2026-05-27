@@ -3182,6 +3182,260 @@ body {
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.admin-album-page {
+	gap: 16px;
+}
+
+.admin-post-summary-grid.compact span {
+	min-height: 54px;
+}
+
+.admin-album-command-grid {
+	display: grid;
+	gap: 14px;
+	grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+}
+
+.admin-album-command-card {
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background: var(--admin-card);
+	display: grid;
+	gap: 12px;
+	padding: 16px;
+}
+
+.admin-album-command-card h3 {
+	color: var(--admin-ink);
+	margin: 4px 0 5px;
+}
+
+.admin-album-command-card p {
+	color: var(--admin-muted);
+	line-height: 1.45;
+	margin: 0;
+}
+
+.admin-album-command-card label {
+	display: grid;
+	gap: 6px;
+	color: var(--admin-text);
+	font-size: 0.88rem;
+	font-weight: 750;
+}
+
+.admin-album-command-card input {
+	border: 1px solid #cbd3c8;
+	border-radius: 6px;
+	box-sizing: border-box;
+	color: var(--admin-ink);
+	min-height: 38px;
+	padding: 8px 10px;
+	width: 100%;
+}
+
+.admin-album-command-card input[type="file"] {
+	background: var(--admin-surface-muted);
+	color: var(--admin-muted);
+}
+
+.admin-album-command-card button {
+	justify-self: start;
+}
+
+.admin-album-workspace {
+	align-items: start;
+	display: grid;
+	gap: 16px;
+	grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+}
+
+.admin-album-library {
+	display: grid;
+	gap: 14px;
+	min-width: 0;
+}
+
+.admin-album-filters {
+	align-items: end;
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background: var(--admin-surface-muted);
+	display: grid;
+	gap: 12px;
+	grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(120px, 0.8fr)) minmax(130px, 0.6fr) auto;
+	min-width: 0;
+	padding: 14px;
+}
+
+.admin-album-batch-bar {
+	align-items: center;
+	border: 1px solid #bdd4c8;
+	border-radius: 8px;
+	background: var(--admin-accent-soft);
+	color: var(--admin-accent-strong);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	justify-content: space-between;
+	padding: 12px 14px;
+}
+
+.admin-album-batch-bar strong {
+	font-size: 0.88rem;
+}
+
+.admin-album-list {
+	display: grid;
+	gap: 12px;
+}
+
+.admin-album-card {
+	align-items: center;
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background: var(--admin-card);
+	display: grid;
+	gap: 14px;
+	grid-template-columns: auto 112px minmax(0, 1fr) auto;
+	padding: 12px;
+	transition:
+		background 160ms ease,
+		border-color 160ms ease,
+		box-shadow 160ms ease;
+}
+
+.admin-album-card:hover {
+	background: #f8faf6;
+	border-color: var(--admin-line);
+}
+
+.admin-album-card.selected {
+	background: #f1f7f1;
+	border-color: #a9c9b8;
+	box-shadow: inset 3px 0 0 var(--admin-accent);
+}
+
+.admin-album-card-select {
+	align-items: center;
+	display: inline-flex;
+	justify-content: center;
+}
+
+.admin-album-card-select input {
+	width: 18px;
+	min-height: 18px;
+}
+
+.admin-album-card .admin-album-thumb {
+	height: 82px;
+	width: 112px;
+}
+
+.admin-album-card-body {
+	display: grid;
+	gap: 9px;
+	min-width: 0;
+}
+
+.admin-album-card-body h3 {
+	color: var(--admin-accent-strong);
+	font-size: 1rem;
+	line-height: 1.25;
+	margin: 0 0 4px;
+	text-wrap: pretty;
+}
+
+.admin-album-card-body p {
+	color: var(--admin-muted);
+	font-size: 0.83rem;
+	font-weight: 700;
+	line-height: 1.45;
+	margin: 0;
+}
+
+.admin-album-card-body a,
+.admin-post-manager-meta a {
+	color: var(--admin-accent-strong);
+	font-weight: 800;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.admin-album-card-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+}
+
+.admin-album-card-meta span,
+.admin-album-collection-tags span {
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 6px;
+	background: var(--admin-surface-muted);
+	color: var(--admin-muted);
+	font-size: 0.74rem;
+	font-weight: 760;
+	line-height: 1.2;
+	padding: 5px 7px;
+}
+
+.admin-album-inspector {
+	position: sticky;
+	top: 24px;
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background:
+		linear-gradient(180deg, rgb(255 255 255 / 0.8), transparent 180px),
+		var(--admin-card);
+	box-shadow: 0 12px 28px rgb(27 36 31 / 0.08);
+	display: grid;
+	gap: 14px;
+	min-height: 300px;
+	padding: 18px;
+}
+
+.admin-album-inspector.empty {
+	align-content: center;
+	background: var(--admin-surface-muted);
+	box-shadow: none;
+}
+
+.admin-album-inspector.empty h3,
+.admin-album-inspector.empty p {
+	margin: 0;
+}
+
+.admin-album-inspector.empty h3 {
+	color: var(--admin-ink);
+	margin: 5px 0 8px;
+}
+
+.admin-album-inspector.empty p {
+	color: var(--admin-muted);
+	line-height: 1.5;
+}
+
+.admin-album-inspector-preview {
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background: var(--admin-surface-muted);
+	overflow: hidden;
+}
+
+.admin-album-inspector-preview .admin-album-thumb {
+	border: 0;
+	border-radius: 0;
+	height: 190px;
+	width: 100%;
+}
+
+.admin-album-collection-tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+}
+
 .admin-inline-form {
 	align-items: end;
 	border: 1px solid var(--admin-line-soft);
@@ -3813,6 +4067,21 @@ body {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 
+	.admin-album-filters {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.admin-album-card {
+		align-items: stretch;
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+
+	.admin-album-card .admin-album-thumb,
+	.admin-album-card-body,
+	.admin-album-card > button {
+		grid-column: 2;
+	}
+
 	.admin-post-table {
 		border-collapse: separate;
 		border-spacing: 0;
@@ -4099,6 +4368,9 @@ body {
 
 	.admin-form.inline,
 	.admin-post-filters,
+	.admin-album-command-grid,
+	.admin-album-filters,
+	.admin-album-workspace,
 	.admin-album-tools,
 	.admin-inline-form,
 	.admin-field-grid,
@@ -4123,6 +4395,29 @@ body {
 
 	.admin-post-manager {
 		position: static;
+	}
+
+	.admin-album-inspector {
+		position: static;
+	}
+
+	.admin-album-card {
+		grid-template-columns: 1fr;
+	}
+
+	.admin-album-card .admin-album-thumb,
+	.admin-album-card-body,
+	.admin-album-card > button {
+		grid-column: auto;
+	}
+
+	.admin-album-card-select {
+		justify-content: flex-start;
+	}
+
+	.admin-album-card .admin-album-thumb {
+		height: 160px;
+		width: 100%;
 	}
 
 	.admin-stat-card.wide {

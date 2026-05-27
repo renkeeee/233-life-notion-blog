@@ -142,6 +142,38 @@ function collectionTitle(
 	);
 }
 
+function itemTitle(item: AlbumItem): string {
+	return item.title?.trim() || item.caption?.trim() || "Untitled media";
+}
+
+function itemSourceLabel(item: AlbumItem): string {
+	return item.sourceType === "manual" ? "manual upload" : "post media";
+}
+
+function itemStateTags(item: AlbumItem): string[] {
+	const tags: string[] = [item.kind, item.visibility];
+	if (item.featured) {
+		tags.push("featured");
+	}
+	if (item.post) {
+		tags.push("linked");
+	}
+
+	return tags;
+}
+
+function formatItemDate(value?: string | null): string {
+	if (!value) {
+		return "-";
+	}
+
+	return new Intl.DateTimeFormat("en", {
+		month: "short",
+		day: "numeric",
+		year: "numeric",
+	}).format(new Date(value));
+}
+
 function fileToBase64(file: File): Promise<string> {
 	return file.arrayBuffer().then((buffer) => {
 		const bytes = new Uint8Array(buffer);
@@ -186,6 +218,7 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 	const [appliedFeatured, setAppliedFeatured] = useState(false);
 	const [editingItem, setEditingItem] = useState<AlbumItem | null>(null);
 	const [form, setForm] = useState<AlbumItemForm | null>(null);
+	const [managedItem, setManagedItem] = useState<AlbumItem | null>(null);
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [pending, setPending] = useState(false);
 	const [toast, setToast] = useState<string | null>(null);
@@ -196,6 +229,13 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
 		[total],
+	);
+	const activeManagedItem = managedItem
+		? (items.find((item) => item.id === managedItem.id) ?? managedItem)
+		: null;
+	const featuredCount = useMemo(
+		() => items.filter((item) => item.featured).length,
+		[items],
 	);
 
 	function loadAlbum(nextPage = page) {
@@ -217,6 +257,11 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 				setTotal(response.total);
 				setPage(response.page);
 				setSelectedIds([]);
+				setManagedItem((current) =>
+					current
+						? (response.items.find((item) => item.id === current.id) ?? current)
+						: null,
+				);
 				setStatus(rangeLabel(response.page, response.limit, response.total));
 			})
 			.catch((loadError: unknown) => {
@@ -275,6 +320,11 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 		setForm(itemForm(item));
 	}
 
+	function closeEditor() {
+		setEditingItem(null);
+		setForm(null);
+	}
+
 	function setFormValue<K extends keyof AlbumItemForm>(
 		key: K,
 		value: AlbumItemForm[K],
@@ -331,6 +381,9 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 				csrfToken,
 			);
 			setToast(`Album item ${action === "restore" ? "restored" : `${action}d`}.`);
+			if (action === "delete") {
+				setManagedItem(null);
+			}
 			loadAlbum(page);
 		} catch (actionError) {
 			setError(
@@ -436,87 +489,55 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 	}
 
 	return (
-		<div className="admin-stack">
-			<div className="admin-section-heading">
-				<h2>Album</h2>
-				<span className="admin-badge">Media library</span>
-			</div>
+		<div className="admin-stack admin-album-page">
+			<section className="admin-post-workbench admin-album-workbench">
+				<div>
+					<p className="admin-eyebrow">Media operations</p>
+					<h2>Album</h2>
+					<p>
+						Review synced post media, upload standalone files, organize
+						collections, and control what appears in the public album.
+					</p>
+				</div>
+				<div className="admin-post-workbench-actions">
+					<div className="admin-post-summary-grid" aria-label="Album summary">
+						<span>
+							<strong>{total}</strong>
+							items
+						</span>
+						<span>
+							<strong>{collections.length}</strong>
+							collections
+						</span>
+						<span>
+							<strong>{featuredCount}</strong>
+							featured
+						</span>
+					</div>
+					<div className="admin-post-summary-grid compact" aria-label="Selection summary">
+						<span>
+							<strong>{selectedIds.length}</strong>
+							selected
+						</span>
+						<span>
+							<strong>{items.length}</strong>
+							in view
+						</span>
+						<span>
+							<strong>{page}</strong>
+							page
+						</span>
+					</div>
+				</div>
+			</section>
 
-			<form className="admin-form admin-post-filters" onSubmit={applyFilters}>
-				<label>
-					Keyword
-					<input
-						type="search"
-						placeholder="Search title or caption"
-						value={keyword}
-						onChange={(event) => setKeyword(event.currentTarget.value)}
-					/>
-				</label>
-				<label>
-					Kind
-					<select
-						value={kind}
-						onChange={(event) => setKind(event.currentTarget.value)}
-					>
-						{kindOptions.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
-				</label>
-				<label>
-					Visibility
-					<select
-						value={visibility}
-						onChange={(event) => setVisibility(event.currentTarget.value)}
-					>
-						<option value="">All visibility</option>
-						<option value="visible">Visible</option>
-						<option value="hidden">Hidden</option>
-					</select>
-				</label>
-				<label>
-					Collection
-					<select
-						value={collection}
-						onChange={(event) => setCollection(event.currentTarget.value)}
-					>
-						<option value="">All collections</option>
-						{collections.map((item) => (
-							<option key={item.id} value={item.id}>
-								{item.title}
-							</option>
-						))}
-					</select>
-				</label>
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={featured}
-						onChange={(event) => setFeatured(event.currentTarget.checked)}
-					/>
-					Featured
-				</label>
-				<button type="submit">Apply filters</button>
-			</form>
-
-			<div className="admin-album-tools">
-				<form className="admin-inline-form" onSubmit={createCollection}>
-					<label>
-						Collection title
-						<input
-							value={collectionTitleInput}
-							onChange={(event) =>
-								setCollectionTitleInput(event.currentTarget.value)
-							}
-						/>
-					</label>
-					<button type="submit" disabled={pending}>
-						Create collection
-					</button>
-				</form>
-				<form className="admin-inline-form" onSubmit={upload}>
+			<section className="admin-album-command-grid">
+				<form className="admin-album-command-card" onSubmit={upload}>
+					<div>
+						<p className="admin-eyebrow">Add media</p>
+						<h3>Upload media</h3>
+						<p>Manual uploads become standalone album items.</p>
+					</div>
 					<label>
 						Upload file
 						<input type="file" onChange={onFileChange} />
@@ -532,116 +553,349 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 						Upload
 					</button>
 				</form>
-			</div>
+				<form className="admin-album-command-card" onSubmit={createCollection}>
+					<div>
+						<p className="admin-eyebrow">Organize</p>
+						<h3>New collection</h3>
+						<p>Create a grouping, then assign media from the inspector.</p>
+					</div>
+					<label>
+						Collection title
+						<input
+							value={collectionTitleInput}
+							onChange={(event) =>
+								setCollectionTitleInput(event.currentTarget.value)
+							}
+						/>
+					</label>
+					<button type="submit" disabled={pending}>
+						Create collection
+					</button>
+				</form>
+			</section>
 
-			<div className="admin-inline-actions">
-				<button type="button" disabled={pending} onClick={() => batchAction("hide")}>
-					Hide selected
-				</button>
-				<button type="button" disabled={pending} onClick={() => batchAction("restore")}>
-					Restore selected
-				</button>
-				<button type="button" disabled={pending} onClick={() => batchAction("feature")}>
-					Feature selected
-				</button>
-				<button type="button" disabled={pending} onClick={() => batchAction("delete")}>
-					Delete selected
-				</button>
-			</div>
+			<div className="admin-album-workspace">
+				<section className="admin-module admin-album-library">
+					<form className="admin-form admin-album-filters" onSubmit={applyFilters}>
+						<label>
+							Keyword
+							<input
+								type="search"
+								placeholder="Search title or caption"
+								value={keyword}
+								onChange={(event) => setKeyword(event.currentTarget.value)}
+							/>
+						</label>
+						<label>
+							Kind
+							<select
+								value={kind}
+								onChange={(event) => setKind(event.currentTarget.value)}
+							>
+								{kindOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</label>
+						<label>
+							Visibility
+							<select
+								value={visibility}
+								onChange={(event) => setVisibility(event.currentTarget.value)}
+							>
+								<option value="">All visibility</option>
+								<option value="visible">Visible</option>
+								<option value="hidden">Hidden</option>
+							</select>
+						</label>
+						<label>
+							Collection
+							<select
+								value={collection}
+								onChange={(event) => setCollection(event.currentTarget.value)}
+							>
+								<option value="">All collections</option>
+								{collections.map((item) => (
+									<option key={item.id} value={item.id}>
+										{item.title}
+									</option>
+								))}
+							</select>
+						</label>
+						<label className="admin-checkbox-row">
+							<input
+								type="checkbox"
+								checked={featured}
+								onChange={(event) => setFeatured(event.currentTarget.checked)}
+							/>
+							<span>Featured only</span>
+						</label>
+						<button type="submit">Apply filters</button>
+					</form>
 
-			<p className="admin-note">{status}</p>
-			{toast ? <p className="admin-toast">{toast}</p> : null}
-			{error ? <p className="admin-error">{error}</p> : null}
+					<div className="admin-post-list-status">
+						<p className="admin-note">{status}</p>
+						{error ? <p className="admin-error">{error}</p> : null}
+						{toast ? (
+							<div className="admin-toast" role="status">
+								{toast}
+							</div>
+						) : null}
+					</div>
 
-			<div className="admin-table-wrap">
-				<table className="admin-table admin-album-table">
-					<thead>
-						<tr>
-							<th>Select</th>
-							<th>Preview</th>
-							<th>Title</th>
-							<th>Kind</th>
-							<th>Collections</th>
-							<th>Visibility</th>
-							<th>Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{items.map((item) => (
-							<tr key={item.id}>
-								<td>
-									<input
-										aria-label={`Select ${item.title}`}
-										type="checkbox"
-										checked={selectedIds.includes(item.id)}
-										onChange={() => toggleSelection(item.id)}
-									/>
-								</td>
-								<td>
-									<div className="admin-album-thumb">{mediaThumb(item)}</div>
-								</td>
-								<td>
-									<strong>{item.title || item.caption || "Untitled"}</strong>
-									{item.post?.slug ? (
-										<a href={`/post/${encodeURIComponent(item.post.slug)}`}>
-											{item.post.title || item.post.slug}
-										</a>
-									) : null}
-								</td>
-								<td>{item.kind}</td>
-								<td>
-									{item.collectionIds.length
-										? item.collectionIds
-												.map((id) => collectionTitle(id, collections))
-												.join(", ")
-										: "-"}
-								</td>
-								<td>{item.visibility}</td>
-								<td>
-									<div className="admin-row-actions">
-										<button type="button" onClick={() => openEditor(item)}>
-											Edit
-										</button>
+					{selectedIds.length > 0 ? (
+						<div className="admin-album-batch-bar">
+							<strong>{selectedIds.length} selected</strong>
+							<div className="admin-manager-actions">
+								<button
+									type="button"
+									disabled={pending}
+									onClick={() => batchAction("hide")}
+								>
+									Hide
+								</button>
+								<button
+									type="button"
+									disabled={pending}
+									onClick={() => batchAction("restore")}
+								>
+									Restore
+								</button>
+								<button
+									type="button"
+									disabled={pending}
+									onClick={() => batchAction("feature")}
+								>
+									Feature
+								</button>
+								<button
+									type="button"
+									disabled={pending}
+									onClick={() => batchAction("unfeature")}
+								>
+									Unfeature
+								</button>
+								<button
+									type="button"
+									className="danger-link"
+									disabled={pending}
+									onClick={() => batchAction("delete")}
+								>
+									Delete
+								</button>
+							</div>
+						</div>
+					) : null}
+
+					{items.length > 0 ? (
+						<div className="admin-album-list" aria-label="Album media items">
+							{items.map((item) => {
+								const title = itemTitle(item);
+								const isManaged = activeManagedItem?.id === item.id;
+
+								return (
+									<article
+										className={`admin-album-card ${
+											isManaged ? "selected" : ""
+										}`.trim()}
+										key={item.id}
+									>
+										<label className="admin-album-card-select">
+											<input
+												aria-label={`Select ${title}`}
+												type="checkbox"
+												checked={selectedIds.includes(item.id)}
+												onChange={() => toggleSelection(item.id)}
+											/>
+										</label>
+										<div className="admin-album-thumb">{mediaThumb(item)}</div>
+										<div className="admin-album-card-body">
+											<div>
+												<h3>{title}</h3>
+												<p>
+													{itemSourceLabel(item)}
+													{item.post?.slug ? (
+														<>
+															{" "}
+															from{" "}
+															<a href={`/post/${encodeURIComponent(item.post.slug)}`}>
+																{item.post.title || item.post.slug}
+															</a>
+														</>
+													) : null}
+												</p>
+											</div>
+											<div className="admin-state-tags">
+												{itemStateTags(item).map((tag) => (
+													<span key={tag}>{tag}</span>
+												))}
+											</div>
+											<div className="admin-album-card-meta">
+												<span>{formatItemDate(item.takenAt ?? item.updatedAt)}</span>
+												<span>
+													{item.collectionIds.length
+														? item.collectionIds
+																.map((id) => collectionTitle(id, collections))
+																.join(", ")
+														: "No collection"}
+												</span>
+												{item.locationName ? <span>{item.locationName}</span> : null}
+											</div>
+										</div>
 										<button
 											type="button"
-											onClick={() =>
-												itemAction(
-													item,
-													item.visibility === "hidden" ? "restore" : "hide",
-												)
-											}
+											className="admin-secondary-button"
+											aria-pressed={isManaged}
+											onClick={() => setManagedItem(item)}
 										>
-											{item.visibility === "hidden" ? "Restore" : "Hide"}
+											Manage
 										</button>
-										<button type="button" onClick={() => itemAction(item, "delete")}>
-											Delete
-										</button>
-									</div>
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			</div>
+									</article>
+								);
+							})}
+						</div>
+					) : (
+						<div className="admin-empty-state">
+							<h3>No media in this view</h3>
+							<p>Adjust filters, upload media, or sync posts with media assets.</p>
+						</div>
+					)}
 
-			<div className="admin-pagination">
-				<button
-					type="button"
-					disabled={page <= 1}
-					onClick={() => setPage((current) => Math.max(1, current - 1))}
+					<div className="admin-pagination">
+						<button
+							type="button"
+							disabled={page <= 1}
+							onClick={() => setPage((current) => Math.max(1, current - 1))}
+						>
+							Previous
+						</button>
+						<span>
+							Page {page} of {pageCount}
+						</span>
+						<button
+							type="button"
+							disabled={page >= pageCount}
+							onClick={() =>
+								setPage((current) => Math.min(pageCount, current + 1))
+							}
+						>
+							Next
+						</button>
+					</div>
+				</section>
+
+				<aside
+					className={`admin-album-inspector ${
+						activeManagedItem ? "" : "empty"
+					}`.trim()}
+					aria-label="Album item management"
 				>
-					Previous
-				</button>
-				<span>
-					Page {page} / {pageCount}
-				</span>
-				<button
-					type="button"
-					disabled={page >= pageCount}
-					onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-				>
-					Next
-				</button>
+					{activeManagedItem ? (
+						<>
+							<div className="admin-post-manager-heading">
+								<div>
+									<p className="admin-eyebrow">Inspect media</p>
+									<h3>{itemTitle(activeManagedItem)}</h3>
+								</div>
+								<button
+									type="button"
+									className="admin-action-icon"
+									aria-label="Close album item management"
+									onClick={() => setManagedItem(null)}
+								>
+									Close
+								</button>
+							</div>
+							<div className="admin-album-inspector-preview">
+								{mediaThumb(activeManagedItem)}
+							</div>
+							<div className="admin-state-tags">
+								{itemStateTags(activeManagedItem).map((tag) => (
+									<span key={tag}>{tag}</span>
+								))}
+							</div>
+							<div className="admin-post-manager-meta">
+								<span>{itemSourceLabel(activeManagedItem)}</span>
+								<span>
+									Taken {formatItemDate(activeManagedItem.takenAt)}
+								</span>
+								<span>
+									Updated {formatItemDate(activeManagedItem.updatedAt)}
+								</span>
+								{activeManagedItem.locationName ? (
+									<span>{activeManagedItem.locationName}</span>
+								) : null}
+								{activeManagedItem.post?.slug ? (
+									<a
+										href={`/post/${encodeURIComponent(
+											activeManagedItem.post.slug,
+										)}`}
+									>
+										{activeManagedItem.post.title ?? activeManagedItem.post.slug}
+									</a>
+								) : null}
+							</div>
+							<div className="admin-manager-section">
+								<h4>Collections</h4>
+								<div className="admin-album-collection-tags">
+									{activeManagedItem.collectionIds.length > 0 ? (
+										activeManagedItem.collectionIds.map((id) => (
+											<span key={id}>{collectionTitle(id, collections)}</span>
+										))
+									) : (
+										<span>No collection</span>
+									)}
+								</div>
+							</div>
+							<div className="admin-manager-section">
+								<h4>Item actions</h4>
+								<div className="admin-manager-actions">
+									<button type="button" onClick={() => openEditor(activeManagedItem)}>
+										Edit details
+									</button>
+									<button
+										type="button"
+										disabled={pending}
+										onClick={() =>
+											itemAction(
+												activeManagedItem,
+												activeManagedItem.visibility === "hidden"
+													? "restore"
+													: "hide",
+											)
+										}
+									>
+										{activeManagedItem.visibility === "hidden"
+											? "Restore"
+											: "Hide"}
+									</button>
+								</div>
+							</div>
+							<div className="admin-manager-section danger">
+								<h4>Danger zone</h4>
+								<button
+									type="button"
+									className="danger-link"
+									disabled={pending}
+									onClick={() => itemAction(activeManagedItem, "delete")}
+								>
+									Delete
+								</button>
+							</div>
+						</>
+					) : (
+						<div>
+							<p className="admin-eyebrow">No media selected</p>
+							<h3>Select media</h3>
+							<p>
+								Choose Manage on an item to edit details, adjust visibility, or
+								delete it from the album.
+							</p>
+						</div>
+					)}
+				</aside>
 			</div>
 
 			{editingItem && form ? (
@@ -654,13 +908,13 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 					>
 						<div className="admin-section-heading compact">
 							<h3>Edit album item</h3>
-							<button
-								type="button"
-								className="admin-secondary-button"
-								onClick={() => setEditingItem(null)}
-							>
-								Close
-							</button>
+								<button
+									type="button"
+									className="admin-secondary-button"
+									onClick={closeEditor}
+								>
+									Close
+								</button>
 						</div>
 						<label>
 							Title

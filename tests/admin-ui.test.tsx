@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
 import { AlbumPanel } from "../app/components/admin/AlbumPanel";
@@ -7,6 +8,29 @@ import { SettingsPanel } from "../app/components/admin/SettingsPanel";
 import { SyncPanel } from "../app/components/admin/SyncPanel";
 import Admin, { PasswordChangePanel } from "../app/routes/admin";
 import * as apiClient from "../app/lib/api-client";
+
+function LocationProbe() {
+	const location = useLocation();
+	return <span data-testid="admin-location">{location.pathname}</span>;
+}
+
+function renderAdmin(initialPath = "/admin/overview") {
+	return render(
+		<MemoryRouter initialEntries={[initialPath]}>
+			<Routes>
+				<Route
+					path="/admin/*"
+					element={
+						<>
+							<Admin />
+							<LocationProbe />
+						</>
+					}
+				/>
+			</Routes>
+		</MemoryRouter>,
+	);
+}
 
 vi.mock("@mdxeditor/editor", async () => {
 	const React = await import("react");
@@ -122,7 +146,7 @@ describe("SettingsPanel", () => {
 				publishedAt: "Published At",
 				publishedStatusValues: ["Published", "已发布"],
 			},
-		});
+			});
 		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
 			databaseId: "3646b3023c2380fc886af37685393dd4",
 			properties: {},
@@ -1774,12 +1798,23 @@ describe("Admin", () => {
 				}
 
 				throw new Error(`Unexpected GET ${path}`);
-			});
+		});
 
 		try {
-			render(<Admin />);
+			renderAdmin("/admin");
 
 			await screen.findByText("Overview");
+			await waitFor(() =>
+				expect(screen.getByTestId("admin-location")).toHaveTextContent(
+					"/admin/overview",
+				),
+			);
+			expect(screen.getByLabelText("Admin navigation")).toHaveClass(
+				"admin-sidebar",
+			);
+			expect(screen.getByRole("link", { name: "Overview" })).toHaveClass(
+				"active",
+			);
 			await screen.findByText("Asset download failed");
 			expect(screen.getByText("Total posts")).toBeTruthy();
 			expect(screen.getByText("3")).toBeTruthy();
@@ -1831,18 +1866,21 @@ describe("Admin", () => {
 						publishedStatusValues: ["Published", "已发布"],
 					},
 				};
-			});
+		});
 		try {
-			render(<Admin />);
+			renderAdmin("/admin/overview");
 
 			await screen.findByText("Operations");
 			expect(screen.queryByRole("button", { name: "Change password" })).toBeNull();
 
-			fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+			fireEvent.click(screen.getByRole("link", { name: "Settings" }));
 
 			expect(
 				await screen.findByRole("button", { name: "Change password" }),
 			).toBeTruthy();
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/settings",
+			);
 			expect(screen.getByText("Use this form to update your admin password.")).toBeTruthy();
 			expect(screen.getByText("Optional")).toBeTruthy();
 
@@ -1856,6 +1894,50 @@ describe("Admin", () => {
 			);
 			expect(dataSourceModule).toContainElement(
 				screen.getByRole("button", { name: "Test schema" }),
+			);
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("loads settings from a direct admin section path", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+
+				return {
+					siteTitle: "233 Life",
+					notionDatabaseUrl:
+						"https://www.notion.so/renke-me/233-life-3646b3023c2380fc886af37685393dd4?source=copy_link",
+					notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
+					notionToken: "",
+					hasNotionToken: true,
+					cdnBaseUrl: "https://cdn.example.com",
+					fieldMapping: {
+						title: "Name",
+						status: "Status",
+						publishedStatusValues: ["Published", "已发布"],
+					},
+				};
+			});
+		try {
+			renderAdmin("/admin/settings");
+
+			expect(
+				await screen.findByRole("button", { name: "Change password" }),
+			).toBeTruthy();
+			expect(screen.getByRole("link", { name: "Settings" })).toHaveClass(
+				"active",
+			);
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/settings",
 			);
 		} finally {
 			apiGet.mockRestore();

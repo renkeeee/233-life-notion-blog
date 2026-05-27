@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { Navigate, Route, Routes } from "react-router";
 import "react-datepicker/dist/react-datepicker.css";
 import { AlbumPanel } from "../components/admin/AlbumPanel";
 import { AdminLogin } from "../components/admin/AdminLogin";
-import { AdminShell, type AdminTab } from "../components/admin/AdminShell";
+import { AdminShell } from "../components/admin/AdminShell";
 import { PostStatusTable } from "../components/admin/PostStatusTable";
 import { SettingsPanel } from "../components/admin/SettingsPanel";
 import { SyncPanel } from "../components/admin/SyncPanel";
@@ -322,7 +323,6 @@ function Overview({
 
 export default function Admin() {
 	const [session, setSession] = useState<SessionState>({ status: "checking" });
-	const [activeTab, setActiveTab] = useState<AdminTab>("overview");
 
 	useEffect(() => {
 		let cancelled = false;
@@ -390,7 +390,6 @@ export default function Admin() {
 			await apiPost("/api/admin/logout", {}, session.csrfToken);
 		} finally {
 			setSession({ status: "guest" });
-			setActiveTab("overview");
 		}
 	}
 
@@ -418,64 +417,62 @@ export default function Admin() {
 		return <AdminLogin onLogin={login} error={session.error} />;
 	}
 
-	const adminContent = (() => {
-		if (activeTab === "settings") {
-			return (
-				<div className="admin-settings-layout">
-					<section
-						className="admin-module"
-						aria-labelledby="admin-password-heading"
-					>
-						<PasswordChangePanel
-							csrfToken={session.csrfToken}
-							required={session.mustChangePassword}
-							onChanged={markPasswordChanged}
-							headingId="admin-password-heading"
-							layout="fluid"
-						/>
-					</section>
-					<section
-						className="admin-module"
-						aria-labelledby="admin-data-source-heading"
-					>
-						<SettingsPanel
-							csrfToken={session.csrfToken}
-							disabled={session.mustChangePassword}
-							headingId="admin-data-source-heading"
-						/>
-					</section>
-				</div>
-			);
-		}
-
-		if (activeTab === "sync") {
-			return (
-				<SyncPanel
-					csrfToken={session.csrfToken}
-					disabled={session.mustChangePassword}
-				/>
-			);
-		}
-
-		if (activeTab === "posts") {
-			return <PostStatusTable csrfToken={session.csrfToken} />;
-		}
-
-		if (activeTab === "album") {
-			return <AlbumPanel csrfToken={session.csrfToken} />;
-		}
-
-		return <Overview mustChangePassword={session.mustChangePassword} />;
-	})();
-
 	return (
 		<AdminShell
-			activeTab={activeTab}
-			onTabChange={setActiveTab}
 			onLogout={logout}
 			mustChangePassword={session.mustChangePassword}
 		>
-			{adminContent}
+			<Routes>
+				<Route index element={<Navigate to="overview" replace />} />
+				<Route
+					path="overview"
+					element={<Overview mustChangePassword={session.mustChangePassword} />}
+				/>
+				<Route
+					path="settings"
+					element={
+						<div className="admin-settings-layout">
+							<section
+								className="admin-module"
+								aria-labelledby="admin-password-heading"
+							>
+								<PasswordChangePanel
+									csrfToken={session.csrfToken}
+									required={session.mustChangePassword}
+									onChanged={markPasswordChanged}
+									headingId="admin-password-heading"
+									layout="fluid"
+								/>
+							</section>
+							<section
+								className="admin-module"
+								aria-labelledby="admin-data-source-heading"
+							>
+								<SettingsPanel
+									csrfToken={session.csrfToken}
+									disabled={session.mustChangePassword}
+									headingId="admin-data-source-heading"
+								/>
+							</section>
+						</div>
+					}
+				/>
+				<Route
+					path="sync"
+					element={
+						<SyncPanel
+							csrfToken={session.csrfToken}
+							disabled={session.mustChangePassword}
+						/>
+					}
+				/>
+				<Route
+					path="posts"
+					element={<PostStatusTable csrfToken={session.csrfToken} />}
+				/>
+				<Route path="album" element={<AlbumPanel csrfToken={session.csrfToken} />} />
+				<Route path="*" element={<Navigate to="/admin/overview" replace />} />
+			</Routes>
 		</AdminShell>
 	);
 }

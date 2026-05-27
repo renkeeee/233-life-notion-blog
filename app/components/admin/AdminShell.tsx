@@ -1,61 +1,94 @@
 import type { ReactNode } from "react";
+import { NavLink } from "react-router";
 
-export type AdminTab = "overview" | "settings" | "sync" | "posts" | "album";
+export type AdminSection = "overview" | "settings" | "sync" | "posts" | "album";
 
-const tabs: Array<{ id: AdminTab; label: string }> = [
-	{ id: "overview", label: "Overview" },
-	{ id: "settings", label: "Settings" },
-	{ id: "sync", label: "Sync" },
-	{ id: "posts", label: "Posts" },
-	{ id: "album", label: "Album" },
+const siteSections: Array<{ id: AdminSection; label: string; path: string }> = [
+	{ id: "overview", label: "Overview", path: "/admin/overview" },
+	{ id: "posts", label: "Posts", path: "/admin/posts" },
+	{ id: "sync", label: "Sync", path: "/admin/sync" },
+	{ id: "album", label: "Album", path: "/admin/album" },
+];
+
+const settingsSections: Array<{ id: AdminSection; label: string; path: string }> = [
+	{ id: "settings", label: "Settings", path: "/admin/settings" },
 ];
 
 export function AdminShell({
-	activeTab,
-	onTabChange,
 	onLogout,
 	children,
 	mustChangePassword,
 }: {
-	activeTab: AdminTab;
-	onTabChange: (tab: AdminTab) => void;
 	onLogout: () => void;
 	children: ReactNode;
 	mustChangePassword?: boolean;
 }) {
 	return (
 		<main className="admin-shell">
-			<header className="admin-topbar">
-				<div>
-					<p className="admin-eyebrow">Notion Blog</p>
-					<h1>Admin console</h1>
-				</div>
-				<button className="admin-secondary-button" type="button" onClick={onLogout}>
-					Log out
-				</button>
-			</header>
+			<div className="admin-layout">
+				<aside className="admin-sidebar" aria-label="Admin navigation">
+					<div className="admin-brand">
+						<span className="admin-brand-mark">23</span>
+						<div>
+							<p className="admin-eyebrow">Notion Blog</p>
+							<strong>233.life</strong>
+						</div>
+					</div>
 
-			{mustChangePassword ? (
-				<p className="admin-banner">
-					The initial password must be changed before settings and sync actions are
-					available.
-				</p>
-			) : null}
+					<nav className="admin-side-nav" aria-label="Admin sections">
+						<div className="admin-nav-group">
+							<p>Site</p>
+							{siteSections.map((section) => (
+								<NavLink
+									key={section.id}
+									to={section.path}
+									className={({ isActive }) => (isActive ? "active" : undefined)}
+								>
+									{section.label}
+								</NavLink>
+							))}
+						</div>
+						<div className="admin-nav-group">
+							<p>Settings</p>
+							{settingsSections.map((section) => (
+								<NavLink
+									key={section.id}
+									to={section.path}
+									className={({ isActive }) => (isActive ? "active" : undefined)}
+								>
+									{section.label}
+								</NavLink>
+							))}
+						</div>
+					</nav>
 
-			<nav className="admin-tabs" aria-label="Admin sections">
-				{tabs.map((tab) => (
 					<button
-						key={tab.id}
+						className="admin-sidebar-logout"
 						type="button"
-						className={tab.id === activeTab ? "active" : ""}
-						onClick={() => onTabChange(tab.id)}
+						onClick={onLogout}
 					>
-						{tab.label}
+						Log out
 					</button>
-				))}
-			</nav>
+				</aside>
 
-			<section className="admin-panel">{children}</section>
+				<section className="admin-main">
+					<header className="admin-topbar">
+						<div>
+							<p className="admin-eyebrow">Admin console</p>
+							<h1>Dashboard</h1>
+						</div>
+					</header>
+
+					{mustChangePassword ? (
+						<p className="admin-banner">
+							The initial password must be changed before settings and sync actions
+							are available.
+						</p>
+					) : null}
+
+					<section className="admin-panel">{children}</section>
+				</section>
+			</div>
 		</main>
 	);
 }

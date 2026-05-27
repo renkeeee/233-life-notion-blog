@@ -2378,6 +2378,18 @@ describe("PostStatusTable", () => {
 		});
 	}
 
+	function openPostManagement(title: string): HTMLElement {
+		const row = screen.getByRole("link", { name: title }).closest("tr");
+		expect(row).not.toBeNull();
+		fireEvent.click(
+			within(row as HTMLTableRowElement).getByRole("button", {
+				name: "Manage",
+			}),
+		);
+
+		return screen.getByLabelText("Post management");
+	}
+
 	it("creates a local draft and opens the Markdown editor", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi
@@ -2887,7 +2899,7 @@ describe("PostStatusTable", () => {
 			expect(
 				await screen.findByRole("link", { name: "Hello World" }),
 			).toHaveAttribute("href", "/post/hello-world");
-			expect(screen.queryByText("hello-world")).toBeNull();
+			expect(screen.getByText("hello-world")).toBeTruthy();
 			expect(screen.getByText("1-20 of 25 posts")).toBeTruthy();
 			const table = screen.getByRole("table");
 			expect(
@@ -2949,15 +2961,16 @@ describe("PostStatusTable", () => {
 			).toBeNull();
 			expect(screen.queryByLabelText("Post password")).toBeNull();
 
-			fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+			const panel = openPostManagement("Hello World");
+			fireEvent.click(within(panel).getByRole("button", { name: "Hide" }));
 			await screen.findByText("Hello World hidden.");
-			fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+			fireEvent.click(within(panel).getByRole("button", { name: "Lock" }));
 			const lockDialog = screen.getByRole("dialog", { name: "Lock post" });
 			fireEvent.change(within(lockDialog).getByLabelText("Post password"), {
 				target: { value: "post-secret" },
 			});
 			fireEvent.click(within(lockDialog).getByRole("button", { name: "Lock" }));
-			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			fireEvent.click(within(panel).getByRole("button", { name: "Delete" }));
 			const deleteDialog = screen.getByRole("dialog", { name: "Delete post" });
 			expect(
 				within(deleteDialog).getByText(
@@ -3022,7 +3035,8 @@ describe("PostStatusTable", () => {
 			render(<PostStatusTable csrfToken="csrf-token" />);
 
 			await screen.findByRole("link", { name: "Hello World" });
-			fireEvent.click(screen.getByRole("button", { name: "Resync" }));
+			const panel = openPostManagement("Hello World");
+			fireEvent.click(within(panel).getByRole("button", { name: "Resync" }));
 
 			await waitFor(() =>
 				expect(apiPost).toHaveBeenCalledWith(
@@ -3069,7 +3083,8 @@ describe("PostStatusTable", () => {
 			await screen.findByRole("link", { name: "Local Post" });
 
 			expect(screen.getByText("local")).toBeTruthy();
-			expect(screen.queryByRole("button", { name: "Resync" })).toBeNull();
+			const panel = openPostManagement("Local Post");
+			expect(within(panel).queryByRole("button", { name: "Resync" })).toBeNull();
 			expect(apiPost).not.toHaveBeenCalled();
 		} finally {
 			apiGet.mockRestore();
@@ -3150,23 +3165,31 @@ describe("PostStatusTable", () => {
 				.closest("tr");
 			expect(localRow).not.toBeNull();
 			expect(notionRow).not.toBeNull();
-			expect(
-				within(localRow as HTMLTableRowElement).getByRole("button", {
-					name: "Edit",
+			fireEvent.click(
+				within(notionRow as HTMLTableRowElement).getByRole("button", {
+					name: "Manage",
 				}),
-			).toBeTruthy();
+			);
+			const notionPanel = screen.getByLabelText("Post management");
 			expect(
-				within(notionRow as HTMLTableRowElement).queryByRole("button", {
+				within(notionPanel).queryByRole("button", {
 					name: "Edit",
 				}),
 			).toBeNull();
 
 			fireEvent.click(
 				within(localRow as HTMLTableRowElement).getByRole("button", {
-					name: "Edit",
+					name: "Manage",
 				}),
 			);
+			const localPanel = screen.getByLabelText("Post management");
+			expect(
+				within(localPanel).getByRole("button", {
+					name: "Edit",
+				}),
+			).toBeTruthy();
 
+			fireEvent.click(within(localPanel).getByRole("button", { name: "Edit" }));
 			await screen.findByRole("heading", { name: "New local post" });
 			expect(screen.getByLabelText("Title")).toHaveValue("Local Post");
 			expect(screen.getByLabelText("Markdown")).toHaveValue(
@@ -3277,18 +3300,21 @@ describe("PostStatusTable", () => {
 		try {
 			render(<PostStatusTable csrfToken="csrf-token" />);
 
-			const globalToggle = await screen.findByLabelText(
-				"Allow new comments across all posts",
-			);
+			fireEvent.click(screen.getByRole("button", { name: "Comment settings" }));
+			const globalToggle = await screen.findByRole("checkbox", {
+				name: /Allow new comments across all posts/,
+			});
 			expect(globalToggle).not.toBeChecked();
 			fireEvent.click(globalToggle);
-			const defaultToggle = screen.getByLabelText(
-				"Enable comments for newly synced posts",
-			);
+			const defaultToggle = screen.getByRole("checkbox", {
+				name: /Enable comments for newly synced posts/,
+			});
 			expect(defaultToggle).not.toBeChecked();
 			fireEvent.click(defaultToggle);
 			expect(
-				screen.getByLabelText("Review comments before publishing"),
+				screen.getByRole("checkbox", {
+					name: /Review comments before publishing/,
+				}),
 			).toBeChecked();
 			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
@@ -3308,11 +3334,12 @@ describe("PostStatusTable", () => {
 			);
 
 			await screen.findByRole("link", { name: "Quiet Post" });
-			expect(screen.getByText("published / comments off")).toBeTruthy();
+			expect(screen.getByText("comments off")).toBeTruthy();
 			expect(
 				screen.queryByRole("button", { name: "Enable comments" }),
 			).toBeNull();
-			fireEvent.click(screen.getByRole("button", { name: "Comments" }));
+			const panel = openPostManagement("Quiet Post");
+			fireEvent.click(within(panel).getByRole("button", { name: "Comments" }));
 
 			const dialog = await screen.findByRole("dialog", {
 				name: "Post comments",
@@ -3373,7 +3400,7 @@ describe("PostStatusTable", () => {
 		}
 	});
 
-	it("shows locked post passwords in a global dialog from the trailing icon action", async () => {
+	it("shows locked post passwords in a global dialog from the management panel", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [
 				{
@@ -3402,14 +3429,16 @@ describe("PostStatusTable", () => {
 			await screen.findByRole("link", { name: "Locked World" });
 			expect(screen.queryByText("post-secret")).toBeNull();
 			const row = screen.getByRole("row", { name: /Locked World/ });
-			const showPassword = screen.getByRole("button", { name: "Show password" });
-			expect(showPassword).toHaveClass("admin-action-icon");
+			const panel = openPostManagement("Locked World");
+			const showPassword = within(panel).getByRole("button", {
+				name: "Show password",
+			});
 			fireEvent.click(showPassword);
 
 			const dialog = screen.getByRole("dialog", { name: "Post password" });
 			expect(within(dialog).getByText("post-secret")).toBeTruthy();
 			expect(within(row).queryByText("post-secret")).toBeNull();
-			expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
+			expect(within(panel).getByRole("button", { name: "Unlock" })).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();
 		}

@@ -179,6 +179,21 @@ function formatCommentDate(value: string): string {
 	return formatDate(value);
 }
 
+function postStateTags(post: AdminPostRecord): string[] {
+	const tags = [post.visibility ?? "unknown"];
+	if (post.manualVisibility === "hidden") {
+		tags.push("hidden");
+	}
+	if (post.locked === true) {
+		tags.push("locked");
+	}
+	if (post.commentsEnabled === false) {
+		tags.push("comments off");
+	}
+
+	return tags;
+}
+
 function sortOptionFor(value: string): SortOption {
 	return sortOptions.find((option) => option.value === value) ?? sortOptions[0];
 }
@@ -267,6 +282,8 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		useState<AdminPostRecord | null>(null);
 	const [passwordDialogPost, setPasswordDialogPost] =
 		useState<AdminPostRecord | null>(null);
+	const [managedPost, setManagedPost] = useState<AdminPostRecord | null>(null);
+	const [commentSettingsOpen, setCommentSettingsOpen] = useState(false);
 	const [commentsDialogPost, setCommentsDialogPost] =
 		useState<AdminPostRecord | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
@@ -301,6 +318,9 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		() => Math.max(1, Math.ceil(total / pageSize)),
 		[total],
 	);
+	const activeManagedPost = managedPost
+		? (posts.find((post) => post.id === managedPost.id) ?? managedPost)
+		: null;
 
 	useEffect(() => {
 		let cancelled = false;
@@ -611,6 +631,14 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					: post,
 			),
 		);
+		setManagedPost((current) =>
+			current?.id === postId
+				? {
+						...current,
+						...updates,
+					}
+				: current,
+		);
 		setCommentsDialogPost((current) =>
 			current?.id === postId
 				? {
@@ -809,6 +837,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 			if (action === "delete") {
 				setDeleteDialogPost(null);
 				setPasswordDialogPost(null);
+				setManagedPost(null);
 			}
 			await refreshPostsForCurrentView();
 		} catch (actionError) {
@@ -848,59 +877,259 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	}
 
 	return (
-		<div className="admin-stack">
-			<div className="admin-section-heading">
-				<h2>Post status</h2>
-				<div className="admin-section-actions">
-					<span className="admin-badge">Database view</span>
-					<button
-						type="button"
-						disabled={creatingDraft}
-						onClick={() => void createLocalDraft()}
-					>
-						{creatingDraft ? "Creating..." : "New post"}
-					</button>
+		<div className="admin-stack admin-posts-page">
+			<section className="admin-post-workbench">
+				<div>
+					<p className="admin-eyebrow">Content operations</p>
+					<h2>Posts</h2>
+					<p>
+						Write local posts, review synced Notion content, and manage
+						visibility, locks, comments, and resyncs from one focused queue.
+					</p>
 				</div>
-			</div>
+				<div className="admin-post-workbench-actions">
+					<div className="admin-post-summary-grid" aria-label="Post summary">
+						<span>
+							<strong>{total}</strong>
+							posts
+						</span>
+						<span>
+							<strong>{localDrafts.length}</strong>
+							drafts
+						</span>
+						<span>
+							<strong>{globalCommentsEnabled ? "On" : "Off"}</strong>
+							comments
+						</span>
+					</div>
+					<div className="admin-section-actions">
+						<button
+							type="button"
+							className="admin-secondary-button"
+							aria-expanded={commentSettingsOpen}
+							onClick={() => setCommentSettingsOpen((current) => !current)}
+						>
+							Comment settings
+						</button>
+						<button
+							type="button"
+							disabled={creatingDraft}
+							onClick={() => void createLocalDraft()}
+						>
+							{creatingDraft ? "Creating..." : "New post"}
+						</button>
+					</div>
+				</div>
+			</section>
 
 			{localDrafts.length > 0 || draftsError ? (
-				<section className="admin-module">
-					<div className="admin-section-heading">
-						<div>
-							<h3>Local drafts</h3>
-							<p className="admin-note">
-								Saved drafts that have not been published yet.
-							</p>
-						</div>
+				<section className="admin-module admin-drafts-strip">
+					<div>
+						<h3>Local drafts</h3>
+						<p>Saved drafts that have not been published yet.</p>
 					</div>
 					{draftsError ? <p className="admin-error">{draftsError}</p> : null}
 					{localDrafts.length > 0 ? (
-						<div className="admin-table-scroll">
-							<table className="admin-table">
+						<div className="admin-draft-cards">
+							{localDrafts.slice(0, 4).map((draft) => {
+								const title = draftTitle(draft);
+								return (
+									<article className="admin-draft-card" key={draft.id}>
+										<div>
+											<strong>{title}</strong>
+											<span>{draft.slug ?? "No slug"}</span>
+											<time dateTime={draft.updatedAt}>
+												{formatDate(draft.updatedAt)}
+											</time>
+										</div>
+										<button
+											type="button"
+											aria-label={`Open ${title}`}
+											disabled={openingDraftId === draft.id}
+											onClick={() => void openLocalDraft(draft.id)}
+										>
+											{openingDraftId === draft.id ? "Opening..." : "Open"}
+										</button>
+									</article>
+								);
+							})}
+							{localDrafts.length > 4 ? (
+								<p className="admin-drafts-overflow">
+									{localDrafts.length - 4} more draft
+									{localDrafts.length - 4 === 1 ? "" : "s"} in this queue.
+								</p>
+							) : null}
+						</div>
+					) : null}
+				</section>
+			) : null}
+
+			{commentSettingsOpen ? (
+				<section className="admin-module admin-post-comment-settings">
+					<div>
+						<h3>Comment settings</h3>
+						<p>
+							Controls whether visitors can add comments and whether newly
+							synced posts accept comments by default.
+						</p>
+					</div>
+					<div className="admin-post-settings-grid">
+						<label className="admin-checkbox-row">
+							<input
+								type="checkbox"
+								checked={globalCommentsEnabled}
+								onChange={(event) =>
+									setGlobalCommentsEnabled(event.currentTarget.checked)
+								}
+							/>
+							<span>
+								Allow new comments across all posts
+								<small>Master switch for public comment forms.</small>
+							</span>
+						</label>
+						<label className="admin-checkbox-row">
+							<input
+								type="checkbox"
+								checked={defaultCommentsEnabled}
+								onChange={(event) =>
+									setDefaultCommentsEnabled(event.currentTarget.checked)
+								}
+							/>
+							<span>
+								Enable comments for newly synced posts
+								<small>Default for posts imported after this change.</small>
+							</span>
+						</label>
+						<label className="admin-checkbox-row">
+							<input
+								type="checkbox"
+								checked={moderationCommentsEnabled}
+								onChange={(event) =>
+									setModerationCommentsEnabled(event.currentTarget.checked)
+								}
+							/>
+							<span>
+								Review comments before publishing
+								<small>New comments wait for approval before appearing.</small>
+							</span>
+						</label>
+					</div>
+					<div className="admin-inline-actions">
+						<button
+							type="button"
+							disabled={commentSettingsPending}
+							onClick={saveCommentDefaults}
+						>
+							{commentSettingsPending ? "Saving..." : "Save settings"}
+						</button>
+						<span>{commentSettingsStatus}</span>
+					</div>
+				</section>
+			) : null}
+
+			<div className="admin-post-workspace">
+				<section className="admin-module admin-post-list-module">
+					<form className="admin-form admin-post-filters" onSubmit={applyFilters}>
+						<label>
+							Title keyword
+							<input
+								type="search"
+								placeholder="Search title"
+								value={titleKeyword}
+								onChange={(event) => setTitleKeyword(event.currentTarget.value)}
+							/>
+						</label>
+						<label>
+							Status
+							<input
+								type="search"
+								placeholder="Published, draft, hidden"
+								value={statusFilter}
+								onChange={(event) => setStatusFilter(event.currentTarget.value)}
+							/>
+						</label>
+						<label>
+							Sort
+							<select
+								value={sort}
+								onChange={(event) => setSort(event.currentTarget.value)}
+							>
+								{sortOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</label>
+						<button type="submit">Apply filters</button>
+					</form>
+
+					<div className="admin-post-list-status">
+						<p className="admin-note">{status}</p>
+						{error ? <p className="admin-error">{error}</p> : null}
+					</div>
+
+					{posts.length > 0 ? (
+						<div className="admin-table-wrap">
+							<table className="admin-table admin-post-table">
 								<thead>
 									<tr>
-										<th>Title</th>
-										<th>Slug</th>
+										<th>Post</th>
+										<th>State</th>
 										<th>Updated</th>
-										<th>Action</th>
+										<th>Sync</th>
+										<th>Manage</th>
 									</tr>
 								</thead>
 								<tbody>
-									{localDrafts.map((draft) => {
-										const title = draftTitle(draft);
+									{posts.map((post) => {
+										const title = postTitle(post);
+										const isSelected = activeManagedPost?.id === post.id;
+
 										return (
-											<tr key={draft.id}>
-												<td>{title}</td>
-												<td>{draft.slug ?? "-"}</td>
-												<td>{formatDate(draft.updatedAt)}</td>
-												<td>
+											<tr
+												key={post.id}
+												className={isSelected ? "selected" : undefined}
+											>
+												<td data-label="Post">
+													<a
+														className="admin-post-title-link"
+														href={postHref(post)}
+													>
+														{title}
+													</a>
+													<div className="admin-post-row-meta">
+														<span>{postSourceLabel(post)}</span>
+														<span>{post.slug ?? "No slug"}</span>
+													</div>
+												</td>
+												<td data-label="State">
+													<div className="admin-state-tags">
+														{postStateTags(post).map((tag) => (
+															<span key={tag}>{tag}</span>
+														))}
+													</div>
+												</td>
+												<td data-label="Updated">
+													{formatDate(post.notionLastEditedTime ?? post.updatedAt)}
+												</td>
+												<td data-label="Sync">
+													{post.lastSyncError ? (
+														<span className="admin-sync-error">
+															{post.lastSyncError}
+														</span>
+													) : (
+														<span className="admin-muted-text">Healthy</span>
+													)}
+												</td>
+												<td className="admin-actions-cell" data-label="Manage">
 													<button
 														type="button"
-														aria-label={`Open ${title}`}
-														disabled={openingDraftId === draft.id}
-														onClick={() => void openLocalDraft(draft.id)}
+														className="admin-secondary-button"
+														aria-pressed={isSelected}
+														onClick={() => setManagedPost(post)}
 													>
-														{openingDraftId === draft.id ? "Opening..." : "Open"}
+														Manage
 													</button>
 												</td>
 											</tr>
@@ -909,240 +1138,192 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 								</tbody>
 							</table>
 						</div>
-					) : null}
+					) : (
+						<div className="admin-empty-state">
+							<h3>No posts in this view</h3>
+							<p>Adjust the filters or create a local post to begin.</p>
+						</div>
+					)}
+
+					<div className="admin-pagination">
+						<button
+							type="button"
+							disabled={page <= 1}
+							onClick={() => setPage((current) => Math.max(1, current - 1))}
+						>
+							Previous
+						</button>
+						<span>
+							Page {page} of {pageCount}
+						</span>
+						<button
+							type="button"
+							disabled={page >= pageCount}
+							onClick={() => setPage((current) => current + 1)}
+						>
+							Next
+						</button>
+					</div>
 				</section>
-			) : null}
 
-			<section className="admin-module admin-post-comment-settings">
-				<div>
-					<h3>Comment settings</h3>
-					<p className="admin-note">
-						Controls whether visitors can add comments and whether newly synced
-						posts accept comments by default.
-					</p>
-				</div>
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={globalCommentsEnabled}
-						onChange={(event) =>
-							setGlobalCommentsEnabled(event.currentTarget.checked)
-						}
-					/>
-					Allow new comments across all posts
-				</label>
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={defaultCommentsEnabled}
-						onChange={(event) =>
-							setDefaultCommentsEnabled(event.currentTarget.checked)
-						}
-					/>
-					Enable comments for newly synced posts
-				</label>
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={moderationCommentsEnabled}
-						onChange={(event) =>
-							setModerationCommentsEnabled(event.currentTarget.checked)
-						}
-					/>
-					Review comments before publishing
-				</label>
-				<div className="admin-inline-actions">
-					<button
-						type="button"
-						disabled={commentSettingsPending}
-						onClick={saveCommentDefaults}
-					>
-						{commentSettingsPending ? "Saving..." : "Save settings"}
-					</button>
-					<span>{commentSettingsStatus}</span>
-				</div>
-			</section>
-
-			<form className="admin-form admin-post-filters" onSubmit={applyFilters}>
-				<label>
-					Title keyword
-					<input
-						type="search"
-						placeholder="Search title"
-						value={titleKeyword}
-						onChange={(event) => setTitleKeyword(event.currentTarget.value)}
-					/>
-				</label>
-				<label>
-					Status
-					<input
-						type="search"
-						placeholder="Published, draft, hidden"
-						value={statusFilter}
-						onChange={(event) => setStatusFilter(event.currentTarget.value)}
-					/>
-				</label>
-				<label>
-					Sort
-					<select
-						value={sort}
-						onChange={(event) => setSort(event.currentTarget.value)}
-					>
-						{sortOptions.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
-				</label>
-				<button type="submit">Apply filters</button>
-			</form>
-
-			<p className="admin-note">{status}</p>
-			{error ? <p className="admin-error">{error}</p> : null}
-
-			{posts.length > 0 ? (
-				<div className="admin-table-wrap">
-					<table className="admin-table admin-post-table">
-						<thead>
-							<tr>
-								<th>Title</th>
-								<th>Source</th>
-								<th>Visibility</th>
-								<th>Updated</th>
-								<th>Sync error</th>
-								<th>Actions</th>
-							</tr>
-						</thead>
-						<tbody>
-							{posts.map((post) => {
-								const title = postTitle(post);
-								const isHidden = post.manualVisibility === "hidden";
-								const isLocked = post.locked === true;
-								const commentsEnabled = post.commentsEnabled !== false;
-								const pendingAction = (action: string) =>
-									actionPending === `${post.id}:${action}`;
-
-								return (
-									<tr key={post.id}>
-										<td>
-											<a className="admin-post-title-link" href={postHref(post)}>
-												{title}
-											</a>
-										</td>
-										<td>{postSourceLabel(post)}</td>
-										<td>
-											{post.visibility ?? "-"}
-											{isHidden ? " / manually hidden" : ""}
-											{isLocked ? " / locked" : ""}
-											{commentsEnabled ? "" : " / comments off"}
-										</td>
-										<td>
-											{formatDate(post.notionLastEditedTime ?? post.updatedAt)}
-										</td>
-										<td>{post.lastSyncError ?? "-"}</td>
-										<td className="admin-actions-cell">
-											<div className="admin-row-actions">
-												<button
-													type="button"
-													disabled={pendingAction(isHidden ? "restore" : "hide")}
-													onClick={() =>
-														runAction(post, isHidden ? "restore" : "hide")
-													}
-												>
-													{isHidden ? "Restore" : "Hide"}
-												</button>
-												{isLocked ? (
-													<button
-														type="button"
-														disabled={pendingAction("unlock")}
-														onClick={() => runAction(post, "unlock")}
-													>
-														Unlock
-													</button>
-												) : (
-													<button
-														type="button"
-														disabled={pendingAction("lock")}
-														onClick={() => {
-															setLockPassword("");
-															setLockDialogPost(post);
-														}}
-													>
-														Lock
-													</button>
-												)}
-												<button
-													type="button"
-													onClick={() => openCommentsDialog(post)}
-												>
-													Comments
-												</button>
-												{post.sourceType === "local" ? (
-													<button
-														type="button"
-														disabled={pendingAction("edit")}
-														onClick={() => void editLocalPost(post)}
-													>
-														Edit
-													</button>
-												) : (
-													<button
-														type="button"
-														disabled={pendingAction("resync")}
-														onClick={() => runAction(post, "resync")}
-													>
-														Resync
-													</button>
-												)}
-												<button
-													type="button"
-													className="danger-link"
-													disabled={pendingAction("delete")}
-													onClick={() => setDeleteDialogPost(post)}
-												>
-													Delete
-												</button>
-												{isLocked && post.lockPassword ? (
-													<span className="admin-password-action">
-														<button
-															type="button"
-															aria-label="Show password"
-															className="admin-action-icon"
-															onClick={() => setPasswordDialogPost(post)}
-														>
-															<EyeIcon />
-														</button>
-													</span>
-												) : null}
-											</div>
-										</td>
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
-				</div>
-			) : null}
-
-			<div className="admin-pagination">
-				<button
-					type="button"
-					disabled={page <= 1}
-					onClick={() => setPage((current) => Math.max(1, current - 1))}
+				<aside
+					className={`admin-post-manager ${
+						activeManagedPost ? "" : "empty"
+					}`.trim()}
+					aria-label="Post management"
 				>
-					Previous
-				</button>
-				<span>
-					Page {page} of {pageCount}
-				</span>
-				<button
-					type="button"
-					disabled={page >= pageCount}
-					onClick={() => setPage((current) => current + 1)}
-				>
-					Next
-				</button>
+					{activeManagedPost ? (
+						<>
+							<div className="admin-post-manager-heading">
+								<div>
+									<p className="admin-eyebrow">Manage post</p>
+									<h3>{postTitle(activeManagedPost)}</h3>
+								</div>
+								<button
+									type="button"
+									className="admin-action-icon"
+									aria-label="Close post management"
+									onClick={() => setManagedPost(null)}
+								>
+									Close
+								</button>
+							</div>
+							<div className="admin-post-manager-meta">
+								<span>{postSourceLabel(activeManagedPost)}</span>
+								<span>{activeManagedPost.slug ?? "No slug"}</span>
+								<span>
+									Updated{" "}
+									{formatDate(
+										activeManagedPost.notionLastEditedTime ??
+											activeManagedPost.updatedAt,
+									)}
+								</span>
+							</div>
+							<div className="admin-state-tags">
+								{postStateTags(activeManagedPost).map((tag) => (
+									<span key={tag}>{tag}</span>
+								))}
+							</div>
+							{activeManagedPost.lastSyncError ? (
+								<p className="admin-sync-callout">
+									<strong>Sync error</strong>
+									<span>{activeManagedPost.lastSyncError}</span>
+								</p>
+							) : null}
+							<div className="admin-manager-section">
+								<h4>Visibility</h4>
+								<div className="admin-manager-actions">
+									<button
+										type="button"
+										disabled={
+											actionPending ===
+											`${activeManagedPost.id}:${
+												activeManagedPost.manualVisibility === "hidden"
+													? "restore"
+													: "hide"
+											}`
+										}
+										onClick={() =>
+											runAction(
+												activeManagedPost,
+												activeManagedPost.manualVisibility === "hidden"
+													? "restore"
+													: "hide",
+											)
+										}
+									>
+										{activeManagedPost.manualVisibility === "hidden"
+											? "Restore"
+											: "Hide"}
+									</button>
+									{activeManagedPost.locked ? (
+										<button
+											type="button"
+											disabled={
+												actionPending === `${activeManagedPost.id}:unlock`
+											}
+											onClick={() => runAction(activeManagedPost, "unlock")}
+										>
+											Unlock
+										</button>
+									) : (
+										<button
+											type="button"
+											disabled={actionPending === `${activeManagedPost.id}:lock`}
+											onClick={() => {
+												setLockPassword("");
+												setLockDialogPost(activeManagedPost);
+											}}
+										>
+											Lock
+										</button>
+									)}
+									{activeManagedPost.locked && activeManagedPost.lockPassword ? (
+										<button
+											type="button"
+											className="admin-secondary-button"
+											onClick={() => setPasswordDialogPost(activeManagedPost)}
+										>
+											Show password
+										</button>
+									) : null}
+								</div>
+							</div>
+							<div className="admin-manager-section">
+								<h4>Comments and source</h4>
+								<div className="admin-manager-actions">
+									<button
+										type="button"
+										onClick={() => openCommentsDialog(activeManagedPost)}
+									>
+										Comments
+									</button>
+									{activeManagedPost.sourceType === "local" ? (
+										<button
+											type="button"
+											disabled={
+												actionPending === `${activeManagedPost.id}:edit`
+											}
+											onClick={() => void editLocalPost(activeManagedPost)}
+										>
+											Edit
+										</button>
+									) : (
+										<button
+											type="button"
+											disabled={
+												actionPending === `${activeManagedPost.id}:resync`
+											}
+											onClick={() => runAction(activeManagedPost, "resync")}
+										>
+											Resync
+										</button>
+									)}
+								</div>
+							</div>
+							<div className="admin-manager-section danger">
+								<h4>Danger zone</h4>
+								<button
+									type="button"
+									className="danger-link"
+									disabled={actionPending === `${activeManagedPost.id}:delete`}
+									onClick={() => setDeleteDialogPost(activeManagedPost)}
+								>
+									Delete
+								</button>
+							</div>
+						</>
+					) : (
+						<div>
+							<p className="admin-eyebrow">No post selected</p>
+							<h3>Select a post</h3>
+							<p>
+								Choose Manage on a row to update visibility, comments, sync, or
+								deletion settings.
+							</p>
+						</div>
+					)}
+				</aside>
 			</div>
 			{toast ? (
 				<div className="admin-toast" role="status">

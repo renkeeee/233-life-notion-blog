@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
 import { AlbumPanel } from "../app/components/admin/AlbumPanel";
+import { CommentManagementPanel } from "../app/components/admin/CommentManagementPanel";
 import { PostStatusTable } from "../app/components/admin/PostStatusTable";
 import { SettingsPanel } from "../app/components/admin/SettingsPanel";
 import { SyncPanel } from "../app/components/admin/SyncPanel";
@@ -410,6 +411,215 @@ describe("SettingsPanel", () => {
 			apiGet.mockRestore();
 			apiPost.mockRestore();
 			apiPut.mockRestore();
+		}
+	});
+});
+
+describe("CommentManagementPanel", () => {
+	const settingsResponse = {
+		defaultEnabled: true,
+		globalEnabled: true,
+		moderationEnabled: false,
+	};
+	const pendingResponse = {
+		items: [
+			{
+				id: "comment-1",
+				nickname: "Ada",
+				body: "A pending hello.",
+				moderationStatus: "pending",
+				replyBody: null,
+				replyCreatedAt: null,
+				createdAt: "2026-05-22T10:00:00.000Z",
+				post: {
+					id: "post-1",
+					title: "Commented Post",
+					slug: "commented-post",
+					commentsEnabled: true,
+				},
+			},
+		],
+		total: 1,
+		page: 1,
+		limit: 20,
+	};
+	const approvedResponse = {
+		items: [
+			{
+				id: "comment-2",
+				nickname: "Grace",
+				body: "An approved note.",
+				moderationStatus: "approved",
+				replyBody: "Thanks for reading.",
+				replyCreatedAt: "2026-05-23T10:00:00.000Z",
+				createdAt: "2026-05-21T09:00:00.000Z",
+				post: {
+					id: "post-2",
+					title: "Quiet Post",
+					slug: "quiet-post",
+					commentsEnabled: false,
+				},
+			},
+		],
+		total: 1,
+		page: 1,
+		limit: 20,
+	};
+
+	it("loads settings and pending comments by default", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByRole("heading", { name: "Comment management" });
+			expect(screen.getByRole("button", { name: "Pending" })).toHaveClass("active");
+			expect(screen.getByText("A pending hello.")).toBeTruthy();
+			expect(screen.getByRole("link", { name: "Commented Post" })).toHaveAttribute(
+				"href",
+				"/post/commented-post",
+			);
+			expect(screen.getByLabelText("Allow new comments across all posts")).toBeChecked();
+			expect(apiGet).toHaveBeenCalledWith(
+				"/api/admin/comments?status=pending&page=1&limit=20",
+			);
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("switches views, searches, saves settings, approves, replies, and deletes comments", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve({
+					defaultEnabled: false,
+					globalEnabled: false,
+					moderationEnabled: true,
+				});
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(pendingResponse);
+			}
+			if (path === "/api/admin/comments?status=approved&page=1&limit=20") {
+				return Promise.resolve(approvedResponse);
+			}
+			if (path === "/api/admin/comments?status=all&page=1&limit=20") {
+				return Promise.resolve({
+					items: [],
+					total: 0,
+					page: 1,
+					limit: 20,
+				});
+			}
+			if (path === "/api/admin/comments?status=all&page=1&limit=20&q=Ada") {
+				return Promise.resolve(pendingResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve({
+					defaultEnabled: true,
+					globalEnabled: true,
+					moderationEnabled: true,
+				});
+			}
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return Promise.resolve({
+					comment: {
+						id: "comment-1",
+						nickname: "Ada",
+						body: "A pending hello.",
+						moderationStatus: "approved",
+						replyBody: "Thanks for the note.",
+						replyCreatedAt: "2026-05-23T10:00:00.000Z",
+						createdAt: "2026-05-22T10:00:00.000Z",
+					},
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockResolvedValue({ ok: true });
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			expect(screen.getByLabelText("Allow new comments across all posts")).not.toBeChecked();
+			fireEvent.click(screen.getByLabelText("Allow new comments across all posts"));
+			fireEvent.click(screen.getByLabelText("Enable comments for newly synced posts"));
+			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/comment-settings",
+					{
+						defaultEnabled: true,
+						globalEnabled: true,
+						moderationEnabled: true,
+					},
+					"csrf-token",
+				),
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+			await screen.findByText("An approved note.");
+			expect(apiGet).toHaveBeenCalledWith(
+				"/api/admin/comments?status=approved&page=1&limit=20",
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "All" }));
+			fireEvent.change(screen.getByLabelText("Search comments"), {
+				target: { value: "Ada" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Search" }));
+			await waitFor(() =>
+				expect(apiGet).toHaveBeenCalledWith(
+					"/api/admin/comments?status=all&page=1&limit=20&q=Ada",
+				),
+			);
+
+			fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-1",
+					{ moderationStatus: "approved" },
+					"csrf-token",
+				),
+			);
+
+			fireEvent.change(screen.getByLabelText("Reply to Ada"), {
+				target: { value: "Thanks for the note." },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Save reply" }));
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-1",
+					{ replyBody: "Thanks for the note." },
+					"csrf-token",
+				),
+			);
+			expect(screen.getByText("Thanks for the note.")).toBeTruthy();
+
+			fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+			await waitFor(() =>
+				expect(apiDelete).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/comments/comment-1",
+					"csrf-token",
+				),
+			);
+			await waitFor(() => expect(screen.queryByText("A pending hello.")).toBeNull());
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+			apiDelete.mockRestore();
 		}
 	});
 });

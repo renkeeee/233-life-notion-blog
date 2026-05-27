@@ -926,6 +926,107 @@ describe("CommentManagementPanel", () => {
 		}
 	});
 
+	it("keeps each row disabled until its own overlapping action resolves", async () => {
+		let resolveFirstReply: (value: {
+			comment: {
+				id: string;
+				nickname: string;
+				body: string;
+				moderationStatus: "pending";
+				replyBody: string;
+				replyCreatedAt: string;
+				createdAt: string;
+			};
+		}) => void = () => {};
+		let resolveSecondDelete: (value: { ok: boolean }) => void = () => {};
+		const twoPendingResponse = {
+			items: [
+				pendingResponse.items[0],
+				{
+					...pendingResponse.items[0],
+					id: "comment-2",
+					nickname: "Lin",
+					body: "Second pending hello.",
+				},
+			],
+			total: 2,
+			page: 1,
+			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(settingsResponse);
+			}
+			if (path === "/api/admin/comments?status=pending&page=1&limit=20") {
+				return Promise.resolve(twoPendingResponse);
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-1") {
+				return new Promise((resolve) => {
+					resolveFirstReply = resolve;
+				});
+			}
+			throw new Error(`Unexpected PUT ${path}`);
+		});
+		const apiDelete = vi.spyOn(apiClient, "apiDelete").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/post-1/comments/comment-2") {
+				return new Promise((resolve) => {
+					resolveSecondDelete = resolve;
+				});
+			}
+			throw new Error(`Unexpected DELETE ${path}`);
+		});
+
+		try {
+			render(<CommentManagementPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("A pending hello.");
+			const adaRow = screen.getByText("A pending hello.").closest("li");
+			const linRow = screen.getByText("Second pending hello.").closest("li");
+			if (!adaRow || !linRow) {
+				throw new Error("Expected comment rows");
+			}
+
+			fireEvent.change(within(adaRow).getByLabelText("Reply to Ada"), {
+				target: { value: "First reply pending." },
+			});
+			fireEvent.click(within(adaRow).getByRole("button", { name: "Save reply" }));
+			expect(within(adaRow).getByLabelText("Reply to Ada")).toBeDisabled();
+
+			fireEvent.click(within(linRow).getByRole("button", { name: "Delete" }));
+			expect(within(adaRow).getByLabelText("Reply to Ada")).toBeDisabled();
+			expect(within(adaRow).getByRole("button", { name: "Save reply" })).toBeDisabled();
+			expect(within(linRow).getByRole("button", { name: "Deleting..." })).toBeDisabled();
+
+			resolveSecondDelete({ ok: true });
+			await waitFor(() =>
+				expect(screen.queryByText("Second pending hello.")).toBeNull(),
+			);
+			expect(within(adaRow).getByLabelText("Reply to Ada")).toBeDisabled();
+
+			resolveFirstReply({
+				comment: {
+					id: "comment-1",
+					nickname: "Ada",
+					body: "A pending hello.",
+					moderationStatus: "pending",
+					replyBody: "First reply pending.",
+					replyCreatedAt: "2026-05-23T10:00:00.000Z",
+					createdAt: "2026-05-22T10:00:00.000Z",
+				},
+			});
+			await waitFor(() =>
+				expect(within(adaRow).getByLabelText("Reply to Ada")).not.toBeDisabled(),
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
 	it("clamps to an available page after removing the last comment on a later page", async () => {
 		const firstPageResponse = {
 			items: [

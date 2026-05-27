@@ -107,9 +107,11 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	const [listError, setListError] = useState<string | null>(null);
 	const [listPending, setListPending] = useState(false);
 	const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
-	const [actionPending, setActionPending] = useState<string | null>(null);
+	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>({});
 	const [toast, setToast] = useState<string | null>(null);
 	const commentsStatusRef = useRef(commentsStatus);
+	const commentsRef = useRef(comments);
+	const totalRef = useRef(total);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -119,6 +121,14 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 	useEffect(() => {
 		commentsStatusRef.current = commentsStatus;
 	}, [commentsStatus]);
+
+	useEffect(() => {
+		commentsRef.current = comments;
+	}, [comments]);
+
+	useEffect(() => {
+		totalRef.current = total;
+	}, [total]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -162,7 +172,9 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 					return;
 				}
 
+				commentsRef.current = response.items;
 				setComments(response.items);
+				totalRef.current = response.total;
 				setTotal(response.total);
 				setReplyDrafts(
 					Object.fromEntries(
@@ -181,7 +193,9 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) {
+					commentsRef.current = [];
 					setComments([]);
+					totalRef.current = 0;
 					setTotal(0);
 					setListStatus("Comments could not be loaded.");
 					setListError(errorMessage(error, "Comments could not be loaded."));
@@ -241,46 +255,74 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		setPage(1);
 	}
 
-	function clampPageForTotal(nextTotal: number) {
+	function setVisibleTotal(nextTotal: number) {
 		const nextPageCount = Math.max(1, Math.ceil(nextTotal / pageSize));
+		totalRef.current = nextTotal;
+		setTotal(nextTotal);
 		setPage((currentPage) => Math.min(currentPage, nextPageCount));
 	}
 
 	function decrementVisibleTotal() {
-		setTotal((currentTotal) => {
-			const nextTotal = Math.max(0, currentTotal - 1);
-			clampPageForTotal(nextTotal);
-			return nextTotal;
-		});
+		setVisibleTotal(Math.max(0, totalRef.current - 1));
 	}
 
 	function incrementVisibleTotal() {
-		setTotal((currentTotal) => currentTotal + 1);
+		setVisibleTotal(totalRef.current + 1);
+	}
+
+	function setCommentList(nextComments: AdminComment[]) {
+		commentsRef.current = nextComments;
+		setComments(nextComments);
+	}
+
+	function actionKey(comment: AdminComment, action: string) {
+		return `${comment.id}:${action}`;
+	}
+
+	function beginAction(key: string) {
+		setPendingActions((current) => ({
+			...current,
+			[key]: true,
+		}));
+	}
+
+	function endAction(key: string) {
+		setPendingActions((current) => {
+			const { [key]: _removed, ...next } = current;
+			return next;
+		});
+	}
+
+	function isActionPending(key: string): boolean {
+		return pendingActions[key] === true;
+	}
+
+	function isRowPending(commentId: string): boolean {
+		return Object.keys(pendingActions).some((key) =>
+			key.startsWith(`${commentId}:`),
+		);
 	}
 
 	function replaceComment(comment: AdminComment) {
 		const currentStatus = commentsStatusRef.current;
 		const remainsVisible = visibleCommentAfterUpdate(currentStatus, comment);
+		const currentComments = commentsRef.current;
+		const isInCurrentList = currentComments.some((item) => item.id === comment.id);
 
-		setComments((current) => {
-			const isInCurrentList = current.some((item) => item.id === comment.id);
+		if (!isInCurrentList && remainsVisible) {
+			setCommentList([comment, ...currentComments]);
+			incrementVisibleTotal();
+		} else if (isInCurrentList && !remainsVisible) {
+			setCommentList(currentComments.filter((item) => item.id !== comment.id));
+			decrementVisibleTotal();
+		} else if (isInCurrentList) {
+			setCommentList(
+				currentComments.map((item) =>
+					item.id === comment.id ? comment : item,
+				),
+			);
+		}
 
-			if (!isInCurrentList) {
-				if (remainsVisible) {
-					incrementVisibleTotal();
-					return [comment, ...current];
-				}
-
-				return current;
-			}
-
-			if (!remainsVisible) {
-				decrementVisibleTotal();
-				return current.filter((item) => item.id !== comment.id);
-			}
-
-			return current.map((item) => (item.id === comment.id ? comment : item));
-		});
 		setReplyDrafts((current) => ({
 			...current,
 			[comment.id]: comment.replyBody ?? current[comment.id] ?? "",
@@ -303,7 +345,8 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		body: { moderationStatus?: "pending" | "approved"; replyBody?: string | null },
 		successMessage: string,
 	) {
-		setActionPending(`${comment.id}:${Object.keys(body).join(",")}`);
+		const pendingKey = actionKey(comment, Object.keys(body).join(","));
+		beginAction(pendingKey);
 		setListError(null);
 		try {
 			const response = await apiPut<{ comment: Omit<AdminComment, "post"> }>(
@@ -318,12 +361,13 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be updated."));
 		} finally {
-			setActionPending(null);
+			endAction(pendingKey);
 		}
 	}
 
 	async function deleteComment(comment: AdminComment) {
-		setActionPending(`${comment.id}:delete`);
+		const pendingKey = actionKey(comment, "delete");
+		beginAction(pendingKey);
 		setListError(null);
 		try {
 			await apiDelete(
@@ -332,19 +376,16 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 				)}/comments/${encodeURIComponent(comment.id)}`,
 				csrfToken,
 			);
-			setComments((current) => {
-				if (!current.some((item) => item.id === comment.id)) {
-					return current;
-				}
-
+			const currentComments = commentsRef.current;
+			if (currentComments.some((item) => item.id === comment.id)) {
+				setCommentList(currentComments.filter((item) => item.id !== comment.id));
 				decrementVisibleTotal();
-				return current.filter((item) => item.id !== comment.id);
-			});
+			}
 			setToast("Comment deleted.");
 		} catch (error) {
 			setListError(errorMessage(error, "Comment could not be deleted."));
 		} finally {
-			setActionPending(null);
+			endAction(pendingKey);
 		}
 	}
 
@@ -465,7 +506,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 												type="button"
 												disabled={
 													listPending ||
-													actionPending?.startsWith(`${comment.id}:`)
+													isRowPending(comment.id)
 												}
 												onClick={() =>
 													updateComment(
@@ -482,11 +523,12 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 											type="button"
 											className="danger-link"
 											disabled={
-												listPending || actionPending === `${comment.id}:delete`
+												listPending ||
+												isActionPending(actionKey(comment, "delete"))
 											}
 											onClick={() => deleteComment(comment)}
 										>
-											{actionPending === `${comment.id}:delete`
+											{isActionPending(actionKey(comment, "delete"))
 												? "Deleting..."
 												: "Delete"}
 										</button>
@@ -512,7 +554,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 										maxLength={2000}
 										disabled={
 											listPending ||
-											actionPending?.startsWith(`${comment.id}:`)
+											isRowPending(comment.id)
 										}
 										onChange={(event) => {
 											const nextReply = event.currentTarget.value;
@@ -528,7 +570,7 @@ export function CommentManagementPanel({ csrfToken }: { csrfToken: string }) {
 										type="button"
 										disabled={
 											listPending ||
-											actionPending?.startsWith(`${comment.id}:`)
+											isRowPending(comment.id)
 										}
 										onClick={() =>
 											updateComment(

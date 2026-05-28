@@ -59,8 +59,10 @@ type UploadResponse = {
 type LocalPostEditorProps = {
 	csrfToken: string;
 	draft: LocalPostDraft;
+	immersive?: boolean;
 	onBack: () => void;
 	onDraftChange: (draft: LocalPostDraft) => void;
+	onImmersiveChange?: (immersive: boolean) => void;
 	onPublished: () => Promise<void> | void;
 };
 
@@ -139,8 +141,10 @@ function ExitImmersiveIcon() {
 export function LocalPostEditor({
 	csrfToken,
 	draft,
+	immersive,
 	onBack,
 	onDraftChange,
+	onImmersiveChange,
 	onPublished,
 }: LocalPostEditorProps) {
 	const editorRef = useRef<MDXEditorMethods>(null);
@@ -158,12 +162,22 @@ export function LocalPostEditor({
 	const [commentsEnabledTouched, setCommentsEnabledTouched] = useState(false);
 	const [markdown, setMarkdown] = useState(draft.markdown ?? "");
 	const [dirty, setDirty] = useState(false);
-	const [isImmersive, setIsImmersive] = useState(false);
+	const [localImmersive, setLocalImmersive] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [publishing, setPublishing] = useState(false);
 	const [uploading, setUploading] = useState(false);
 	const [status, setStatus] = useState("Draft ready.");
 	const [error, setError] = useState<string | null>(null);
+	const isImmersive = immersive ?? localImmersive;
+
+	function updateImmersive(nextImmersive: boolean) {
+		if (onImmersiveChange) {
+			onImmersiveChange(nextImmersive);
+			return;
+		}
+
+		setLocalImmersive(nextImmersive);
+	}
 
 	useEffect(() => {
 		if (!isImmersive) {
@@ -178,12 +192,12 @@ export function LocalPostEditor({
 				return;
 			}
 
-			setIsImmersive(false);
+			updateImmersive(false);
 		}
 
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [isImmersive]);
+	}, [isImmersive, onImmersiveChange]);
 
 	const editorPlugins = useMemo(
 		() => [
@@ -409,7 +423,7 @@ export function LocalPostEditor({
 							}
 							title={isImmersive ? "Exit immersive mode" : "Enter immersive mode"}
 							disabled={!isImmersive && busy}
-							onClick={() => setIsImmersive((current) => !current)}
+							onClick={() => updateImmersive(!isImmersive)}
 						>
 							{isImmersive ? <ExitImmersiveIcon /> : <EnterImmersiveIcon />}
 						</button>

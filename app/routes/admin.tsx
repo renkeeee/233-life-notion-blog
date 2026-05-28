@@ -1,6 +1,14 @@
 import { Fragment, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Navigate, NavLink, Route, Routes } from "react-router";
+import {
+	Navigate,
+	NavLink,
+	Route,
+	Routes,
+	useLocation,
+	useNavigate,
+	useSearchParams,
+} from "react-router";
 import "react-datepicker/dist/react-datepicker.css";
 import { AlbumPanel } from "../components/admin/AlbumPanel";
 import { AdminLogin } from "../components/admin/AdminLogin";
@@ -318,6 +326,53 @@ function Overview({
 	);
 }
 
+function PostStatusRoute({ csrfToken }: { csrfToken: string }) {
+	const location = useLocation();
+	const navigate = useNavigate();
+	const [searchParams] = useSearchParams();
+	const draftId = searchParams.get("draftId");
+	const immersive = searchParams.get("immersive") === "1";
+
+	if (location.pathname.endsWith("/edit") && !draftId) {
+		return <Navigate to="/admin/posts" replace />;
+	}
+
+	function navigateToDraft(nextDraftId: string | null) {
+		if (!nextDraftId) {
+			navigate("/admin/posts");
+			return;
+		}
+
+		navigate(`/admin/posts/edit?draftId=${encodeURIComponent(nextDraftId)}`);
+	}
+
+	function setImmersive(nextImmersive: boolean) {
+		if (!draftId) {
+			return;
+		}
+
+		const nextParams = new URLSearchParams(searchParams);
+		nextParams.set("draftId", draftId);
+		if (nextImmersive) {
+			nextParams.set("immersive", "1");
+		} else {
+			nextParams.delete("immersive");
+		}
+
+		navigate(`/admin/posts/edit?${nextParams.toString()}`, { replace: true });
+	}
+
+	return (
+		<PostStatusTable
+			csrfToken={csrfToken}
+			editorDraftId={draftId}
+			immersive={immersive}
+			onEditorDraftIdChange={navigateToDraft}
+			onImmersiveChange={setImmersive}
+		/>
+	);
+}
+
 export default function Admin() {
 	const [session, setSession] = useState<SessionState>({ status: "checking" });
 
@@ -472,7 +527,11 @@ export default function Admin() {
 				/>
 				<Route
 					path="posts"
-					element={<PostStatusTable csrfToken={session.csrfToken} />}
+					element={<PostStatusRoute csrfToken={session.csrfToken} />}
+				/>
+				<Route
+					path="posts/edit"
+					element={<PostStatusRoute csrfToken={session.csrfToken} />}
 				/>
 				<Route path="album" element={<AlbumPanel csrfToken={session.csrfToken} />} />
 				<Route

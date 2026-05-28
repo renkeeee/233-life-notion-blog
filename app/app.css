@@ -3286,7 +3286,15 @@ body {
 	border-bottom: 1px solid var(--admin-line-soft);
 	background: var(--admin-surface-muted);
 	overflow-x: auto;
+	overflow-y: visible;
 	padding: 8px 10px;
+}
+
+.admin-editor-writing.immersive .admin-mdx-toolbar {
+	align-items: center;
+	min-height: 58px;
+	padding: 11px 14px;
+	scrollbar-gutter: stable;
 }
 
 .admin-shell .admin-mdx-toolbar button {
@@ -3297,6 +3305,11 @@ body {
 	min-height: 32px;
 	padding: 6px 8px;
 	transform: none;
+}
+
+.admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar button {
+	min-height: 36px;
+	padding: 7px 9px;
 }
 
 .admin-shell .admin-mdx-toolbar button:not(:disabled):hover,

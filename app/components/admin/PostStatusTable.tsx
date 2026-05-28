@@ -77,6 +77,14 @@ type LocalPostDraftResponse = {
 	draft: LocalPostDraft;
 };
 
+type PostStatusTableProps = {
+	csrfToken: string;
+	editorDraftId?: string | null;
+	immersive?: boolean;
+	onEditorDraftIdChange?: (draftId: string | null) => void;
+	onImmersiveChange?: (immersive: boolean) => void;
+};
+
 type LocalPostDraftsResponse = {
 	items: LocalPostDraft[];
 };
@@ -262,7 +270,13 @@ function EyeIcon() {
 	);
 }
 
-export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
+export function PostStatusTable({
+	csrfToken,
+	editorDraftId,
+	immersive,
+	onEditorDraftIdChange,
+	onImmersiveChange,
+}: PostStatusTableProps) {
 	const [posts, setPosts] = useState<AdminPostRecord[]>([]);
 	const [status, setStatus] = useState("Loading post status...");
 	const [error, setError] = useState<string | null>(null);
@@ -318,6 +332,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		() => Math.max(1, Math.ceil(total / pageSize)),
 		[total],
 	);
+	const hasEditorRoute = editorDraftId !== undefined;
 	const activeManagedPost = managedPost
 		? (posts.find((post) => post.id === managedPost.id) ?? managedPost)
 		: null;
@@ -429,6 +444,55 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	}, []);
 
 	useEffect(() => {
+		if (!hasEditorRoute) {
+			return;
+		}
+		if (!editorDraftId) {
+			setEditorDraft(null);
+			return;
+		}
+		if (editorDraft?.id === editorDraftId) {
+			return;
+		}
+
+		let cancelled = false;
+		setOpeningDraftId(editorDraftId);
+		setError(null);
+		setToast(null);
+
+		apiGet<LocalPostDraftResponse>(
+			`/api/admin/local-posts/${encodeURIComponent(editorDraftId)}`,
+		)
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+
+				rememberLocalDraft(response.draft);
+				setEditorDraft(response.draft);
+			})
+			.catch((openError: unknown) => {
+				if (!cancelled) {
+					setEditorDraft(null);
+					setError(
+						openError instanceof Error
+							? openError.message
+							: "Local draft could not be opened.",
+					);
+				}
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setOpeningDraftId(null);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [editorDraft?.id, editorDraftId, hasEditorRoute]);
+
+	useEffect(() => {
 		if (!toast) {
 			return;
 		}
@@ -535,6 +599,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 			);
 			rememberLocalDraft(response.draft);
 			setEditorDraft(response.draft);
+			onEditorDraftIdChange?.(response.draft.id);
 		} catch (createError) {
 			setError(
 				createError instanceof Error
@@ -547,6 +612,11 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 	}
 
 	async function openLocalDraft(draftId: string) {
+		if (onEditorDraftIdChange) {
+			onEditorDraftIdChange(draftId);
+			return;
+		}
+
 		setOpeningDraftId(draftId);
 		setError(null);
 		setToast(null);
@@ -580,6 +650,7 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 				csrfToken,
 			);
 			setEditorDraft(response.draft);
+			onEditorDraftIdChange?.(response.draft.id);
 		} catch (editError) {
 			setError(
 				editError instanceof Error
@@ -854,18 +925,32 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 		rememberLocalDraft(draft);
 	}
 
+	if (editorDraftId && !editorDraft && openingDraftId === editorDraftId) {
+		return (
+			<section className="admin-module">
+				<p className="admin-eyebrow">Local draft</p>
+				<h2>Opening editor</h2>
+				<p className="admin-note">Loading local draft...</p>
+			</section>
+		);
+	}
+
 	if (editorDraft) {
 		return (
 			<LocalPostEditor
 				csrfToken={csrfToken}
 				draft={editorDraft}
+				immersive={immersive}
+				onImmersiveChange={onImmersiveChange}
 				onBack={() => {
 					setEditorDraft(null);
+					onEditorDraftIdChange?.(null);
 					void refreshLocalDrafts();
 				}}
 				onDraftChange={handleEditorDraftChange}
 				onPublished={async () => {
 					setEditorDraft(null);
+					onEditorDraftIdChange?.(null);
 					await Promise.all([
 						refreshPostsForCurrentView(),
 						refreshLocalDrafts(),

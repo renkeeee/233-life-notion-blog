@@ -12,7 +12,7 @@ import * as apiClient from "../app/lib/api-client";
 
 function LocationProbe() {
 	const location = useLocation();
-	return <span data-testid="admin-location">{location.pathname}</span>;
+	return <span data-testid="admin-location">{`${location.pathname}${location.search}`}</span>;
 }
 
 function renderAdmin(initialPath = "/admin/overview") {
@@ -2591,7 +2591,7 @@ describe("PostStatusTable", () => {
 			});
 
 			fireEvent.click(
-				screen.getByRole("button", { name: "Enter immersive mode" }),
+				await screen.findByRole("button", { name: "Enter immersive mode" }),
 			);
 
 			const immersiveEditor = screen.getByRole("region", {
@@ -4132,6 +4132,167 @@ describe("Admin", () => {
 			expect(screen.getByText("No comments in this view.")).toBeTruthy();
 			expect(screen.getByTestId("admin-location")).toHaveTextContent(
 				"/admin/comments",
+			);
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("opens the local post editor on the posts edit route and mirrors immersive mode in the query string", async () => {
+		const draft = {
+			id: "draft-1",
+			postId: null,
+			title: "Untitled draft",
+			slug: null,
+			excerpt: "",
+			markdown: "",
+			coverUrl: null,
+			category: null,
+			tags: [],
+			status: "draft",
+			commentsEnabled: null,
+			publishedAt: null,
+			createdAt: "2026-05-27T00:00:00.000Z",
+			updatedAt: "2026-05-27T00:00:00.000Z",
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation(async (path: string) => {
+			if (path === "/api/admin/me") {
+				return {
+					authenticated: true,
+					csrfToken: "csrf-token",
+					mustChangePassword: false,
+				};
+			}
+			if (path === "/api/admin/posts/comment-settings") {
+				return {
+					defaultEnabled: true,
+					globalEnabled: true,
+					moderationEnabled: false,
+				};
+			}
+			if (path.startsWith("/api/admin/posts?")) {
+				return { items: [], total: 0, page: 1, limit: 20 };
+			}
+			if (path === "/api/admin/local-posts") {
+				return { items: [] };
+			}
+			if (path === "/api/admin/local-posts/draft-1") {
+				return { draft };
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue({ draft });
+
+		try {
+			renderAdmin("/admin/posts");
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+
+			await screen.findByRole("heading", { name: "New local post" });
+			await waitFor(() =>
+				expect(screen.getByTestId("admin-location")).toHaveTextContent(
+					"/admin/posts/edit?draftId=draft-1",
+				),
+			);
+
+			fireEvent.click(
+				screen.getByRole("button", { name: "Enter immersive mode" }),
+			);
+
+			await screen.findByRole("region", { name: "Immersive editor" });
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/posts/edit?draftId=draft-1&immersive=1",
+			);
+			expect(screen.queryByRole("region", { name: "Article details" })).toBeNull();
+
+			fireEvent.click(
+				screen.getByRole("button", { name: "Exit immersive mode" }),
+			);
+
+			await screen.findByRole("region", { name: "Article details" });
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/posts/edit?draftId=draft-1",
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: "Back" }));
+			await waitFor(() =>
+				expect(screen.getByTestId("admin-location")).toHaveTextContent(
+					"/admin/posts",
+				),
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
+	it("loads a draft directly from the posts edit route with immersive mode enabled", async () => {
+		const draft = {
+			id: "draft-1",
+			postId: null,
+			title: "Focused draft",
+			slug: "focused-draft",
+			excerpt: "A small summary.",
+			markdown: "# Focused draft\n\nBody copy.",
+			coverUrl: null,
+			category: null,
+			tags: [],
+			status: "draft",
+			commentsEnabled: null,
+			publishedAt: null,
+			createdAt: "2026-05-27T00:00:00.000Z",
+			updatedAt: "2026-05-27T00:00:00.000Z",
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation(async (path: string) => {
+			if (path === "/api/admin/me") {
+				return {
+					authenticated: true,
+					csrfToken: "csrf-token",
+					mustChangePassword: false,
+				};
+			}
+			if (path === "/api/admin/posts/comment-settings") {
+				return {
+					defaultEnabled: true,
+					globalEnabled: true,
+					moderationEnabled: false,
+				};
+			}
+			if (path.startsWith("/api/admin/posts?")) {
+				return { items: [], total: 0, page: 1, limit: 20 };
+			}
+			if (path === "/api/admin/local-posts") {
+				return { items: [draft] };
+			}
+			if (path === "/api/admin/local-posts/draft-1") {
+				return { draft };
+			}
+			throw new Error(`Unexpected GET ${path}`);
+		});
+
+		try {
+			renderAdmin("/admin/posts/edit?draftId=draft-1&immersive=1");
+
+			const immersiveEditor = await screen.findByRole("region", {
+				name: "Immersive editor",
+			});
+			expect(within(immersiveEditor).getByLabelText("Title")).toHaveValue(
+				"Focused draft",
+			);
+			expect(within(immersiveEditor).getByLabelText("Markdown")).toHaveValue(
+				"# Focused draft\n\nBody copy.",
+			);
+			expect(apiGet).toHaveBeenCalledWith("/api/admin/local-posts/draft-1");
+			expect(screen.queryByRole("region", { name: "Article details" })).toBeNull();
+
+			fireEvent.keyDown(window, { key: "Escape" });
+
+			await screen.findByRole("region", { name: "Article details" });
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/posts/edit?draftId=draft-1",
 			);
 		} finally {
 			apiGet.mockRestore();

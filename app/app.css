@@ -3224,6 +3224,33 @@ body {
 	overflow: hidden;
 }
 
+.admin-mdx-toolbar {
+	border-bottom: 1px solid var(--admin-line-soft);
+	background: var(--admin-surface-muted);
+	overflow-x: auto;
+	padding: 8px 10px;
+}
+
+.admin-shell .admin-mdx-toolbar button {
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+	color: var(--admin-ink);
+	min-height: 32px;
+	padding: 6px 8px;
+	transform: none;
+}
+
+.admin-shell .admin-mdx-toolbar button:not(:disabled):hover,
+.admin-shell .admin-mdx-toolbar button[data-state="on"],
+.admin-shell .admin-mdx-toolbar button[aria-checked="true"] {
+	border-color: transparent;
+	background: rgb(255 255 255 / 0.82);
+	box-shadow: none;
+	color: var(--admin-ink);
+	transform: none;
+}
+
 .admin-mdx-editor-shell .mdxeditor {
 	min-height: 520px;
 }

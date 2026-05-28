@@ -47,7 +47,10 @@ vi.mock("@mdxeditor/editor", async () => {
 				}: {
 					markdown: string;
 					onChange: (markdown: string) => void;
-					plugins?: Array<{ name?: string }>;
+					plugins?: Array<{
+						name?: string;
+						toolbarContents?: () => React.ReactNode;
+					}>;
 					readOnly?: boolean;
 				},
 				ref: React.ForwardedRef<{
@@ -56,6 +59,11 @@ vi.mock("@mdxeditor/editor", async () => {
 				}>,
 			) => {
 				const [value, setValue] = React.useState(markdown);
+				const toolbarPlugin = plugins.find(
+					(plugin) =>
+						plugin.name === "toolbar" &&
+						typeof plugin.toolbarContents === "function",
+				);
 				React.useImperativeHandle(
 					ref,
 					() => ({
@@ -70,6 +78,11 @@ vi.mock("@mdxeditor/editor", async () => {
 						<div data-testid="mdx-editor-plugins">
 							{plugins.map((plugin) => plugin.name).join(",")}
 						</div>
+						{toolbarPlugin ? (
+							<div role="toolbar" aria-label="Markdown editor toolbar">
+								{toolbarPlugin.toolbarContents?.()}
+							</div>
+						) : null}
 						<textarea
 							aria-label="Markdown"
 							readOnly={readOnly}
@@ -83,13 +96,58 @@ vi.mock("@mdxeditor/editor", async () => {
 				);
 			},
 		),
+		BlockTypeSelect: () => <button type="button">Paragraph</button>,
+		BoldItalicUnderlineToggles: () => (
+			<>
+				<button type="button">Bold</button>
+				<button type="button">Italic</button>
+				<button type="button">Underline</button>
+			</>
+		),
+		CreateLink: () => <button type="button">Create link</button>,
+		DiffSourceToggleWrapper: ({
+			children,
+		}: {
+			children: React.ReactNode;
+		}) => (
+			<>
+				{children}
+				<button type="button">Rich text</button>
+				<button type="button">Source</button>
+				<button type="button">Diff</button>
+			</>
+		),
+		InsertImage: () => <button type="button">Insert image</button>,
+		InsertTable: () => <button type="button">Insert table</button>,
+		InsertThematicBreak: () => <button type="button">Insert thematic break</button>,
+		ListsToggle: () => (
+			<>
+				<button type="button">Bulleted list</button>
+				<button type="button">Numbered list</button>
+				<button type="button">Check list</button>
+			</>
+		),
+		Separator: () => <span role="separator" />,
+		UndoRedo: () => (
+			<>
+				<button type="button">Undo</button>
+				<button type="button">Redo</button>
+			</>
+		),
+		diffSourcePlugin: () => ({ name: "diffSource" }),
 		headingsPlugin: () => ({ name: "headings" }),
 		imagePlugin: () => ({ name: "image" }),
+		linkDialogPlugin: () => ({ name: "linkDialog" }),
 		linkPlugin: () => ({ name: "link" }),
 		listsPlugin: () => ({ name: "lists" }),
 		markdownShortcutPlugin: () => ({ name: "markdownShortcut" }),
 		quotePlugin: () => ({ name: "quote" }),
+		tablePlugin: () => ({ name: "table" }),
 		thematicBreakPlugin: () => ({ name: "thematicBreak" }),
+		toolbarPlugin: (params?: { toolbarContents?: () => React.ReactNode }) => ({
+			name: "toolbar",
+			toolbarContents: params?.toolbarContents,
+		}),
 	};
 });
 
@@ -2421,6 +2479,19 @@ describe("PostStatusTable", () => {
 				"Untitled draft",
 			);
 			expect(within(writingCanvas).getByLabelText("Markdown")).toBeTruthy();
+			const editorToolbar = within(writingCanvas).getByRole("toolbar", {
+				name: "Markdown editor toolbar",
+			});
+			expect(within(editorToolbar).getByRole("button", { name: "Bold" })).toBeTruthy();
+			expect(
+				within(editorToolbar).getByRole("button", { name: "Paragraph" }),
+			).toBeTruthy();
+			expect(
+				within(editorToolbar).getByRole("button", { name: "Source" }),
+			).toBeTruthy();
+			expect(
+				within(editorToolbar).getByRole("button", { name: "Diff" }),
+			).toBeTruthy();
 			expect(within(articleDetails).getByLabelText("Slug")).toBeTruthy();
 			expect(within(articleDetails).getByLabelText("Summary")).toBeTruthy();
 			expect(within(articleDetails).getByLabelText("Published at")).toBeTruthy();
@@ -2436,6 +2507,10 @@ describe("PostStatusTable", () => {
 			expect(screen.getByLabelText("Title")).toHaveValue("Untitled draft");
 			expect(screen.getByLabelText("Markdown")).toBeTruthy();
 			expect(screen.getByTestId("mdx-editor-plugins")).toHaveTextContent("image");
+			expect(screen.getByTestId("mdx-editor-plugins")).toHaveTextContent("toolbar");
+			expect(screen.getByTestId("mdx-editor-plugins")).toHaveTextContent(
+				"diffSource",
+			);
 			expect(apiPost).toHaveBeenCalledWith(
 				"/api/admin/local-posts",
 				expect.objectContaining({

@@ -57,4 +57,15 @@ describe("admin styles", () => {
 		expect(detailsCardRule).toContain("position: sticky");
 		expect(mobileWorkspaceRule).toContain("grid-template-columns: 1fr");
 	});
+
+	it("keeps the MDX editor toolbar visible and scrollable inside the editor shell", () => {
+		const toolbarRule = cssRule(".admin-mdx-toolbar");
+		const toolbarButtonRule = cssRule(".admin-shell .admin-mdx-toolbar button");
+
+		expect(toolbarRule).toContain("border-bottom: 1px solid var(--admin-line-soft)");
+		expect(toolbarRule).toContain("overflow-x: auto");
+		expect(toolbarRule).toContain("padding: 8px 10px");
+		expect(toolbarButtonRule).toContain("background: transparent");
+		expect(toolbarButtonRule).toContain("box-shadow: none");
+	});
 });

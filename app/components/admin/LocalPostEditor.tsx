@@ -1,13 +1,27 @@
 import { useMemo, useRef, useState } from "react";
 import {
+	BlockTypeSelect,
+	BoldItalicUnderlineToggles,
+	CreateLink,
+	DiffSourceToggleWrapper,
+	InsertImage,
+	InsertTable,
+	InsertThematicBreak,
+	ListsToggle,
 	MDXEditor,
+	Separator,
+	UndoRedo,
+	diffSourcePlugin,
 	headingsPlugin,
 	imagePlugin,
+	linkDialogPlugin,
 	linkPlugin,
 	listsPlugin,
 	markdownShortcutPlugin,
 	quotePlugin,
+	tablePlugin,
 	thematicBreakPlugin,
+	toolbarPlugin,
 	type MDXEditorMethods,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
@@ -134,15 +148,40 @@ export function LocalPostEditor({
 
 	const editorPlugins = useMemo(
 		() => [
+			toolbarPlugin({
+				toolbarClassName: "admin-mdx-toolbar",
+				toolbarContents: () => (
+					<DiffSourceToggleWrapper options={["rich-text", "source", "diff"]}>
+						<UndoRedo />
+						<Separator />
+						<BoldItalicUnderlineToggles />
+						<Separator />
+						<ListsToggle />
+						<Separator />
+						<BlockTypeSelect />
+						<Separator />
+						<CreateLink />
+						<InsertImage />
+						<InsertTable />
+						<InsertThematicBreak />
+					</DiffSourceToggleWrapper>
+				),
+			}),
+			diffSourcePlugin({
+				diffMarkdown: draft.markdown ?? "",
+				viewMode: "rich-text",
+			}),
 			headingsPlugin(),
 			imagePlugin(),
+			tablePlugin(),
 			listsPlugin(),
 			linkPlugin(),
+			linkDialogPlugin(),
 			quotePlugin(),
 			thematicBreakPlugin(),
 			markdownShortcutPlugin(),
 		],
-		[],
+		[draft.markdown],
 	);
 
 	function markDirty() {

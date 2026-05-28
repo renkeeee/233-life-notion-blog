@@ -786,14 +786,15 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 					</div>
 				</section>
 
-				<aside
-					className={`admin-album-inspector ${
-						activeManagedItem ? "" : "empty"
-					}`.trim()}
-					aria-label="Album item management"
-				>
-					{activeManagedItem ? (
-						<>
+			</div>
+			{activeManagedItem ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal admin-management-modal admin-album-inspector"
+						role="dialog"
+						aria-label="Album item management"
+						aria-modal="true"
+					>
 							<div className="admin-post-manager-heading">
 								<div>
 									<p className="admin-eyebrow">Inspect media</p>
@@ -884,19 +885,9 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 									Delete
 								</button>
 							</div>
-						</>
-					) : (
-						<div>
-							<p className="admin-eyebrow">No media selected</p>
-							<h3>Select media</h3>
-							<p>
-								Choose Manage on an item to edit details, adjust visibility, or
-								delete it from the album.
-							</p>
-						</div>
-					)}
-				</aside>
-			</div>
+					</div>
+				</div>
+			) : null}
 
 			{editingItem && form ? (
 				<div className="admin-modal-backdrop">

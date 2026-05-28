@@ -2863,7 +2863,7 @@ body {
 	align-items: start;
 	display: grid;
 	gap: 16px;
-	grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+	grid-template-columns: minmax(0, 1fr);
 }
 
 .admin-post-list-module {
@@ -2978,6 +2978,19 @@ body {
 	gap: 14px;
 	min-height: 260px;
 	padding: 18px;
+}
+
+.admin-modal.admin-management-modal {
+	max-height: min(820px, calc(100vh - 48px));
+	overflow-y: auto;
+	width: min(100%, 640px);
+}
+
+.admin-modal.admin-post-manager,
+.admin-modal.admin-album-inspector {
+	position: relative;
+	top: auto;
+	min-height: 0;
 }
 
 .admin-post-manager.empty {
@@ -3247,7 +3260,7 @@ body {
 	align-items: start;
 	display: grid;
 	gap: 16px;
-	grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+	grid-template-columns: minmax(0, 1fr);
 }
 
 .admin-album-library {

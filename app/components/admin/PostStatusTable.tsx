@@ -1166,14 +1166,15 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 					</div>
 				</section>
 
-				<aside
-					className={`admin-post-manager ${
-						activeManagedPost ? "" : "empty"
-					}`.trim()}
-					aria-label="Post management"
-				>
-					{activeManagedPost ? (
-						<>
+			</div>
+			{activeManagedPost ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal admin-management-modal admin-post-manager"
+						role="dialog"
+						aria-label="Post management"
+						aria-modal="true"
+					>
 							<div className="admin-post-manager-heading">
 								<div>
 									<p className="admin-eyebrow">Manage post</p>
@@ -1312,19 +1313,9 @@ export function PostStatusTable({ csrfToken }: { csrfToken: string }) {
 									Delete
 								</button>
 							</div>
-						</>
-					) : (
-						<div>
-							<p className="admin-eyebrow">No post selected</p>
-							<h3>Select a post</h3>
-							<p>
-								Choose Manage on a row to update visibility, comments, sync, or
-								deletion settings.
-							</p>
-						</div>
-					)}
-				</aside>
-			</div>
+					</div>
+				</div>
+			) : null}
 			{toast ? (
 				<div className="admin-toast" role="status">
 					{toast}

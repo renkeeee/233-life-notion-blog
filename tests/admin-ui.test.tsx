@@ -2390,6 +2390,14 @@ describe("PostStatusTable", () => {
 		return screen.getByLabelText("Post management");
 	}
 
+	function editorDetailsRegion(): HTMLElement {
+		return screen.getByRole("region", { name: "Article details" });
+	}
+
+	function clickEditorRailButton(name: string) {
+		fireEvent.click(within(editorDetailsRegion()).getByRole("button", { name }));
+	}
+
 	it("creates a local draft and opens the Markdown editor", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi
@@ -2403,6 +2411,28 @@ describe("PostStatusTable", () => {
 			fireEvent.click(screen.getByRole("button", { name: "New post" }));
 
 			await screen.findByRole("heading", { name: "New local post" });
+			const writingCanvas = screen.getByRole("region", {
+				name: "Writing canvas",
+			});
+			const articleDetails = screen.getByRole("region", {
+				name: "Article details",
+			});
+			expect(within(writingCanvas).getByLabelText("Title")).toHaveValue(
+				"Untitled draft",
+			);
+			expect(within(writingCanvas).getByLabelText("Markdown")).toBeTruthy();
+			expect(within(articleDetails).getByLabelText("Slug")).toBeTruthy();
+			expect(within(articleDetails).getByLabelText("Summary")).toBeTruthy();
+			expect(within(articleDetails).getByLabelText("Published at")).toBeTruthy();
+			expect(within(articleDetails).getByLabelText("Category")).toBeTruthy();
+			expect(within(articleDetails).getByLabelText("Tags")).toBeTruthy();
+			expect(within(articleDetails).getByLabelText("Enable comments")).toBeTruthy();
+			expect(
+				within(articleDetails).getByRole("button", { name: "Save draft" }),
+			).toBeTruthy();
+			expect(
+				within(articleDetails).getByRole("button", { name: "Publish" }),
+			).toBeTruthy();
 			expect(screen.getByLabelText("Title")).toHaveValue("Untitled draft");
 			expect(screen.getByLabelText("Markdown")).toBeTruthy();
 			expect(screen.getByTestId("mdx-editor-plugins")).toHaveTextContent("image");
@@ -2444,7 +2474,7 @@ describe("PostStatusTable", () => {
 			fireEvent.change(screen.getByLabelText("Markdown"), {
 				target: { value: "# Local notes\n\nDraft body." },
 			});
-			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+			clickEditorRailButton("Save draft");
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(
@@ -2520,7 +2550,7 @@ describe("PostStatusTable", () => {
 			fireEvent.change(screen.getByLabelText("Markdown"), {
 				target: { value: "# Local notes\n\nDraft body." },
 			});
-			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+			clickEditorRailButton("Save draft");
 			await screen.findByText("Draft saved.");
 
 			fireEvent.click(screen.getByRole("button", { name: "Back" }));
@@ -2561,7 +2591,7 @@ describe("PostStatusTable", () => {
 			await screen.findByText("No posts");
 			fireEvent.click(screen.getByRole("button", { name: "New post" }));
 			await screen.findByRole("heading", { name: "New local post" });
-			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+			clickEditorRailButton("Save draft");
 
 			await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
 			expect(screen.getByLabelText("Title")).toBeDisabled();
@@ -2598,7 +2628,7 @@ describe("PostStatusTable", () => {
 			fireEvent.click(screen.getByRole("button", { name: "New post" }));
 			await screen.findByRole("heading", { name: "New local post" });
 			fireEvent.click(screen.getByLabelText("Enable comments"));
-			fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+			clickEditorRailButton("Save draft");
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(
@@ -2746,7 +2776,7 @@ describe("PostStatusTable", () => {
 			fireEvent.change(screen.getByLabelText("Markdown"), {
 				target: { value: "# Local notes" },
 			});
-			fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+			clickEditorRailButton("Publish");
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(
@@ -2857,7 +2887,7 @@ describe("PostStatusTable", () => {
 			await screen.findByRole("heading", { name: "Local drafts" });
 			fireEvent.click(screen.getByRole("button", { name: "Open Pending Local" }));
 			await screen.findByRole("heading", { name: "New local post" });
-			fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+			clickEditorRailButton("Publish");
 
 			expect(
 				await screen.findByRole("link", { name: "Pending Local" }),

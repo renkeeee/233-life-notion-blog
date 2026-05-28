@@ -3110,7 +3110,23 @@ body {
 }
 
 .admin-local-post-editor {
-	max-width: 1120px;
+	max-width: 1280px;
+}
+
+.admin-editor-topbar {
+	align-items: center;
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background: var(--admin-card);
+	display: grid;
+	gap: 14px;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	padding: 14px;
+}
+
+.admin-editor-topbar h2 {
+	color: var(--admin-ink);
+	margin: 0;
 }
 
 .admin-editor-subtitle {
@@ -3120,26 +3136,62 @@ body {
 	margin: 6px 0 0;
 }
 
-.admin-editor-form .admin-field-grid {
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.admin-editor-markdown {
-	display: grid;
-	gap: 12px;
-}
-
-.admin-editor-toolbar,
-.admin-editor-actions {
-	align-items: center;
+.admin-editor-topbar-actions,
+.admin-editor-rail-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 10px;
+	justify-content: flex-end;
+}
+
+.admin-editor-workspace {
+	align-items: start;
+	display: grid;
+	gap: 16px;
+	grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.7fr);
+}
+
+.admin-editor-writing {
+	display: grid;
+	gap: 14px;
+	min-width: 0;
+}
+
+.admin-editor-details {
+	min-width: 0;
+}
+
+.admin-editor-section-heading {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
 	justify-content: space-between;
 }
 
-.admin-editor-toolbar h3 {
+.admin-editor-section-heading h3,
+.admin-editor-details h3 {
+	color: var(--admin-ink);
 	margin: 0;
+}
+
+.admin-editor-title-form {
+	gap: 0;
+}
+
+.admin-editor-details-card {
+	display: grid;
+	gap: 14px;
+	position: sticky;
+	top: 24px;
+}
+
+.admin-editor-details-form {
+	gap: 12px;
+}
+
+.admin-editor-details-form textarea {
+	min-height: 112px;
 }
 
 .admin-upload-button {
@@ -3173,16 +3225,12 @@ body {
 }
 
 .admin-mdx-editor-shell .mdxeditor {
-	min-height: 420px;
+	min-height: 520px;
 }
 
 .admin-mdx-editor-content {
-	min-height: 360px;
+	min-height: 460px;
 	padding: 18px;
-}
-
-.admin-editor-actions {
-	justify-content: flex-end;
 }
 
 .admin-album-table {
@@ -4392,8 +4440,9 @@ body {
 	}
 
 	.admin-section-actions,
-	.admin-editor-actions,
-	.admin-editor-toolbar {
+	.admin-editor-topbar-actions,
+	.admin-editor-section-heading,
+	.admin-editor-rail-actions {
 		justify-content: flex-start;
 		width: 100%;
 	}
@@ -4404,10 +4453,23 @@ body {
 	.admin-album-filters,
 	.admin-album-workspace,
 	.admin-album-tools,
+	.admin-editor-workspace,
 	.admin-inline-form,
 	.admin-field-grid,
 	.admin-overview-grid {
 		grid-template-columns: 1fr;
+	}
+
+	.admin-editor-topbar {
+		grid-template-columns: 1fr;
+	}
+
+	.admin-editor-workspace {
+		grid-template-columns: 1fr;
+	}
+
+	.admin-editor-details-card {
+		position: static;
 	}
 
 	.admin-post-workbench,

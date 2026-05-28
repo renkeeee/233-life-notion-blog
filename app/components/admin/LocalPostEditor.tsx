@@ -283,25 +283,67 @@ export function LocalPostEditor({
 	}
 
 	const busy = saving || publishing || uploading;
+	const saveLabel = saving ? "Saving..." : "Save draft";
+	const publishLabel = publishing ? "Publishing..." : "Publish";
+	const draftStateLabel = dirty ? "Unsaved changes" : `Status: ${draft.status}`;
 
 	return (
 		<div className="admin-stack admin-local-post-editor">
-			<div className="admin-section-heading">
-				<div>
-					<h2>New local post</h2>
-					<p className="admin-editor-subtitle">
-						{dirty ? "Unsaved changes" : `Status: ${draft.status}`}
-					</p>
-				</div>
-				<span className="admin-badge">Local draft</span>
-			</div>
-
-			<section className="admin-module">
-				<form
-					className="admin-form admin-editor-form"
-					onSubmit={(event) => event.preventDefault()}
+			<header className="admin-editor-topbar">
+				<button
+					type="button"
+					className="admin-secondary-button"
+					disabled={busy}
+					onClick={onBack}
 				>
-					<div className="admin-field-grid">
+					Back
+				</button>
+				<div>
+					<p className="admin-eyebrow">Local draft</p>
+					<h2>New local post</h2>
+					<p className="admin-editor-subtitle">{draftStateLabel}</p>
+				</div>
+				<div className="admin-editor-topbar-actions">
+					<button type="button" disabled={busy} onClick={() => void saveDraft()}>
+						{saveLabel}
+					</button>
+					<button type="button" disabled={busy} onClick={() => void publishDraft()}>
+						{publishLabel}
+					</button>
+				</div>
+			</header>
+
+			<div className="admin-editor-workspace">
+				<section
+					className="admin-module admin-editor-writing"
+					aria-labelledby="admin-editor-writing-heading"
+				>
+					<div className="admin-editor-section-heading">
+						<div>
+							<p className="admin-eyebrow">Writing canvas</p>
+							<h3 id="admin-editor-writing-heading">Writing canvas</h3>
+						</div>
+						<label className="admin-upload-button">
+							{uploading ? "Uploading..." : "Upload image"}
+							<input
+								aria-label="Upload image"
+								type="file"
+								accept="image/*"
+								disabled={busy}
+								onChange={(event) => {
+									const file = event.currentTarget.files?.[0];
+									event.currentTarget.value = "";
+									if (file) {
+										void uploadImage(file);
+									}
+								}}
+							/>
+						</label>
+					</div>
+					<form
+						className="admin-form admin-editor-title-form"
+						onSubmit={(event) => event.preventDefault()}
+					>
 						<label>
 							Title
 							<input
@@ -314,139 +356,131 @@ export function LocalPostEditor({
 								}}
 							/>
 						</label>
-						<label>
-							Slug
-							<input
-								disabled={busy}
-								type="text"
-								value={slug}
-								onChange={(event) => {
-									setSlug(event.currentTarget.value);
-									markDirty();
-								}}
-							/>
-						</label>
-						<label>
-							Published at
-							<input
-								disabled={busy}
-								type="datetime-local"
-								value={publishedAt}
-								onChange={(event) => {
-									setPublishedAt(event.currentTarget.value);
-									markDirty();
-								}}
-							/>
-						</label>
-						<label className="admin-field-card wide">
-							Summary
-							<textarea
-								disabled={busy}
-								rows={3}
-								value={excerpt}
-								onChange={(event) => {
-									setExcerpt(event.currentTarget.value);
-									markDirty();
-								}}
-							/>
-						</label>
-						<label>
-							Category
-							<input
-								disabled={busy}
-								type="text"
-								value={category}
-								onChange={(event) => {
-									setCategory(event.currentTarget.value);
-									markDirty();
-								}}
-							/>
-						</label>
-						<label>
-							Tags
-							<input
-								disabled={busy}
-								type="text"
-								value={tags}
-								onChange={(event) => {
-									setTags(event.currentTarget.value);
-									markDirty();
-								}}
-							/>
-						</label>
-						<label className="admin-checkbox">
-							<input
-								disabled={busy}
-								type="checkbox"
-								checked={commentsEnabled}
-								onChange={(event) => {
-									setCommentsEnabled(event.currentTarget.checked);
-									setCommentsEnabledTouched(true);
-									markDirty();
-								}}
-							/>
-							Enable comments
-						</label>
-					</div>
-				</form>
-			</section>
-
-			<section className="admin-module admin-editor-markdown">
-				<div className="admin-editor-toolbar">
-					<h3>Markdown</h3>
-					<label className="admin-upload-button">
-						{uploading ? "Uploading..." : "Upload image"}
-						<input
-							aria-label="Upload image"
-							type="file"
-							accept="image/*"
-							disabled={busy}
-							onChange={(event) => {
-								const file = event.currentTarget.files?.[0];
-								event.currentTarget.value = "";
-								if (file) {
-									void uploadImage(file);
+					</form>
+					<div className="admin-mdx-editor-shell">
+						<MDXEditor
+							ref={editorRef}
+							markdown={markdown}
+							plugins={editorPlugins}
+							readOnly={busy}
+							contentEditableClassName="admin-mdx-editor-content"
+							onChange={(value) => {
+								if (busy) {
+									return;
 								}
+								setMarkdown(value);
+								markDirty();
 							}}
 						/>
-					</label>
-				</div>
-				<div className="admin-mdx-editor-shell">
-					<MDXEditor
-						ref={editorRef}
-						markdown={markdown}
-						plugins={editorPlugins}
-						readOnly={busy}
-						contentEditableClassName="admin-mdx-editor-content"
-						onChange={(value) => {
-							if (busy) {
-								return;
-							}
-							setMarkdown(value);
-							markDirty();
-						}}
-					/>
-				</div>
-			</section>
+					</div>
+				</section>
 
-			{error ? <p className="admin-error">{error}</p> : null}
-			<p className="admin-note">{status}</p>
-
-			<div className="admin-editor-actions">
-				<button
-					type="button"
-					className="admin-secondary-button"
-					disabled={busy}
-					onClick={onBack}
+				<section
+					className="admin-module admin-editor-details"
+					aria-labelledby="admin-editor-details-heading"
 				>
-					Back
-				</button>
-				<button type="button" disabled={busy} onClick={() => void saveDraft()}>
-					{saving ? "Saving..." : "Save draft"}
-				</button>
-				<button type="button" disabled={busy} onClick={() => void publishDraft()}>
-					{publishing ? "Publishing..." : "Publish"}
-				</button>
+					<div className="admin-editor-details-card">
+						<div className="admin-section-heading compact">
+							<div>
+								<p className="admin-eyebrow">Article details</p>
+								<h3 id="admin-editor-details-heading">Article details</h3>
+							</div>
+							<span className="admin-badge">{dirty ? "Unsaved" : draft.status}</span>
+						</div>
+						{error ? <p className="admin-error">{error}</p> : null}
+						<p className="admin-note">{status}</p>
+						<form
+							className="admin-form admin-editor-details-form"
+							onSubmit={(event) => event.preventDefault()}
+						>
+							<label>
+								Slug
+								<input
+									disabled={busy}
+									type="text"
+									value={slug}
+									onChange={(event) => {
+										setSlug(event.currentTarget.value);
+										markDirty();
+									}}
+								/>
+							</label>
+							<label>
+								Summary
+								<textarea
+									disabled={busy}
+									rows={5}
+									value={excerpt}
+									onChange={(event) => {
+										setExcerpt(event.currentTarget.value);
+										markDirty();
+									}}
+								/>
+							</label>
+							<label>
+								Published at
+								<input
+									disabled={busy}
+									type="datetime-local"
+									value={publishedAt}
+									onChange={(event) => {
+										setPublishedAt(event.currentTarget.value);
+										markDirty();
+									}}
+								/>
+							</label>
+							<label>
+								Category
+								<input
+									disabled={busy}
+									type="text"
+									value={category}
+									onChange={(event) => {
+										setCategory(event.currentTarget.value);
+										markDirty();
+									}}
+								/>
+							</label>
+							<label>
+								Tags
+								<input
+									disabled={busy}
+									type="text"
+									value={tags}
+									onChange={(event) => {
+										setTags(event.currentTarget.value);
+										markDirty();
+									}}
+								/>
+							</label>
+							<label className="admin-checkbox">
+								<input
+									disabled={busy}
+									type="checkbox"
+									checked={commentsEnabled}
+									onChange={(event) => {
+										setCommentsEnabled(event.currentTarget.checked);
+										setCommentsEnabledTouched(true);
+										markDirty();
+									}}
+								/>
+								Enable comments
+							</label>
+						</form>
+						<div className="admin-editor-rail-actions">
+							<button type="button" disabled={busy} onClick={() => void saveDraft()}>
+								{saveLabel}
+							</button>
+							<button
+								type="button"
+								disabled={busy}
+								onClick={() => void publishDraft()}
+							>
+								{publishLabel}
+							</button>
+						</div>
+					</div>
+				</section>
 			</div>
 		</div>
 	);

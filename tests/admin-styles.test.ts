@@ -37,4 +37,24 @@ describe("admin styles", () => {
 		expect(listRule).toContain("display: grid");
 		expect(listRule).toContain("gap: 1rem");
 	});
+
+	it("lays out the local post editor as a writing canvas with a details rail", () => {
+		const workspaceRule = cssRule(".admin-editor-workspace");
+		const writingRule = cssRule(".admin-editor-writing");
+		const detailsRule = cssRule(".admin-editor-details");
+		const detailsCardRule = cssRule(".admin-editor-details-card");
+		const mobileWorkspaceRule =
+			adminCss.match(
+				/@media \(max-width: 720px\) \{[\s\S]+?\.admin-editor-workspace\s*\{([^}]+)\}/,
+			)?.[1] ?? "";
+
+		expect(workspaceRule).toContain("display: grid");
+		expect(workspaceRule).toContain(
+			"grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.7fr)",
+		);
+		expect(writingRule).toContain("min-width: 0");
+		expect(detailsRule).toContain("min-width: 0");
+		expect(detailsCardRule).toContain("position: sticky");
+		expect(mobileWorkspaceRule).toContain("grid-template-columns: 1fr");
+	});
 });

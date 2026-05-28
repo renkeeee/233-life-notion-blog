@@ -3792,7 +3792,7 @@ describe("Admin", () => {
 		}
 	});
 
-	it("shows comment management from settings and sidebar navigation", async () => {
+	it("places comments in the site navigation below posts", async () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
 			.mockImplementation(async (path: string) => {
@@ -3802,9 +3802,6 @@ describe("Admin", () => {
 						csrfToken: "csrf-token",
 						mustChangePassword: false,
 					};
-				}
-				if (path === "/api/admin/settings") {
-					return existingSettingsResponse;
 				}
 				if (path === "/api/admin/posts/comment-settings") {
 					return {
@@ -3820,15 +3817,24 @@ describe("Admin", () => {
 			});
 
 		try {
-			renderAdmin("/admin/settings");
+			renderAdmin("/admin/overview");
 
-			const entryLink = await screen.findByRole("link", {
-				name: "Comment management",
-			});
-			expect(entryLink).toHaveAttribute("href", "/admin/comments");
-			expect(screen.getByRole("link", { name: "Comments" })).toBeTruthy();
+			await screen.findByText("Operations");
+			const sidebarLinks = within(
+				screen.getByLabelText("Admin navigation"),
+			).getAllByRole("link");
+			expect(sidebarLinks.map((link) => link.textContent)).toEqual([
+				"Overview",
+				"Posts",
+				"Comments",
+				"Album",
+				"Sync",
+				"Password",
+				"Source",
+			]);
+			expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
 
-			fireEvent.click(entryLink);
+			fireEvent.click(screen.getByRole("link", { name: "Comments" }));
 
 			expect(
 				await screen.findByRole("heading", { name: "Comment management" }),
@@ -3886,7 +3892,7 @@ describe("Admin", () => {
 		}
 	});
 
-	it("shows password change in settings instead of overview", async () => {
+	it("shows password change from its own settings menu item", async () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
 			.mockImplementation(async (path: string) => {
@@ -3934,34 +3940,28 @@ describe("Admin", () => {
 			await screen.findByText("Operations");
 			expect(screen.queryByRole("button", { name: "Change password" })).toBeNull();
 
-			fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+			fireEvent.click(screen.getByRole("link", { name: "Password" }));
 
 			expect(
 				await screen.findByRole("button", { name: "Change password" }),
 			).toBeTruthy();
 			expect(screen.getByTestId("admin-location")).toHaveTextContent(
-				"/admin/settings",
+				"/admin/password",
 			);
 			expect(screen.getByText("Use this form to update your admin password.")).toBeTruthy();
 			expect(screen.getByText("Optional")).toBeTruthy();
 
 			const passwordModule = screen.getByRole("region", { name: "Password" });
-			const dataSourceModule = screen.getByRole("region", {
-				name: "Data source settings",
-			});
 			expect(passwordModule.querySelector("form")).toHaveClass("fluid");
 			expect(passwordModule).toContainElement(
 				screen.getByRole("button", { name: "Change password" }),
-			);
-			expect(dataSourceModule).toContainElement(
-				screen.getByRole("button", { name: "Test schema" }),
 			);
 		} finally {
 			apiGet.mockRestore();
 		}
 	});
 
-	it("loads settings from a direct admin section path", async () => {
+	it("loads source settings from a direct admin section path", async () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
 			.mockImplementation(async (path: string) => {
@@ -3987,18 +3987,51 @@ describe("Admin", () => {
 						publishedStatusValues: ["Published", "已发布"],
 					},
 				};
+		});
+		try {
+			renderAdmin("/admin/source");
+
+			expect(
+				await screen.findByRole("button", { name: "Test schema" }),
+			).toBeTruthy();
+			expect(screen.getByRole("link", { name: "Source" })).toHaveClass(
+				"active",
+			);
+			expect(screen.getByTestId("admin-location")).toHaveTextContent(
+				"/admin/source",
+			);
+			expect(screen.queryByRole("button", { name: "Change password" })).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("redirects the removed settings page to source settings", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+
+				if (path === "/api/admin/settings") {
+					return existingSettingsResponse;
+				}
+
+				throw new Error(`Unexpected GET ${path}`);
 			});
 		try {
 			renderAdmin("/admin/settings");
 
 			expect(
-				await screen.findByRole("button", { name: "Change password" }),
+				await screen.findByRole("button", { name: "Test schema" }),
 			).toBeTruthy();
-			expect(screen.getByRole("link", { name: "Settings" })).toHaveClass(
-				"active",
-			);
 			expect(screen.getByTestId("admin-location")).toHaveTextContent(
-				"/admin/settings",
+				"/admin/source",
 			);
 		} finally {
 			apiGet.mockRestore();

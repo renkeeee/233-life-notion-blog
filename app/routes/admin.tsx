@@ -427,47 +427,38 @@ export default function Admin() {
 				/>
 				<Route
 					path="settings"
+					element={<Navigate to="/admin/source" replace />}
+				/>
+				<Route
+					path="password"
 					element={
-						<div className="admin-settings-layout">
-							<section
-								className="admin-module"
-								aria-labelledby="admin-password-heading"
-							>
-								<PasswordChangePanel
-									csrfToken={session.csrfToken}
-									required={session.mustChangePassword}
-									onChanged={markPasswordChanged}
-									headingId="admin-password-heading"
-									layout="fluid"
-								/>
-							</section>
-							<section
-								className="admin-module"
-								aria-labelledby="admin-data-source-heading"
-							>
-								<SettingsPanel
-									csrfToken={session.csrfToken}
-									disabled={session.mustChangePassword}
-									headingId="admin-data-source-heading"
-								/>
-							</section>
-							<section
-								className="admin-module admin-settings-entry-card"
-								aria-labelledby="admin-comments-entry-heading"
-							>
-								<div className="admin-section-heading compact">
-									<h2 id="admin-comments-entry-heading">Comment management</h2>
-									<span className="admin-badge">Comments</span>
-								</div>
-								<p className="admin-note">
-									Review pending comments, reply to visitors, delete comments,
-									and adjust comment settings from one dedicated page.
-								</p>
-								<NavLink className="admin-secondary-button" to="/admin/comments">
-									Comment management
-								</NavLink>
-							</section>
-						</div>
+						<section
+							className="admin-module"
+							aria-labelledby="admin-password-heading"
+						>
+							<PasswordChangePanel
+								csrfToken={session.csrfToken}
+								required={session.mustChangePassword}
+								onChanged={markPasswordChanged}
+								headingId="admin-password-heading"
+								layout="fluid"
+							/>
+						</section>
+					}
+				/>
+				<Route
+					path="source"
+					element={
+						<section
+							className="admin-module"
+							aria-labelledby="admin-data-source-heading"
+						>
+							<SettingsPanel
+								csrfToken={session.csrfToken}
+								disabled={session.mustChangePassword}
+								headingId="admin-data-source-heading"
+							/>
+						</section>
 					}
 				/>
 				<Route

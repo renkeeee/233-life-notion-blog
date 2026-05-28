@@ -3,7 +3,8 @@ import { NavLink, useLocation } from "react-router";
 
 export type AdminSection =
 	| "overview"
-	| "settings"
+	| "source"
+	| "password"
 	| "sync"
 	| "posts"
 	| "album"
@@ -12,19 +13,21 @@ export type AdminSection =
 const siteSections: Array<{ id: AdminSection; label: string; path: string }> = [
 	{ id: "overview", label: "Overview", path: "/admin/overview" },
 	{ id: "posts", label: "Posts", path: "/admin/posts" },
-	{ id: "sync", label: "Sync", path: "/admin/sync" },
+	{ id: "comments", label: "Comments", path: "/admin/comments" },
 	{ id: "album", label: "Album", path: "/admin/album" },
 ];
 
 const settingsSections: Array<{ id: AdminSection; label: string; path: string }> = [
-	{ id: "settings", label: "Settings", path: "/admin/settings" },
-	{ id: "comments", label: "Comments", path: "/admin/comments" },
+	{ id: "sync", label: "Sync", path: "/admin/sync" },
+	{ id: "password", label: "Password", path: "/admin/password" },
+	{ id: "source", label: "Source", path: "/admin/source" },
 ];
 
 const sectionTitles: Record<AdminSection, { eyebrow: string; title: string }> = {
 	overview: { eyebrow: "Admin console", title: "Dashboard" },
-	settings: { eyebrow: "Admin console", title: "Settings" },
-	sync: { eyebrow: "Admin console", title: "Sync management" },
+	source: { eyebrow: "Settings", title: "Source settings" },
+	password: { eyebrow: "Settings", title: "Password" },
+	sync: { eyebrow: "Settings", title: "Sync management" },
 	posts: { eyebrow: "Admin console", title: "Posts" },
 	album: { eyebrow: "Admin console", title: "Album" },
 	comments: { eyebrow: "Admin console", title: "Comments" },

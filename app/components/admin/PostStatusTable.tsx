@@ -928,7 +928,6 @@ export function PostStatusTable({
 	if (editorDraftId && !editorDraft && openingDraftId === editorDraftId) {
 		return (
 			<section className="admin-module">
-				<p className="admin-eyebrow">Local draft</p>
 				<h2>Opening editor</h2>
 				<p className="admin-note">Loading local draft...</p>
 			</section>
@@ -965,12 +964,7 @@ export function PostStatusTable({
 		<div className="admin-stack admin-posts-page">
 			<section className="admin-post-workbench">
 				<div>
-					<p className="admin-eyebrow">Content operations</p>
 					<h2>Posts</h2>
-					<p>
-						Write local posts, review synced Notion content, and manage
-						visibility, locks, comments, and resyncs from one focused queue.
-					</p>
 				</div>
 				<div className="admin-post-workbench-actions">
 					<div className="admin-post-summary-grid" aria-label="Post summary">
@@ -1011,7 +1005,6 @@ export function PostStatusTable({
 				<section className="admin-module admin-drafts-strip">
 					<div>
 						<h3>Local drafts</h3>
-						<p>Saved drafts that have not been published yet.</p>
 					</div>
 					{draftsError ? <p className="admin-error">{draftsError}</p> : null}
 					{localDrafts.length > 0 ? (
@@ -1053,10 +1046,6 @@ export function PostStatusTable({
 				<section className="admin-module admin-post-comment-settings">
 					<div>
 						<h3>Comment settings</h3>
-						<p>
-							Controls whether visitors can add comments and whether newly
-							synced posts accept comments by default.
-						</p>
 					</div>
 					<div className="admin-post-settings-grid">
 						<label className="admin-checkbox-row">
@@ -1069,7 +1058,6 @@ export function PostStatusTable({
 							/>
 							<span>
 								Allow new comments across all posts
-								<small>Master switch for public comment forms.</small>
 							</span>
 						</label>
 						<label className="admin-checkbox-row">
@@ -1082,7 +1070,6 @@ export function PostStatusTable({
 							/>
 							<span>
 								Enable comments for newly synced posts
-								<small>Default for posts imported after this change.</small>
 							</span>
 						</label>
 						<label className="admin-checkbox-row">
@@ -1095,7 +1082,6 @@ export function PostStatusTable({
 							/>
 							<span>
 								Review comments before publishing
-								<small>New comments wait for approval before appearing.</small>
 							</span>
 						</label>
 					</div>
@@ -1226,7 +1212,6 @@ export function PostStatusTable({
 					) : (
 						<div className="admin-empty-state">
 							<h3>No posts in this view</h3>
-							<p>Adjust the filters or create a local post to begin.</p>
 						</div>
 					)}
 

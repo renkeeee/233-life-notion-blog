@@ -2571,6 +2571,51 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("keeps posts and editor pages free of explanatory copy", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			expect(screen.queryByText("Content operations")).toBeNull();
+			expect(
+				screen.queryByText(
+					/Write local posts, review synced Notion content/,
+				),
+			).toBeNull();
+
+			fireEvent.click(screen.getByRole("button", { name: "Comment settings" }));
+			expect(
+				screen.queryByText(
+					/Controls whether visitors can add comments/,
+				),
+			).toBeNull();
+			expect(
+				screen.queryByText("Master switch for public comment forms."),
+			).toBeNull();
+			expect(
+				screen.queryByText("Default for posts imported after this change."),
+			).toBeNull();
+			expect(
+				screen.queryByText("New comments wait for approval before appearing."),
+			).toBeNull();
+
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			expect(screen.queryByText("Local draft")).toBeNull();
+			expect(screen.queryByText("Writing canvas")).toBeNull();
+			expect(screen.queryByText("Article details")).toBeNull();
+			expect(screen.queryByText("Draft ready.")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("opens immersive editing mode without losing draft content", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi

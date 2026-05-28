@@ -2688,7 +2688,7 @@ body {
 	color: var(--admin-ink);
 	font-size: 1.5rem;
 	line-height: 1.1;
-	margin: 4px 0 8px;
+	margin: 0;
 }
 
 .admin-post-workbench p {
@@ -3196,6 +3196,11 @@ body {
 	flex-wrap: wrap;
 	gap: 12px;
 	justify-content: space-between;
+}
+
+.admin-editor-section-heading.action-only,
+.admin-section-heading.action-only {
+	justify-content: flex-end;
 }
 
 .admin-editor-writing.immersive .admin-editor-section-heading {

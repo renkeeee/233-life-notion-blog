@@ -166,7 +166,7 @@ export function LocalPostEditor({
 	const [saving, setSaving] = useState(false);
 	const [publishing, setPublishing] = useState(false);
 	const [uploading, setUploading] = useState(false);
-	const [status, setStatus] = useState("Draft ready.");
+	const [status, setStatus] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const isImmersive = immersive ?? localImmersive;
 
@@ -382,7 +382,6 @@ export function LocalPostEditor({
 						Back
 					</button>
 					<div>
-						<p className="admin-eyebrow">Local draft</p>
 						<h2>New local post</h2>
 						<p className="admin-editor-subtitle">{draftStateLabel}</p>
 					</div>
@@ -404,17 +403,9 @@ export function LocalPostEditor({
 					className={`admin-module admin-editor-writing${
 						isImmersive ? " immersive" : ""
 					}`}
-					aria-labelledby="admin-editor-writing-heading"
+					aria-label={isImmersive ? "Immersive editor" : "Writing canvas"}
 				>
-					<div className="admin-editor-section-heading">
-						<div>
-							<p className="admin-eyebrow">
-								{isImmersive ? "Immersive mode" : "Writing canvas"}
-							</p>
-							<h3 id="admin-editor-writing-heading">
-								{isImmersive ? "Immersive editor" : "Writing canvas"}
-							</h3>
-						</div>
+					<div className="admin-editor-section-heading action-only">
 						<button
 							type="button"
 							className="admin-editor-mode-button"
@@ -466,18 +457,14 @@ export function LocalPostEditor({
 				{isImmersive ? null : (
 					<section
 						className="admin-module admin-editor-details"
-						aria-labelledby="admin-editor-details-heading"
+						aria-label="Article details"
 					>
 						<div className="admin-editor-details-card">
-							<div className="admin-section-heading compact">
-								<div>
-									<p className="admin-eyebrow">Article details</p>
-									<h3 id="admin-editor-details-heading">Article details</h3>
-								</div>
+							<div className="admin-section-heading compact action-only">
 								<span className="admin-badge">{dirty ? "Unsaved" : draft.status}</span>
 							</div>
 							{error ? <p className="admin-error">{error}</p> : null}
-							<p className="admin-note">{status}</p>
+							{status ? <p className="admin-note">{status}</p> : null}
 							<form
 								className="admin-form admin-editor-details-form"
 								onSubmit={(event) => event.preventDefault()}

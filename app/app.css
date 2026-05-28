@@ -3136,8 +3136,7 @@ body {
 	margin: 6px 0 0;
 }
 
-.admin-editor-topbar-actions,
-.admin-editor-rail-actions {
+.admin-editor-topbar-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 10px;
@@ -4468,8 +4467,7 @@ body {
 
 	.admin-section-actions,
 	.admin-editor-topbar-actions,
-	.admin-editor-section-heading,
-	.admin-editor-rail-actions {
+	.admin-editor-section-heading {
 		justify-content: flex-start;
 		width: 100%;
 	}

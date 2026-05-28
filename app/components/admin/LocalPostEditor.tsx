@@ -506,18 +506,6 @@ export function LocalPostEditor({
 								Enable comments
 							</label>
 						</form>
-						<div className="admin-editor-rail-actions">
-							<button type="button" disabled={busy} onClick={() => void saveDraft()}>
-								{saveLabel}
-							</button>
-							<button
-								type="button"
-								disabled={busy}
-								onClick={() => void publishDraft()}
-							>
-								{publishLabel}
-							</button>
-						</div>
 					</div>
 				</section>
 			</div>

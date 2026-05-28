@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	BlockTypeSelect,
 	BoldItalicUnderlineToggles,
@@ -114,6 +114,28 @@ function uploadErrorMessage(body: unknown, fallback: string): string {
 	return fallback;
 }
 
+function EnterImmersiveIcon() {
+	return (
+		<svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
+			<path d="M4 8V4h4" />
+			<path d="M12 4h4v4" />
+			<path d="M16 12v4h-4" />
+			<path d="M8 16H4v-4" />
+		</svg>
+	);
+}
+
+function ExitImmersiveIcon() {
+	return (
+		<svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
+			<path d="M8 4v4H4" />
+			<path d="M12 4v4h4" />
+			<path d="M16 12h-4v4" />
+			<path d="M4 12h4v4" />
+		</svg>
+	);
+}
+
 export function LocalPostEditor({
 	csrfToken,
 	draft,
@@ -136,11 +158,32 @@ export function LocalPostEditor({
 	const [commentsEnabledTouched, setCommentsEnabledTouched] = useState(false);
 	const [markdown, setMarkdown] = useState(draft.markdown ?? "");
 	const [dirty, setDirty] = useState(false);
+	const [isImmersive, setIsImmersive] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [publishing, setPublishing] = useState(false);
 	const [uploading, setUploading] = useState(false);
 	const [status, setStatus] = useState("Draft ready.");
 	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!isImmersive) {
+			return;
+		}
+
+		function handleKeyDown(event: KeyboardEvent) {
+			if (event.key !== "Escape" || event.defaultPrevented) {
+				return;
+			}
+			if (document.querySelector('[role="dialog"]')) {
+				return;
+			}
+
+			setIsImmersive(false);
+		}
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [isImmersive]);
 
 	const editorPlugins = useMemo(
 		() => [
@@ -309,41 +352,67 @@ export function LocalPostEditor({
 	const draftStateLabel = dirty ? "Unsaved changes" : `Status: ${draft.status}`;
 
 	return (
-		<div className="admin-stack admin-local-post-editor">
-			<header className="admin-editor-topbar">
-				<button
-					type="button"
-					className="admin-secondary-button"
-					disabled={busy}
-					onClick={onBack}
-				>
-					Back
-				</button>
-				<div>
-					<p className="admin-eyebrow">Local draft</p>
-					<h2>New local post</h2>
-					<p className="admin-editor-subtitle">{draftStateLabel}</p>
-				</div>
-				<div className="admin-editor-topbar-actions">
-					<button type="button" disabled={busy} onClick={() => void saveDraft()}>
-						{saveLabel}
+		<div
+			className={`admin-stack admin-local-post-editor${
+				isImmersive ? " immersive" : ""
+			}`}
+		>
+			{isImmersive ? null : (
+				<header className="admin-editor-topbar">
+					<button
+						type="button"
+						className="admin-secondary-button"
+						disabled={busy}
+						onClick={onBack}
+					>
+						Back
 					</button>
-					<button type="button" disabled={busy} onClick={() => void publishDraft()}>
-						{publishLabel}
-					</button>
-				</div>
-			</header>
+					<div>
+						<p className="admin-eyebrow">Local draft</p>
+						<h2>New local post</h2>
+						<p className="admin-editor-subtitle">{draftStateLabel}</p>
+					</div>
+					<div className="admin-editor-topbar-actions">
+						<button type="button" disabled={busy} onClick={() => void saveDraft()}>
+							{saveLabel}
+						</button>
+						<button type="button" disabled={busy} onClick={() => void publishDraft()}>
+							{publishLabel}
+						</button>
+					</div>
+				</header>
+			)}
 
-			<div className="admin-editor-workspace">
+			<div
+				className={`admin-editor-workspace${isImmersive ? " immersive" : ""}`}
+			>
 				<section
-					className="admin-module admin-editor-writing"
+					className={`admin-module admin-editor-writing${
+						isImmersive ? " immersive" : ""
+					}`}
 					aria-labelledby="admin-editor-writing-heading"
 				>
 					<div className="admin-editor-section-heading">
 						<div>
-							<p className="admin-eyebrow">Writing canvas</p>
-							<h3 id="admin-editor-writing-heading">Writing canvas</h3>
+							<p className="admin-eyebrow">
+								{isImmersive ? "Immersive mode" : "Writing canvas"}
+							</p>
+							<h3 id="admin-editor-writing-heading">
+								{isImmersive ? "Immersive editor" : "Writing canvas"}
+							</h3>
 						</div>
+						<button
+							type="button"
+							className="admin-editor-mode-button"
+							aria-label={
+								isImmersive ? "Exit immersive mode" : "Enter immersive mode"
+							}
+							title={isImmersive ? "Exit immersive mode" : "Enter immersive mode"}
+							disabled={!isImmersive && busy}
+							onClick={() => setIsImmersive((current) => !current)}
+						>
+							{isImmersive ? <ExitImmersiveIcon /> : <EnterImmersiveIcon />}
+						</button>
 					</div>
 					<form
 						className="admin-form admin-editor-title-form"
@@ -380,100 +449,102 @@ export function LocalPostEditor({
 					</div>
 				</section>
 
-				<section
-					className="admin-module admin-editor-details"
-					aria-labelledby="admin-editor-details-heading"
-				>
-					<div className="admin-editor-details-card">
-						<div className="admin-section-heading compact">
-							<div>
-								<p className="admin-eyebrow">Article details</p>
-								<h3 id="admin-editor-details-heading">Article details</h3>
+				{isImmersive ? null : (
+					<section
+						className="admin-module admin-editor-details"
+						aria-labelledby="admin-editor-details-heading"
+					>
+						<div className="admin-editor-details-card">
+							<div className="admin-section-heading compact">
+								<div>
+									<p className="admin-eyebrow">Article details</p>
+									<h3 id="admin-editor-details-heading">Article details</h3>
+								</div>
+								<span className="admin-badge">{dirty ? "Unsaved" : draft.status}</span>
 							</div>
-							<span className="admin-badge">{dirty ? "Unsaved" : draft.status}</span>
+							{error ? <p className="admin-error">{error}</p> : null}
+							<p className="admin-note">{status}</p>
+							<form
+								className="admin-form admin-editor-details-form"
+								onSubmit={(event) => event.preventDefault()}
+							>
+								<label>
+									Slug
+									<input
+										disabled={busy}
+										type="text"
+										value={slug}
+										onChange={(event) => {
+											setSlug(event.currentTarget.value);
+											markDirty();
+										}}
+									/>
+								</label>
+								<label>
+									Summary
+									<textarea
+										disabled={busy}
+										rows={5}
+										value={excerpt}
+										onChange={(event) => {
+											setExcerpt(event.currentTarget.value);
+											markDirty();
+										}}
+									/>
+								</label>
+								<label>
+									Published at
+									<input
+										disabled={busy}
+										type="datetime-local"
+										value={publishedAt}
+										onChange={(event) => {
+											setPublishedAt(event.currentTarget.value);
+											markDirty();
+										}}
+									/>
+								</label>
+								<label>
+									Category
+									<input
+										disabled={busy}
+										type="text"
+										value={category}
+										onChange={(event) => {
+											setCategory(event.currentTarget.value);
+											markDirty();
+										}}
+									/>
+								</label>
+								<label>
+									Tags
+									<input
+										disabled={busy}
+										type="text"
+										value={tags}
+										onChange={(event) => {
+											setTags(event.currentTarget.value);
+											markDirty();
+										}}
+									/>
+								</label>
+								<label className="admin-checkbox">
+									<input
+										disabled={busy}
+										type="checkbox"
+										checked={commentsEnabled}
+										onChange={(event) => {
+											setCommentsEnabled(event.currentTarget.checked);
+											setCommentsEnabledTouched(true);
+											markDirty();
+										}}
+									/>
+									Enable comments
+								</label>
+							</form>
 						</div>
-						{error ? <p className="admin-error">{error}</p> : null}
-						<p className="admin-note">{status}</p>
-						<form
-							className="admin-form admin-editor-details-form"
-							onSubmit={(event) => event.preventDefault()}
-						>
-							<label>
-								Slug
-								<input
-									disabled={busy}
-									type="text"
-									value={slug}
-									onChange={(event) => {
-										setSlug(event.currentTarget.value);
-										markDirty();
-									}}
-								/>
-							</label>
-							<label>
-								Summary
-								<textarea
-									disabled={busy}
-									rows={5}
-									value={excerpt}
-									onChange={(event) => {
-										setExcerpt(event.currentTarget.value);
-										markDirty();
-									}}
-								/>
-							</label>
-							<label>
-								Published at
-								<input
-									disabled={busy}
-									type="datetime-local"
-									value={publishedAt}
-									onChange={(event) => {
-										setPublishedAt(event.currentTarget.value);
-										markDirty();
-									}}
-								/>
-							</label>
-							<label>
-								Category
-								<input
-									disabled={busy}
-									type="text"
-									value={category}
-									onChange={(event) => {
-										setCategory(event.currentTarget.value);
-										markDirty();
-									}}
-								/>
-							</label>
-							<label>
-								Tags
-								<input
-									disabled={busy}
-									type="text"
-									value={tags}
-									onChange={(event) => {
-										setTags(event.currentTarget.value);
-										markDirty();
-									}}
-								/>
-							</label>
-							<label className="admin-checkbox">
-								<input
-									disabled={busy}
-									type="checkbox"
-									checked={commentsEnabled}
-									onChange={(event) => {
-										setCommentsEnabled(event.currentTarget.checked);
-										setCommentsEnabledTouched(true);
-										markDirty();
-									}}
-								/>
-								Enable comments
-							</label>
-						</form>
-					</div>
-				</section>
+					</section>
+				)}
 			</div>
 		</div>
 	);

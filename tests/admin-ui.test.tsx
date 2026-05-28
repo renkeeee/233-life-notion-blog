@@ -2571,6 +2571,93 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("opens immersive editing mode without losing draft content", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.change(screen.getByLabelText("Title"), {
+				target: { value: "Focused draft" },
+			});
+			fireEvent.change(screen.getByLabelText("Markdown"), {
+				target: { value: "# Focused draft\n\nBody copy." },
+			});
+
+			fireEvent.click(
+				screen.getByRole("button", { name: "Enter immersive mode" }),
+			);
+
+			const immersiveEditor = screen.getByRole("region", {
+				name: "Immersive editor",
+			});
+			expect(within(immersiveEditor).getByLabelText("Title")).toHaveValue(
+				"Focused draft",
+			);
+			expect(within(immersiveEditor).getByLabelText("Markdown")).toHaveValue(
+				"# Focused draft\n\nBody copy.",
+			);
+			expect(
+				within(immersiveEditor).getByRole("button", {
+					name: "Exit immersive mode",
+				}),
+			).toBeTruthy();
+			expect(screen.queryByRole("region", { name: "Article details" })).toBeNull();
+			expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
+			expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+
+			fireEvent.click(
+				screen.getByRole("button", { name: "Exit immersive mode" }),
+			);
+
+			expect(screen.getByRole("region", { name: "Article details" })).toBeTruthy();
+			expect(screen.getByRole("button", { name: "Save draft" })).toBeTruthy();
+			expect(screen.getByLabelText("Title")).toHaveValue("Focused draft");
+			expect(screen.getByLabelText("Markdown")).toHaveValue(
+				"# Focused draft\n\nBody copy.",
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
+	it("exits immersive editing mode with Escape", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+			fireEvent.click(
+				screen.getByRole("button", { name: "Enter immersive mode" }),
+			);
+
+			expect(
+				screen.getByRole("region", { name: "Immersive editor" }),
+			).toBeTruthy();
+
+			fireEvent.keyDown(window, { key: "Escape" });
+
+			expect(screen.queryByRole("region", { name: "Immersive editor" })).toBeNull();
+			expect(screen.getByRole("region", { name: "Article details" })).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("saves a local draft with title, slug, and markdown", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi

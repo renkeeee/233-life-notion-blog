@@ -114,10 +114,6 @@ function uploadErrorMessage(body: unknown, fallback: string): string {
 	return fallback;
 }
 
-function imageAltFromFileName(name: string): string {
-	return name.replace(/\.[^.]+$/, "").trim() || "Uploaded image";
-}
-
 export function LocalPostEditor({
 	csrfToken,
 	draft,
@@ -172,7 +168,9 @@ export function LocalPostEditor({
 				viewMode: "rich-text",
 			}),
 			headingsPlugin(),
-			imagePlugin(),
+			imagePlugin({
+				imageUploadHandler: uploadEditorImage,
+			}),
 			tablePlugin(),
 			listsPlugin(),
 			linkPlugin(),
@@ -181,7 +179,7 @@ export function LocalPostEditor({
 			thematicBreakPlugin(),
 			markdownShortcutPlugin(),
 		],
-		[draft.markdown],
+		[csrfToken, draft.markdown],
 	);
 
 	function markDirty() {
@@ -265,17 +263,7 @@ export function LocalPostEditor({
 		}
 	}
 
-	function setMarkdownValue(value: string) {
-		if (busy) {
-			return;
-		}
-
-		setMarkdown(value);
-		editorRef.current?.setMarkdown(value);
-		markDirty();
-	}
-
-	async function uploadImage(file: File) {
+	async function uploadEditorImage(file: File): Promise<string> {
 		setUploading(true);
 		setError(null);
 		setStatus("Uploading image...");
@@ -296,19 +284,12 @@ export function LocalPostEditor({
 			}
 
 			const url = body.asset?.url ?? body.url;
-			const snippet =
-				body.markdown ??
-				(url ? `![${imageAltFromFileName(file.name)}](${url})` : null);
-			if (!snippet) {
+			if (!url) {
 				throw new Error("Image upload response did not include a URL.");
 			}
 
-			const currentMarkdown = editorRef.current?.getMarkdown() ?? markdown;
-			const nextMarkdown = `${currentMarkdown.trimEnd()}${
-				currentMarkdown.trimEnd() ? "\n\n" : ""
-			}${snippet}`;
-			setMarkdownValue(nextMarkdown);
-			setStatus("Image added to draft.");
+			setStatus("Image uploaded.");
+			return url;
 		} catch (uploadError) {
 			setError(
 				uploadError instanceof Error
@@ -316,6 +297,7 @@ export function LocalPostEditor({
 					: "Image could not be uploaded.",
 			);
 			setStatus("Image was not uploaded.");
+			throw uploadError;
 		} finally {
 			setUploading(false);
 		}
@@ -362,22 +344,6 @@ export function LocalPostEditor({
 							<p className="admin-eyebrow">Writing canvas</p>
 							<h3 id="admin-editor-writing-heading">Writing canvas</h3>
 						</div>
-						<label className="admin-upload-button">
-							{uploading ? "Uploading..." : "Upload image"}
-							<input
-								aria-label="Upload image"
-								type="file"
-								accept="image/*"
-								disabled={busy}
-								onChange={(event) => {
-									const file = event.currentTarget.files?.[0];
-									event.currentTarget.value = "";
-									if (file) {
-										void uploadImage(file);
-									}
-								}}
-							/>
-						</label>
 					</div>
 					<form
 						className="admin-form admin-editor-title-form"

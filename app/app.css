@@ -3193,29 +3193,6 @@ body {
 	min-height: 112px;
 }
 
-.admin-upload-button {
-	align-items: center;
-	background: var(--admin-ink);
-	border-radius: 6px;
-	color: #ffffff;
-	cursor: pointer;
-	display: inline-flex;
-	font-size: 0.86rem;
-	font-weight: 750;
-	justify-content: center;
-	min-height: 38px;
-	padding: 8px 14px;
-}
-
-.admin-upload-button input {
-	clip: rect(0 0 0 0);
-	height: 1px;
-	overflow: hidden;
-	position: absolute;
-	white-space: nowrap;
-	width: 1px;
-}
-
 .admin-mdx-editor-shell {
 	border: 1px solid var(--admin-line);
 	border-radius: 8px;

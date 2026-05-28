@@ -35,6 +35,16 @@ function renderAdmin(initialPath = "/admin/overview") {
 
 vi.mock("@mdxeditor/editor", async () => {
 	const React = await import("react");
+	type MockPlugin = {
+		imageUploadHandler?: (file: File) => Promise<string>;
+		name?: string;
+		toolbarContents?: () => React.ReactNode;
+	};
+	type MockEditorContext = {
+		plugins: MockPlugin[];
+		updateMarkdown: (updater: (value: string) => string) => void;
+	};
+	const EditorContext = React.createContext<MockEditorContext | null>(null);
 
 	return {
 		MDXEditor: React.forwardRef(
@@ -47,10 +57,7 @@ vi.mock("@mdxeditor/editor", async () => {
 				}: {
 					markdown: string;
 					onChange: (markdown: string) => void;
-					plugins?: Array<{
-						name?: string;
-						toolbarContents?: () => React.ReactNode;
-					}>;
+					plugins?: MockPlugin[];
 					readOnly?: boolean;
 				},
 				ref: React.ForwardedRef<{
@@ -79,9 +86,22 @@ vi.mock("@mdxeditor/editor", async () => {
 							{plugins.map((plugin) => plugin.name).join(",")}
 						</div>
 						{toolbarPlugin ? (
-							<div role="toolbar" aria-label="Markdown editor toolbar">
-								{toolbarPlugin.toolbarContents?.()}
-							</div>
+							<EditorContext.Provider
+								value={{
+									plugins,
+									updateMarkdown: (updater) => {
+										setValue((currentValue) => {
+											const nextValue = updater(currentValue);
+											onChange(nextValue);
+											return nextValue;
+										});
+									},
+								}}
+							>
+								<div role="toolbar" aria-label="Markdown editor toolbar">
+									{toolbarPlugin.toolbarContents?.()}
+								</div>
+							</EditorContext.Provider>
 						) : null}
 						<textarea
 							aria-label="Markdown"
@@ -117,7 +137,35 @@ vi.mock("@mdxeditor/editor", async () => {
 				<button type="button">Diff</button>
 			</>
 		),
-		InsertImage: () => <button type="button">Insert image</button>,
+		InsertImage: () => {
+			const context = React.useContext(EditorContext);
+			const imageUploadHandler = context?.plugins.find(
+				(plugin) => plugin.name === "image",
+			)?.imageUploadHandler;
+
+			return (
+				<label>
+					Insert image
+					<input
+						aria-label="Insert image file"
+						type="file"
+						onChange={async (event) => {
+							const file = event.currentTarget.files?.[0];
+							if (!file || !imageUploadHandler || !context) {
+								return;
+							}
+
+							const url = await imageUploadHandler(file);
+							context.updateMarkdown((currentValue) => {
+								const snippet = `![${file.name.replace(/\.[^.]+$/, "")}](${url})`;
+								const prefix = currentValue.trimEnd();
+								return `${prefix}${prefix ? "\n\n" : ""}${snippet}`;
+							});
+						}}
+					/>
+				</label>
+			);
+		},
 		InsertTable: () => <button type="button">Insert table</button>,
 		InsertThematicBreak: () => <button type="button">Insert thematic break</button>,
 		ListsToggle: () => (
@@ -136,7 +184,12 @@ vi.mock("@mdxeditor/editor", async () => {
 		),
 		diffSourcePlugin: () => ({ name: "diffSource" }),
 		headingsPlugin: () => ({ name: "headings" }),
-		imagePlugin: () => ({ name: "image" }),
+		imagePlugin: (params?: {
+			imageUploadHandler?: (file: File) => Promise<string>;
+		}) => ({
+			name: "image",
+			imageUploadHandler: params?.imageUploadHandler,
+		}),
 		linkDialogPlugin: () => ({ name: "linkDialog" }),
 		linkPlugin: () => ({ name: "link" }),
 		listsPlugin: () => ({ name: "lists" }),
@@ -2474,6 +2527,7 @@ describe("PostStatusTable", () => {
 			const editorToolbar = within(writingCanvas).getByRole("toolbar", {
 				name: "Markdown editor toolbar",
 			});
+			expect(within(writingCanvas).queryByText("Upload image")).toBeNull();
 			expect(within(editorToolbar).getByRole("button", { name: "Bold" })).toBeTruthy();
 			expect(
 				within(editorToolbar).getByRole("button", { name: "Paragraph" }),
@@ -2713,7 +2767,7 @@ describe("PostStatusTable", () => {
 		}
 	});
 
-	it("uploads an image and inserts image markdown through the editor ref", async () => {
+	it("uploads an image through the MDX editor image control", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi
 			.spyOn(apiClient, "apiPost")
@@ -2739,13 +2793,24 @@ describe("PostStatusTable", () => {
 			fireEvent.change(screen.getByLabelText("Markdown"), {
 				target: { value: "# Local notes" },
 			});
-			fireEvent.change(screen.getByLabelText("Upload image"), {
+			const writingCanvas = screen.getByRole("region", {
+				name: "Writing canvas",
+			});
+			const editorToolbar = within(writingCanvas).getByRole("toolbar", {
+				name: "Markdown editor toolbar",
+			});
+			expect(within(writingCanvas).queryByText("Upload image")).toBeNull();
+			fireEvent.change(within(editorToolbar).getByLabelText("Insert image file"), {
 				target: {
 					files: [new File(["image"], "photo.png", { type: "image/png" })],
 				},
 			});
 
-			await screen.findByText("Image added to draft.");
+			await waitFor(() =>
+				expect(screen.getByLabelText("Markdown")).toHaveValue(
+					"# Local notes\n\n![photo](https://assets.example.com/assets/photo.png)",
+				),
+			);
 			expect(fetchMock).toHaveBeenCalledWith(
 				"/api/admin/uploads",
 				expect.objectContaining({
@@ -2755,9 +2820,6 @@ describe("PostStatusTable", () => {
 						"x-csrf-token": "csrf-token",
 					}),
 				}),
-			);
-			expect(screen.getByLabelText("Markdown")).toHaveValue(
-				"# Local notes\n\n![photo](https://assets.example.com/assets/photo.png)",
 			);
 		} finally {
 			apiGet.mockRestore();

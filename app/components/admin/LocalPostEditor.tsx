@@ -56,6 +56,8 @@ type UploadResponse = {
 	url?: string;
 };
 
+const autoSaveDelayMs = 1500;
+
 type LocalPostEditorProps = {
 	csrfToken: string;
 	draft: LocalPostDraft;
@@ -169,6 +171,8 @@ export function LocalPostEditor({
 	const [status, setStatus] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const isImmersive = immersive ?? localImmersive;
+	const editVersionRef = useRef(0);
+	const autoSaveFailedVersionRef = useRef<number | null>(null);
 
 	function updateImmersive(nextImmersive: boolean) {
 		if (onImmersiveChange) {
@@ -240,7 +244,10 @@ export function LocalPostEditor({
 	);
 
 	function markDirty() {
+		editVersionRef.current += 1;
+		autoSaveFailedVersionRef.current = null;
 		setDirty(true);
+		setError(null);
 		setStatus("Unsaved changes.");
 	}
 
@@ -261,10 +268,11 @@ export function LocalPostEditor({
 		};
 	}
 
-	async function saveDraft(): Promise<boolean> {
+	async function saveDraft(mode: "manual" | "auto" = "manual"): Promise<boolean> {
+		const saveVersion = editVersionRef.current;
 		setSaving(true);
 		setError(null);
-		setStatus("Saving draft...");
+		setStatus(mode === "auto" ? "Auto-saving..." : "Saving draft...");
 
 		try {
 			const response = await apiPut<LocalPostDraftResponse>(
@@ -273,26 +281,70 @@ export function LocalPostEditor({
 				csrfToken,
 			);
 			onDraftChange(response.draft);
-			setDirty(false);
-			setStatus("Draft saved.");
+			if (editVersionRef.current === saveVersion) {
+				autoSaveFailedVersionRef.current = null;
+				setDirty(false);
+				setStatus(mode === "auto" ? "Saved just now." : "Draft saved.");
+			} else {
+				setDirty(true);
+				setStatus("Unsaved changes.");
+			}
 			return true;
 		} catch (saveError) {
 			setError(
 				saveError instanceof Error ? saveError.message : "Draft could not be saved.",
 			);
-			setStatus("Draft was not saved.");
+			if (mode === "auto") {
+				autoSaveFailedVersionRef.current = saveVersion;
+				setStatus("Auto-save failed. Keep editing or save manually.");
+			} else {
+				setStatus("Draft was not saved.");
+			}
 			return false;
 		} finally {
 			setSaving(false);
 		}
 	}
 
+	useEffect(() => {
+		if (!dirty || saving || publishing || uploading) {
+			return;
+		}
+		if (autoSaveFailedVersionRef.current === editVersionRef.current) {
+			return;
+		}
+
+		const timeoutId = window.setTimeout(() => {
+			void saveDraft("auto");
+		}, autoSaveDelayMs);
+
+		return () => window.clearTimeout(timeoutId);
+	}, [
+		category,
+		commentsEnabled,
+		commentsEnabledTouched,
+		csrfToken,
+		dirty,
+		draft.commentsEnabled,
+		draft.coverUrl,
+		draft.id,
+		excerpt,
+		markdown,
+		publishedAt,
+		publishing,
+		saving,
+		slug,
+		tags,
+		title,
+		uploading,
+	]);
+
 	async function publishDraft() {
 		setPublishing(true);
 		setError(null);
 		setStatus("Publishing...");
 
-		const saved = await saveDraft();
+		const saved = await saveDraft("manual");
 		if (!saved) {
 			setPublishing(false);
 			return;
@@ -386,7 +438,11 @@ export function LocalPostEditor({
 						<p className="admin-editor-subtitle">{draftStateLabel}</p>
 					</div>
 					<div className="admin-editor-topbar-actions">
-						<button type="button" disabled={busy} onClick={() => void saveDraft()}>
+						<button
+							type="button"
+							disabled={busy}
+							onClick={() => void saveDraft("manual")}
+						>
 							{saveLabel}
 						</button>
 						<button type="button" disabled={busy} onClick={() => void publishDraft()}>

@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { AdminLogin } from "../app/components/admin/AdminLogin";
@@ -2743,6 +2750,74 @@ describe("PostStatusTable", () => {
 			);
 			await screen.findByText("Draft saved.");
 		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
+	it("auto-saves a local draft after editing pauses", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi
+			.spyOn(apiClient, "apiPost")
+			.mockResolvedValue(newDraftResponse);
+		const savedDraftResponse = {
+			draft: {
+				...newDraftResponse.draft,
+				title: "Auto Saved Notes",
+				slug: "auto-saved-notes",
+				markdown: "# Auto saved\n\nDraft body.",
+				updatedAt: "2026-05-27T00:10:00.000Z",
+			},
+		};
+		const apiPut = vi
+			.spyOn(apiClient, "apiPut")
+			.mockResolvedValue(savedDraftResponse);
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "New post" }));
+			await screen.findByRole("heading", { name: "New local post" });
+
+			vi.useFakeTimers();
+			fireEvent.change(screen.getByLabelText("Title"), {
+				target: { value: "Auto Saved Notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Slug"), {
+				target: { value: "auto-saved-notes" },
+			});
+			fireEvent.change(screen.getByLabelText("Markdown"), {
+				target: { value: "# Auto saved\n\nDraft body." },
+			});
+
+			await act(async () => {
+				vi.advanceTimersByTime(1499);
+				await Promise.resolve();
+			});
+			expect(apiPut).not.toHaveBeenCalled();
+
+			await act(async () => {
+				vi.advanceTimersByTime(1);
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+
+			expect(apiPut).toHaveBeenCalledTimes(1);
+			expect(apiPut).toHaveBeenCalledWith(
+				"/api/admin/local-posts/draft-1",
+				expect.objectContaining({
+					title: "Auto Saved Notes",
+					slug: "auto-saved-notes",
+					markdown: "# Auto saved\n\nDraft body.",
+					commentsEnabled: null,
+				}),
+				"csrf-token",
+			);
+			expect(screen.getByText("Saved just now.")).toBeTruthy();
+		} finally {
+			vi.useRealTimers();
 			apiGet.mockRestore();
 			apiPost.mockRestore();
 			apiPut.mockRestore();

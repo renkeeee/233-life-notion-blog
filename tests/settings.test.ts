@@ -16,6 +16,7 @@ const expectedSettingKeys = [
 	"notionToken",
 	"cdnBaseUrl",
 	"fieldMapping",
+	"albumPostMediaEnabled",
 ];
 
 function testSettings(notionToken = "ntn_secret"): SiteSettings {
@@ -26,6 +27,7 @@ function testSettings(notionToken = "ntn_secret"): SiteSettings {
 		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 		notionToken,
 		cdnBaseUrl: "https://cdn.example.com",
+		albumPostMediaEnabled: true,
 		fieldMapping: {
 			title: "Name",
 			status: "Status",
@@ -97,6 +99,27 @@ describe("settings storage helpers", () => {
 		const rows = await serializeSettingsForStorage(settings, rootKey);
 
 		await expect(parseSettingsFromRows(rows, rootKey)).resolves.toEqual(settings);
+	});
+
+	it("defaults article album media to enabled for older stored settings", async () => {
+		const rootKey = generateEncryptionKey();
+
+		await expect(
+			parseSettingsFromRows(
+				[
+					settingRow("siteTitle", "233 Life"),
+					settingRow("notionDatabaseUrl", "url"),
+					settingRow("notionDatabaseId", "id"),
+					settingRow("notionToken", "ntn_secret"),
+					settingRow("cdnBaseUrl", "https://cdn.example.com"),
+					settingRow(
+						"fieldMapping",
+						JSON.stringify({ title: "Name", status: "Status" }),
+					),
+				],
+				rootKey,
+			),
+		).resolves.toMatchObject({ albumPostMediaEnabled: true });
 	});
 
 	it("parses field mapping JSON, keeps tags, and ignores removed mapping keys", async () => {

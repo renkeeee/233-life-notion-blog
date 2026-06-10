@@ -155,6 +155,7 @@ type AlbumCollectionRow = {
 type ListAlbumOptions = {
 	page: number;
 	limit: number;
+	includePostMedia?: boolean;
 	kind?: PublicAlbumMediaRecord["kind"];
 	collection?: string;
 	featured?: boolean;
@@ -594,16 +595,19 @@ export class PostsRepository {
 		options: ListAlbumOptions = { page: 1, limit: 30 },
 	): Promise<PublicAlbumList> {
 		const offset = (options.page - 1) * options.limit;
-		const values: unknown[] = [];
+		const values: unknown[] = [options.includePostMedia === false ? 0 : 1];
 		const clauses = [
 			"ai.visibility = 'visible'",
 			`(
 				ai.post_id IS NULL
 				OR (
+					? = 1
+					AND
 					p.id IS NOT NULL
 					AND p.visibility = 'published'
 					AND p.manual_visibility = 'visible'
 					AND p.locked = 0
+					AND p.album_media_enabled = 1
 				)
 			)`,
 		];

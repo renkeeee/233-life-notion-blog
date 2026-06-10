@@ -300,6 +300,7 @@ function insertPublicPost(
 		coverUrl?: string | null;
 		category?: string | null;
 		commentsEnabled?: boolean;
+		albumMediaEnabled?: boolean;
 		publishedAt?: string | null;
 	},
 ): void {
@@ -309,9 +310,9 @@ function insertPublicPost(
 			id, notion_page_id, slug, title, excerpt, cover_url, category,
 			status, visibility, published_at, notion_last_edited_time,
 			content_hash, last_sync_error, created_at, updated_at, comments_enabled,
-			source_type, source_id
+			source_type, source_id, album_media_enabled
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
 	)
 		.bind(
 			input.id,
@@ -331,6 +332,7 @@ function insertPublicPost(
 			input.commentsEnabled === false ? 0 : 1,
 			input.sourceType ?? "notion",
 			input.sourceId ?? null,
+			input.albumMediaEnabled === true ? 1 : 0,
 		)
 		.run();
 }
@@ -975,11 +977,12 @@ describe("admin API routes", () => {
 				manual_visibility TEXT NOT NULL DEFAULT 'visible' CHECK (manual_visibility IN ('visible', 'hidden')),
 				locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
 				lock_password_encrypted TEXT,
-				comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1)),
-				source_type TEXT CHECK (source_type IN ('notion', 'local')),
-				source_id TEXT
-			)`,
-		);
+					comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1)),
+					source_type TEXT CHECK (source_type IN ('notion', 'local')),
+					source_id TEXT,
+					album_media_enabled INTEGER NOT NULL DEFAULT 0 CHECK (album_media_enabled IN (0, 1))
+				)`,
+			);
 		db.prepare(
 			`INSERT INTO posts (
 				id, notion_page_id, slug, title, cover_url, status, visibility,
@@ -1046,6 +1049,52 @@ describe("admin API routes", () => {
 				code: "BAD_REQUEST",
 				message: "Local posts cannot be resynced",
 			},
+		});
+	});
+
+	it("toggles whether a post can publish its media to the album", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		insertPublicPost(db, {
+			id: "post-1",
+			slug: "post-1",
+			title: "Post with media",
+		});
+
+		const initialListResponse = await handleAdminApi(
+			adminRequest("/api/admin/posts", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(initialListResponse.status).toBe(200);
+		await expect(initialListResponse.json()).resolves.toMatchObject({
+			items: [expect.objectContaining({ albumMediaEnabled: false })],
+		});
+
+		const enableResponse = await handleAdminApi(
+			adminRequest("/api/admin/posts/post-1/album-on", {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "POST",
+			}),
+			env,
+		);
+
+		expect(enableResponse.status).toBe(200);
+		await expect(enableResponse.json()).resolves.toEqual({ ok: true });
+
+		const enabledListResponse = await handleAdminApi(
+			adminRequest("/api/admin/posts", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		await expect(enabledListResponse.json()).resolves.toMatchObject({
+			items: [expect.objectContaining({ albumMediaEnabled: true })],
 		});
 	});
 

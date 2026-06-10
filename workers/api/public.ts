@@ -1,4 +1,5 @@
 import { PostsRepository, SettingsRepository } from "../db/d1";
+import { loadAlbumPostMediaEnabled } from "../album-settings";
 import {
 	checkCommentSubmissionRateLimit,
 	commentRateLimitMessage,
@@ -732,6 +733,7 @@ async function handlePublicApiResponse(
 
 		const result = await posts.listPublicAlbum({
 			...pagination,
+			includePostMedia: await loadAlbumPostMediaEnabled(env.DB),
 			kind,
 			collection: (url.searchParams.get("collection") ?? "").trim() || undefined,
 			featured: albumFeaturedFromParams(url.searchParams),

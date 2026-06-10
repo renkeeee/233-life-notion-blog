@@ -44,6 +44,10 @@ type AlbumResponse = {
 	collections: AlbumCollection[];
 };
 
+type AlbumSettingsResponse = {
+	postMediaEnabled: boolean;
+};
+
 type AlbumItemForm = {
 	title: string;
 	description: string;
@@ -225,6 +229,10 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 	const [collectionTitleInput, setCollectionTitleInput] = useState("");
 	const [uploadFile, setUploadFile] = useState<File | null>(null);
 	const [uploadTitle, setUploadTitle] = useState("");
+	const [postMediaEnabled, setPostMediaEnabled] = useState(true);
+	const [settingsStatus, setSettingsStatus] =
+		useState("Loading album settings...");
+	const [settingsPending, setSettingsPending] = useState(false);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -289,6 +297,33 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 	]);
 
 	useEffect(() => {
+		let cancelled = false;
+
+		apiGet<AlbumSettingsResponse>("/api/admin/album/settings")
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+
+				setPostMediaEnabled(response.postMediaEnabled);
+				setSettingsStatus("Album settings loaded.");
+			})
+			.catch((loadError: unknown) => {
+				if (!cancelled) {
+					setSettingsStatus(
+						loadError instanceof Error
+							? loadError.message
+							: "Album settings could not be loaded.",
+					);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
 		if (!toast) {
 			return;
 		}
@@ -305,6 +340,30 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 		setAppliedCollection(collection);
 		setAppliedFeatured(featured);
 		setPage(1);
+	}
+
+	async function saveAlbumSettings(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setSettingsPending(true);
+		setSettingsStatus("Saving album settings...");
+		try {
+			const response = await apiPut<AlbumSettingsResponse>(
+				"/api/admin/album/settings",
+				{ postMediaEnabled },
+				csrfToken,
+			);
+			setPostMediaEnabled(response.postMediaEnabled);
+			setSettingsStatus("Album settings saved.");
+			setToast("Album settings saved.");
+		} catch (saveError) {
+			setSettingsStatus(
+				saveError instanceof Error
+					? saveError.message
+					: "Album settings could not be saved.",
+			);
+		} finally {
+			setSettingsPending(false);
+		}
 	}
 
 	function toggleSelection(itemId: string) {
@@ -571,6 +630,27 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 					<button type="submit" disabled={pending}>
 						Create collection
 					</button>
+				</form>
+				<form className="admin-album-command-card" onSubmit={saveAlbumSettings}>
+					<div>
+						<p className="admin-eyebrow">Settings</p>
+						<h3>Article media</h3>
+						<p>Allow eligible post media to appear in the public album.</p>
+					</div>
+					<label className="admin-checkbox-row">
+						<input
+							type="checkbox"
+							checked={postMediaEnabled}
+							onChange={(event) =>
+								setPostMediaEnabled(event.currentTarget.checked)
+							}
+						/>
+						<span>Show media from posts</span>
+					</label>
+					<button type="submit" disabled={settingsPending}>
+						{settingsPending ? "Saving..." : "Save settings"}
+					</button>
+					<p className="admin-note">{settingsStatus}</p>
 				</form>
 			</section>
 

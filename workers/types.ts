@@ -122,6 +122,7 @@ export interface SiteSettings {
 	notionDatabaseId: string;
 	notionToken: string;
 	cdnBaseUrl: string;
+	albumPostMediaEnabled: boolean;
 	fieldMapping: FieldMapping;
 }
 

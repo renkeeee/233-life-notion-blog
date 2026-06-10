@@ -17,6 +17,7 @@ type AdminPostRecord = {
 	manualVisibility?: "visible" | "hidden" | null;
 	locked?: boolean | null;
 	commentsEnabled?: boolean | null;
+	albumMediaEnabled?: boolean | null;
 	lockPassword?: string | null;
 	publishedAt?: string | null;
 	notionLastEditedTime?: string | null;
@@ -46,6 +47,8 @@ type AdminPostAction =
 	| "lock"
 	| "unlock"
 	| "delete"
+	| "album-on"
+	| "album-off"
 	| "resync";
 
 type CommentSettingsResponse = {
@@ -141,6 +144,8 @@ const actionLabels: Record<AdminPostAction, string> = {
 	lock: "locked",
 	unlock: "unlocked",
 	delete: "deleted",
+	"album-on": "album media enabled",
+	"album-off": "album media disabled",
 	resync: "resync queued",
 };
 
@@ -890,6 +895,9 @@ export function PostStatusTable({
 			if (action === "hide" || action === "restore") {
 				setToast(`${title} ${actionLabels[action]}.`);
 			}
+			if (action === "album-on" || action === "album-off") {
+				setToast(`${title} ${actionLabels[action]}.`);
+			}
 			if (action === "resync") {
 				setToast(
 					`${title} resync queued${
@@ -1371,6 +1379,26 @@ export function PostStatusTable({
 										</button>
 									)}
 								</div>
+							</div>
+							<div className="admin-manager-section">
+								<h4>Album media</h4>
+								<label className="admin-checkbox-row">
+									<input
+										type="checkbox"
+										checked={activeManagedPost.albumMediaEnabled === true}
+										disabled={
+											actionPending === `${activeManagedPost.id}:album-on` ||
+											actionPending === `${activeManagedPost.id}:album-off`
+										}
+										onChange={(event) =>
+											runAction(
+												activeManagedPost,
+												event.currentTarget.checked ? "album-on" : "album-off",
+											)
+										}
+									/>
+									<span>Show this post's media in the album</span>
+								</label>
 							</div>
 							<div className="admin-manager-section danger">
 								<h4>Danger zone</h4>

@@ -30,6 +30,10 @@ import {
 	saveCommentsModerationEnabled,
 } from "../comments";
 import {
+	loadAlbumPostMediaEnabled,
+	saveAlbumPostMediaEnabled,
+} from "../album-settings";
+import {
 	parseSettingsFromRows,
 	redactSettings,
 	serializeSettingsForStorage,
@@ -82,6 +86,10 @@ type CommentSettingsBody = {
 	moderationEnabled?: boolean;
 };
 
+type AlbumSettingsBody = {
+	postMediaEnabled: boolean;
+};
+
 type CommentModerationBody = {
 	moderationStatus?: "pending" | "approved";
 	replyBody?: string | null;
@@ -118,6 +126,7 @@ type AdminPostRow = {
 	manual_visibility: "visible" | "hidden";
 	locked: number;
 	comments_enabled: number;
+	album_media_enabled: number;
 	lock_password_encrypted: string | null;
 	published_at: string | null;
 	notion_last_edited_time: string;
@@ -132,6 +141,8 @@ type AdminPostAction =
 	| "unlock"
 	| "comments-on"
 	| "comments-off"
+	| "album-on"
+	| "album-off"
 	| "delete"
 	| "resync";
 
@@ -463,6 +474,16 @@ function validateCommentSettingsBody(
 		...(globalEnabled !== undefined ? { globalEnabled } : {}),
 		...(moderationEnabled !== undefined ? { moderationEnabled } : {}),
 	};
+}
+
+function validateAlbumSettingsBody(
+	body: Record<string, unknown>,
+): AlbumSettingsBody {
+	if (typeof body.postMediaEnabled !== "boolean") {
+		throw new Error("postMediaEnabled must be a boolean");
+	}
+
+	return { postMediaEnabled: body.postMediaEnabled };
 }
 
 function validateCommentModerationBody(
@@ -2044,7 +2065,7 @@ function adminPostActionFromPath(
 	pathname: string,
 ): { postId: string; action: AdminPostAction } | null {
 	const match =
-		/^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|comments-on|comments-off|delete|resync)$/.exec(
+		/^\/api\/admin\/posts\/([^/]+)\/(hide|restore|lock|unlock|comments-on|comments-off|album-on|album-off|delete|resync)$/.exec(
 			pathname,
 		);
 	if (!match) {
@@ -2499,6 +2520,7 @@ async function handleListPosts(
 				manual_visibility,
 				locked,
 				comments_enabled,
+				album_media_enabled,
 				lock_password_encrypted,
 				published_at,
 				notion_last_edited_time,
@@ -2530,6 +2552,7 @@ async function handleListPosts(
 				manualVisibility: post.manual_visibility,
 				locked: post.locked === 1,
 				commentsEnabled: post.comments_enabled === 1,
+				albumMediaEnabled: post.album_media_enabled === 1,
 				lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
 				publishedAt: post.published_at,
 				notionLastEditedTime: post.notion_last_edited_time,
@@ -2623,6 +2646,18 @@ async function handleAdminPostAction(
 		return json({ ok: true });
 	}
 
+	if (action === "album-on" || action === "album-off") {
+		await env.DB.prepare(
+			`UPDATE posts
+			 SET album_media_enabled = ?, updated_at = ?
+			 WHERE id = ?`,
+		)
+			.bind(action === "album-on" ? 1 : 0, now, post.id)
+			.run();
+
+		return json({ ok: true });
+	}
+
 	if (action === "lock") {
 		let password: string | null = null;
 		try {
@@ -2682,6 +2717,54 @@ async function handleAdminPostAction(
 	await env.DB.prepare("DELETE FROM posts WHERE id = ?").bind(post.id).run();
 
 	return json({ ok: true });
+}
+
+async function handleGetAdminAlbumSettings(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	return json({
+		postMediaEnabled: await loadAlbumPostMediaEnabled(env.DB),
+	});
+}
+
+async function handlePutAdminAlbumSettings(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: AlbumSettingsBody;
+	try {
+		body = validateAlbumSettingsBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	await saveAlbumPostMediaEnabled(env.DB, body.postMediaEnabled);
+
+	return json({
+		postMediaEnabled: body.postMediaEnabled,
+	});
 }
 
 function parseAdminAlbumPagination(params: URLSearchParams): {
@@ -3685,6 +3768,20 @@ export async function handleAdminApi(
 
 	if (localDraft && request.method === "PUT") {
 		return handleUpdateLocalDraft(request, env, localDraft.draftId);
+	}
+
+	if (
+		url.pathname === "/api/admin/album/settings" &&
+		request.method === "GET"
+	) {
+		return handleGetAdminAlbumSettings(request, env);
+	}
+
+	if (
+		url.pathname === "/api/admin/album/settings" &&
+		request.method === "PUT"
+	) {
+		return handlePutAdminAlbumSettings(request, env);
 	}
 
 	if (url.pathname === "/api/admin/album" && request.method === "GET") {

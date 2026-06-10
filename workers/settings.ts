@@ -25,6 +25,7 @@ const requiredSettingKeys = [
 	"notionToken",
 	"cdnBaseUrl",
 	"fieldMapping",
+	"albumPostMediaEnabled",
 ] as const satisfies readonly (keyof SiteSettings)[];
 const optionalFieldMappingKeys = [
 	"category",
@@ -57,6 +58,14 @@ function serializedSettingValue(
 
 	if (key === "fieldMapping" && isRecord(rawValue)) {
 		return JSON.stringify(parseFieldMapping(JSON.stringify(rawValue)));
+	}
+
+	if (key === "albumPostMediaEnabled" && typeof rawValue === "boolean") {
+		return rawValue ? "true" : "false";
+	}
+
+	if (key === "albumPostMediaEnabled" && rawValue === undefined) {
+		return "true";
 	}
 
 	if (rawValue === undefined) {
@@ -213,6 +222,8 @@ export async function parseSettingsFromRows(
 		notionDatabaseId: requiredValue(values, "notionDatabaseId"),
 		notionToken: requiredValue(values, "notionToken"),
 		cdnBaseUrl: requiredValue(values, "cdnBaseUrl"),
+		albumPostMediaEnabled:
+			values.get("albumPostMediaEnabled") === "false" ? false : true,
 		fieldMapping: parseFieldMapping(requiredValue(values, "fieldMapping")),
 	};
 }

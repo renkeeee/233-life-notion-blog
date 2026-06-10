@@ -138,9 +138,9 @@ class SqliteD1Database {
 					id, notion_page_id, slug, title, excerpt, cover_url, category,
 					status, visibility, published_at, notion_last_edited_time,
 					content_hash, last_sync_error, created_at, updated_at,
-					comments_enabled, source_type, source_id
+					comments_enabled, source_type, source_id, album_media_enabled
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -162,6 +162,7 @@ class SqliteD1Database {
 					row.comments_enabled ?? 1,
 					row.source_type ?? "notion",
 					row.source_id ?? null,
+					row.album_media_enabled ?? 0,
 				] as SqlInputValue[]),
 			);
 	}
@@ -1232,6 +1233,7 @@ describe("PostsRepository", () => {
 					title: "Media life",
 					category: "Journal",
 					published_at: "2026-05-03T00:00:00.000Z",
+					album_media_enabled: 1,
 				}),
 			);
 			db.insertContent("post-1", "# Media");
@@ -1374,6 +1376,86 @@ describe("PostsRepository", () => {
 				limit: 30,
 				hasMore: false,
 				collections: [],
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("requires both global and per-post switches before showing article media in the album", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "media-life",
+					title: "Media life",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertMedia("post-1", {
+				id: "post-1:image-1:0",
+				block_id: "image-1",
+				kind: "image",
+				url: "https://assets.233.life/assets/aa/image.jpg",
+				caption: "Window light",
+				sort_order: 0,
+			});
+			db.insertAlbumItem({
+				id: "post-1:image-1:0",
+				source_type: "post_media",
+				source_id: "post-1:image-1:0",
+				post_id: "post-1",
+				kind: "image",
+				url: "https://assets.233.life/assets/aa/image.jpg",
+				title: "Window light",
+				caption: "Window light",
+				taken_at: "2026-05-03T00:00:00.000Z",
+			});
+			db.insertAlbumItem({
+				id: "manual-1",
+				source_type: "manual",
+				kind: "image",
+				url: "https://assets.233.life/assets/manual.jpg",
+				title: "Manual image",
+				taken_at: "2026-05-04T00:00:00.000Z",
+			});
+
+			const disabledPostResponse = await handlePublicApi(
+				publicRequest("/api/album"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(disabledPostResponse.status).toBe(200);
+			await expect(disabledPostResponse.json()).resolves.toMatchObject({
+				items: [expect.objectContaining({ id: "manual-1" })],
+			});
+
+			db.exec("UPDATE posts SET album_media_enabled = 1 WHERE id = 'post-1'");
+			const enabledPostResponse = await handlePublicApi(
+				publicRequest("/api/album"),
+				envWithDb(db.asD1()),
+			);
+
+			await expect(enabledPostResponse.json()).resolves.toMatchObject({
+				items: [
+					expect.objectContaining({ id: "manual-1" }),
+					expect.objectContaining({ id: "post-1:image-1:0" }),
+				],
+			});
+
+			db.exec(
+				`INSERT INTO settings (key, value, encrypted, updated_at)
+				 VALUES ('albumPostMediaEnabled', 'false', 0, '${now}')`,
+			);
+			const disabledGlobalResponse = await handlePublicApi(
+				publicRequest("/api/album"),
+				envWithDb(db.asD1()),
+			);
+
+			await expect(disabledGlobalResponse.json()).resolves.toMatchObject({
+				items: [expect.objectContaining({ id: "manual-1" })],
 			});
 		} finally {
 			db.close();

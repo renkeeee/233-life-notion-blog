@@ -17,6 +17,7 @@ export type SiteSettingsForm = {
 	notionDatabaseId: string;
 	notionToken: string;
 	cdnBaseUrl: string;
+	albumPostMediaEnabled: boolean;
 	fieldMapping: FieldMapping;
 };
 
@@ -50,6 +51,7 @@ const emptySettings: SiteSettingsForm = {
 	notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 	notionToken: "",
 	cdnBaseUrl: "",
+	albumPostMediaEnabled: true,
 	fieldMapping: {
 		title: "Name",
 		status: "Status",
@@ -118,6 +120,7 @@ function normalizeSettings(settings: RedactedSettings): SiteSettingsForm {
 		notionDatabaseId: settings.notionDatabaseId,
 		notionToken: settings.notionToken,
 		cdnBaseUrl: settings.cdnBaseUrl,
+		albumPostMediaEnabled: settings.albumPostMediaEnabled !== false,
 		fieldMapping: {
 			...settings.fieldMapping,
 			category:
@@ -320,6 +323,7 @@ export function SettingsPanel({
 			notionDatabaseId: settings.notionDatabaseId,
 			notionToken: settings.notionToken,
 			cdnBaseUrl: settings.cdnBaseUrl,
+			albumPostMediaEnabled: settings.albumPostMediaEnabled,
 			fieldMapping: {
 				...settings.fieldMapping,
 				publishedStatusValues: parsePublishedStatusValues(publishedStatusText),

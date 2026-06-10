@@ -277,6 +277,7 @@ function testSettings(notionToken = "ntn_secret"): SiteSettings {
 		notionDatabaseId: "3646b3023c2380fc886af37685393dd4",
 		notionToken,
 		cdnBaseUrl: "https://cdn.example.com",
+		albumPostMediaEnabled: true,
 		fieldMapping: { title: "Name", status: "Status" },
 	};
 }

@@ -14,6 +14,7 @@ import addCommentModerationAndRepliesMigrationSql from "../migrations/0009_add_c
 import addPostMediaMigrationSql from "../migrations/0010_add_post_media.sql?raw";
 import addAlbumItemsMigrationSql from "../migrations/0011_album_items.sql?raw";
 import nativePostAuthoringMigrationSql from "../migrations/0012_native_post_authoring.sql?raw";
+import albumMediaSwitchesMigrationSql from "../migrations/0013_album_media_switches.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -205,6 +206,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addPostMediaMigrationSql);
 			migratedDb.exec(addAlbumItemsMigrationSql);
 			migratedDb.exec(nativePostAuthoringMigrationSql);
+			migratedDb.exec(albumMediaSwitchesMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -233,6 +235,7 @@ describe("D1 schema", () => {
 				"comments_enabled",
 				"source_type",
 				"source_id",
+				"album_media_enabled",
 			]);
 			expect(tableColumns(currentDb, "post_comments")).toEqual([
 				"id",

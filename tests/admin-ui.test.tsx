@@ -2453,7 +2453,14 @@ describe("PostStatusTable", () => {
 		moderationEnabled: false,
 	};
 
-	const emptyPostsResponse = {
+	type MockPostsResponse = {
+		items: Array<Record<string, unknown>>;
+		total: number;
+		page: number;
+		limit: number;
+	};
+
+	const emptyPostsResponse: MockPostsResponse = {
 		items: [],
 		total: 0,
 		page: 1,
@@ -3418,6 +3425,54 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("toggles post album media from post management", async () => {
+		const apiGet = mockPostStatusGets({
+			items: [
+				{
+					id: "post-1",
+					title: "Hello World",
+					slug: "hello-world",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					albumMediaEnabled: false,
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("link", { name: "Hello World" });
+			const panel = openPostManagement("Hello World");
+			const albumSwitch = within(panel).getByLabelText(
+				"Show this post's media in the album",
+			);
+			expect((albumSwitch as HTMLInputElement).checked).toBe(false);
+			fireEvent.click(albumSwitch);
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/album-on",
+					{},
+					"csrf-token",
+				),
+			);
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
 	it("shows local post source and hides resync for local rows", async () => {
 		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
 			items: [
@@ -3813,7 +3868,7 @@ describe("PostStatusTable", () => {
 
 describe("AlbumPanel", () => {
 	it("loads album items, filters, edits items, creates collections, and uploads media", async () => {
-		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+		const albumResponse = {
 			items: [
 				{
 					id: "album-1",
@@ -3848,18 +3903,31 @@ describe("AlbumPanel", () => {
 					sortOrder: 0,
 				},
 			],
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/album/settings") {
+				return Promise.resolve({ postMediaEnabled: true });
+			}
+
+			return Promise.resolve(albumResponse);
 		});
-		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({
-			item: {
-				id: "album-1",
-				title: "Edited window",
-				description: "Soft light",
-				caption: "Morning",
-				kind: "image",
-				visibility: "visible",
-				featured: true,
-				collectionIds: [],
-			},
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockImplementation((path: string) => {
+			if (path === "/api/admin/album/settings") {
+				return Promise.resolve({ postMediaEnabled: false });
+			}
+
+			return Promise.resolve({
+				item: {
+					id: "album-1",
+					title: "Edited window",
+					description: "Soft light",
+					caption: "Morning",
+					kind: "image",
+					visibility: "visible",
+					featured: true,
+					collectionIds: [],
+				},
+			});
 		});
 		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({ ok: true });
 
@@ -3916,6 +3984,19 @@ describe("AlbumPanel", () => {
 				expect(apiPost).toHaveBeenCalledWith(
 					"/api/admin/album/collections",
 					expect.objectContaining({ title: "Travels" }),
+					"csrf-token",
+				),
+			);
+
+			const postMediaSwitch = screen.getByLabelText("Show media from posts");
+			expect((postMediaSwitch as HTMLInputElement).checked).toBe(true);
+			fireEvent.click(postMediaSwitch);
+			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/album/settings",
+					{ postMediaEnabled: false },
 					"csrf-token",
 				),
 			);

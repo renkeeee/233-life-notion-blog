@@ -938,6 +938,80 @@ describe("admin settings API", () => {
 });
 
 describe("admin sync API", () => {
+	it("loads and saves scheduled sync settings for authenticated admins", async () => {
+		const { env, rows } = testEnv();
+		const session = await usableAdminSession(env);
+		const headers = {
+			"content-type": "application/json",
+			cookie: session.cookie,
+			"x-csrf-token": session.csrfToken,
+		};
+
+		const unauthenticatedResponse = await handleAdminApi(
+			adminRequest("/api/admin/sync/settings", { method: "GET" }),
+			env,
+		);
+		const defaultResponse = await handleAdminApi(
+			adminRequest("/api/admin/sync/settings", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+		const saveResponse = await handleAdminApi(
+			adminRequest("/api/admin/sync/settings", {
+				body: JSON.stringify({ scheduledSyncEnabled: false }),
+				headers,
+				method: "PUT",
+			}),
+			env,
+		);
+		const savedResponse = await handleAdminApi(
+			adminRequest("/api/admin/sync/settings", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(unauthenticatedResponse.status).toBe(401);
+		expect(defaultResponse.status).toBe(200);
+		await expect(defaultResponse.json()).resolves.toEqual({
+			scheduledSyncEnabled: true,
+		});
+		expect(saveResponse.status).toBe(200);
+		await expect(saveResponse.json()).resolves.toEqual({
+			scheduledSyncEnabled: false,
+		});
+		await expect(savedResponse.json()).resolves.toEqual({
+			scheduledSyncEnabled: false,
+		});
+		expect(rows.get("scheduledSyncEnabled")?.value).toBe("false");
+	});
+
+	it("rejects invalid scheduled sync settings bodies", async () => {
+		const { env } = testEnv();
+		const session = await usableAdminSession(env);
+
+		const response = await handleAdminApi(
+			adminRequest("/api/admin/sync/settings", {
+				body: JSON.stringify({ scheduledSyncEnabled: "no" }),
+				headers: {
+					"content-type": "application/json",
+					cookie: session.cookie,
+					"x-csrf-token": session.csrfToken,
+				},
+				method: "PUT",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toMatchObject({
+			error: { code: "BAD_REQUEST" },
+		});
+	});
+
 	it("returns recent sync runs for authenticated admins", async () => {
 		const { env, syncRuns } = testEnv();
 		const session = await usableAdminSession(env);

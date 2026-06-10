@@ -1382,9 +1382,10 @@ export function PostStatusTable({
 							</div>
 							<div className="admin-manager-section">
 								<h4>Album media</h4>
-								<label className="admin-checkbox-row">
+								<label className="admin-switch-row">
 									<input
 										type="checkbox"
+										aria-label="Show this post's media in the album"
 										checked={activeManagedPost.albumMediaEnabled === true}
 										disabled={
 											actionPending === `${activeManagedPost.id}:album-on` ||
@@ -1397,7 +1398,10 @@ export function PostStatusTable({
 											)
 										}
 									/>
-									<span>Show this post's media in the album</span>
+									<span className="admin-switch-track" aria-hidden="true" />
+									<span className="admin-switch-copy">
+										<span>Show this post's media in the album</span>
+									</span>
 								</label>
 							</div>
 							<div className="admin-manager-section danger">

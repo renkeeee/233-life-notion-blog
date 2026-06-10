@@ -2582,7 +2582,7 @@ describe("scheduled sync", () => {
 		} as ExecutionContext;
 
 		try {
-			worker.scheduled?.(
+			await worker.scheduled?.(
 				{
 					cron: "0 18 * * *",
 					scheduledTime: Date.parse(fixedNow),
@@ -2593,6 +2593,41 @@ describe("scheduled sync", () => {
 			);
 			await Promise.all(promises);
 			expect(promises).toHaveLength(1);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("does not queue the cron sync when scheduled sync is disabled", async () => {
+		const promises: Promise<unknown>[] = [];
+		const db = new SqliteD1Database();
+		const ctx = {
+			waitUntil(promise: Promise<unknown>) {
+				promises.push(promise.catch(() => undefined));
+			},
+			passThroughOnException() {},
+		} as ExecutionContext;
+
+		try {
+			db.insertSetting({
+				key: "scheduledSyncEnabled",
+				value: "false",
+				encrypted: 0,
+				updated_at: fixedNow,
+			});
+
+			await worker.scheduled?.(
+				{
+					cron: "0 18 * * *",
+					scheduledTime: Date.parse(fixedNow),
+					noRetry() {},
+				},
+				envWithDb(db),
+				ctx,
+			);
+			await Promise.all(promises);
+
+			expect(promises).toHaveLength(0);
 		} finally {
 			db.close();
 		}

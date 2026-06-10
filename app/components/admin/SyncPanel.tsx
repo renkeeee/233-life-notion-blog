@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
 import DatePicker from "react-datepicker";
-import { apiGet, apiPost } from "../../lib/api-client";
+import { apiGet, apiPost, apiPut } from "../../lib/api-client";
 
 type SyncRun = {
 	id: string;
@@ -12,6 +12,10 @@ type SyncRun = {
 	startedAt?: string;
 	finished_at?: string | null;
 	finishedAt?: string | null;
+};
+
+type SyncSettingsResponse = {
+	scheduledSyncEnabled: boolean;
 };
 
 type DateTimeValue = Date | null;
@@ -81,6 +85,12 @@ export function SyncPanel({
 	const [status, setStatus] = useState("Ready to sync.");
 	const [runs, setRuns] = useState<SyncRun[]>([]);
 	const [historyStatus, setHistoryStatus] = useState("Loading sync history...");
+	const [scheduledSyncEnabled, setScheduledSyncEnabled] = useState(true);
+	const [settingsLoaded, setSettingsLoaded] = useState(false);
+	const [settingsPending, setSettingsPending] = useState(false);
+	const [settingsStatus, setSettingsStatus] = useState(
+		"Loading scheduled sync settings...",
+	);
 
 	useEffect(() => {
 		if (disabled) {
@@ -112,6 +122,41 @@ export function SyncPanel({
 		};
 	}, [disabled]);
 
+	useEffect(() => {
+		if (disabled) {
+			setSettingsLoaded(false);
+			setSettingsStatus(
+				"Scheduled sync settings are locked until the initial password is changed.",
+			);
+			return;
+		}
+
+		let cancelled = false;
+		setSettingsStatus("Loading scheduled sync settings...");
+		apiGet<SyncSettingsResponse>("/api/admin/sync/settings")
+			.then((response) => {
+				if (!cancelled) {
+					setScheduledSyncEnabled(response.scheduledSyncEnabled !== false);
+					setSettingsLoaded(true);
+					setSettingsStatus("Scheduled sync settings loaded.");
+				}
+			})
+			.catch((error: unknown) => {
+				if (!cancelled) {
+					setSettingsLoaded(false);
+					setSettingsStatus(
+						error instanceof Error
+							? error.message
+							: "Scheduled sync settings could not be loaded.",
+					);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [disabled]);
+
 	async function startSync(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setStatus("Starting sync...");
@@ -131,6 +176,33 @@ export function SyncPanel({
 		}
 	}
 
+	async function saveSyncSettings(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		if (!settingsLoaded || settingsPending) {
+			return;
+		}
+
+		setSettingsPending(true);
+		setSettingsStatus("Saving scheduled sync settings...");
+		try {
+			const response = await apiPut<SyncSettingsResponse>(
+				"/api/admin/sync/settings",
+				{ scheduledSyncEnabled },
+				csrfToken,
+			);
+			setScheduledSyncEnabled(response.scheduledSyncEnabled !== false);
+			setSettingsStatus("Scheduled sync settings saved.");
+		} catch (error) {
+			setSettingsStatus(
+				error instanceof Error
+					? error.message
+					: "Scheduled sync settings could not be saved.",
+			);
+		} finally {
+			setSettingsPending(false);
+		}
+	}
+
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
@@ -142,6 +214,37 @@ export function SyncPanel({
 					Change the initial password before running sync jobs.
 				</p>
 			) : null}
+			<form className="admin-module admin-form compact" onSubmit={saveSyncSettings}>
+				<div className="admin-section-heading compact">
+					<h3>Scheduled sync</h3>
+					<span className="admin-badge">
+						{scheduledSyncEnabled ? "Enabled" : "Paused"}
+					</span>
+				</div>
+				<label className="admin-switch-row">
+					<input
+						type="checkbox"
+						aria-label="Enable scheduled sync"
+						checked={scheduledSyncEnabled}
+						disabled={disabled || !settingsLoaded || settingsPending}
+						onChange={(event) =>
+							setScheduledSyncEnabled(event.currentTarget.checked)
+						}
+					/>
+					<span className="admin-switch-track" aria-hidden="true" />
+					<span className="admin-switch-copy">
+						<span>Enable scheduled sync</span>
+						<small>Controls the Cloudflare cron sync. Manual sync still works.</small>
+					</span>
+				</label>
+				<button
+					type="submit"
+					disabled={disabled || !settingsLoaded || settingsPending}
+				>
+					{settingsPending ? "Saving..." : "Save sync settings"}
+				</button>
+				<p className="admin-note">{settingsStatus}</p>
+			</form>
 			<form className="admin-form inline" onSubmit={startSync}>
 				<AdminDateTimePicker
 					label="Range start"

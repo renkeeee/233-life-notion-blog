@@ -34,6 +34,10 @@ import {
 	saveAlbumPostMediaEnabled,
 } from "../album-settings";
 import {
+	loadScheduledSyncEnabled,
+	saveScheduledSyncEnabled,
+} from "../sync-settings";
+import {
 	parseSettingsFromRows,
 	redactSettings,
 	serializeSettingsForStorage,
@@ -74,6 +78,10 @@ type ManualSyncBody = {
 	rangeStart: string | null;
 	rangeEnd: string | null;
 	force: boolean;
+};
+
+type SyncSettingsBody = {
+	scheduledSyncEnabled: boolean;
 };
 
 type CommentsEnabledBody = {
@@ -400,6 +408,16 @@ function validateManualSyncBody(body: Record<string, unknown>): ManualSyncBody {
 		rangeEnd,
 		force,
 	};
+}
+
+function validateSyncSettingsBody(
+	body: Record<string, unknown>,
+): SyncSettingsBody {
+	if (typeof body.scheduledSyncEnabled !== "boolean") {
+		throw new Error("scheduledSyncEnabled must be a boolean");
+	}
+
+	return { scheduledSyncEnabled: body.scheduledSyncEnabled };
 }
 
 function validateCommentsEnabledBody(
@@ -1466,6 +1484,54 @@ async function handleManualSync(
 	} catch {
 		return errorJson("INTERNAL_ERROR", "Sync failed", 500);
 	}
+}
+
+async function handleGetSyncSettings(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	return json({
+		scheduledSyncEnabled: await loadScheduledSyncEnabled(env.DB),
+	});
+}
+
+async function handlePutSyncSettings(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: SyncSettingsBody;
+	try {
+		body = validateSyncSettingsBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	await saveScheduledSyncEnabled(env.DB, body.scheduledSyncEnabled);
+
+	return json({
+		scheduledSyncEnabled: body.scheduledSyncEnabled,
+	});
 }
 
 async function handleListSyncRuns(
@@ -3725,6 +3791,14 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/notion/schema" && request.method === "POST") {
 		return handleNotionSchema(request, env);
+	}
+
+	if (url.pathname === "/api/admin/sync/settings" && request.method === "GET") {
+		return handleGetSyncSettings(request, env);
+	}
+
+	if (url.pathname === "/api/admin/sync/settings" && request.method === "PUT") {
+		return handlePutSyncSettings(request, env);
 	}
 
 	if (url.pathname === "/api/admin/sync" && request.method === "POST") {

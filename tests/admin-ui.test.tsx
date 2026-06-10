@@ -4073,16 +4073,24 @@ describe("SyncPanel", () => {
 	}
 
 	it("uses the library date-time picker and submits ISO sync ranges", async () => {
-		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
-			items: [
-				{
-					id: "sync-run-1",
-					trigger_type: "manual",
-					status: "success",
-					started_at: "2026-05-18T12:00:00.000Z",
-				},
-			],
-		});
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path) => {
+				if (path === "/api/admin/sync/settings") {
+					return { scheduledSyncEnabled: true };
+				}
+
+				return {
+					items: [
+						{
+							id: "sync-run-1",
+							trigger_type: "manual",
+							status: "success",
+							started_at: "2026-05-18T12:00:00.000Z",
+						},
+					],
+				};
+			});
 		const apiPost = vi
 			.spyOn(apiClient, "apiPost")
 			.mockResolvedValue({ runId: "sync-run-2" });
@@ -4121,10 +4129,53 @@ describe("SyncPanel", () => {
 		}
 	});
 
+	it("loads and saves whether scheduled sync is enabled", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path) => {
+				if (path === "/api/admin/sync/settings") {
+					return { scheduledSyncEnabled: true };
+				}
+
+				return { items: [] };
+			});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({
+			scheduledSyncEnabled: false,
+		});
+		try {
+			render(<SyncPanel csrfToken="csrf-token" />);
+
+			await screen.findByText("Scheduled sync settings loaded.");
+			const scheduledSwitch = screen.getByLabelText("Enable scheduled sync");
+			expect((scheduledSwitch as HTMLInputElement).checked).toBe(true);
+
+			fireEvent.click(scheduledSwitch);
+			fireEvent.click(screen.getByRole("button", { name: "Save sync settings" }));
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/sync/settings",
+					{ scheduledSyncEnabled: false },
+					"csrf-token",
+				),
+			);
+			await screen.findByText("Scheduled sync settings saved.");
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
+		}
+	});
+
 	it("shows sync history errors without unavailable endpoint copy", async () => {
 		const apiGet = vi
 			.spyOn(apiClient, "apiGet")
-			.mockRejectedValue(new Error("Admin API route not found"));
+			.mockImplementation(async (path) => {
+				if (path === "/api/admin/sync/settings") {
+					return { scheduledSyncEnabled: true };
+				}
+
+				throw new Error("Admin API route not found");
+			});
 		try {
 			render(<SyncPanel csrfToken="csrf-token" />);
 

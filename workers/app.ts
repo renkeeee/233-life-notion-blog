@@ -7,6 +7,7 @@ import {
 } from "./api/public";
 import { handleAppRequest } from "./seo";
 import { runSync } from "./sync";
+import { loadScheduledSyncEnabled } from "./sync-settings";
 import type { AppEnv } from "./types";
 
 export function routeKind(
@@ -84,7 +85,11 @@ export default {
 
 		return handleAppRequest(request, env);
 	},
-	scheduled(_controller, env, ctx) {
+	async scheduled(_controller, env, ctx) {
+		if (!(await loadScheduledSyncEnabled(env.DB))) {
+			return;
+		}
+
 		ctx.waitUntil(runSync(env, { triggerType: "cron", force: false }));
 	},
 } satisfies ExportedHandler<AppEnv>;

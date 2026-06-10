@@ -637,15 +637,20 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 						<h3>Article media</h3>
 						<p>Allow eligible post media to appear in the public album.</p>
 					</div>
-					<label className="admin-checkbox-row">
+					<label className="admin-switch-row">
 						<input
 							type="checkbox"
+							aria-label="Show media from posts"
 							checked={postMediaEnabled}
 							onChange={(event) =>
 								setPostMediaEnabled(event.currentTarget.checked)
 							}
 						/>
-						<span>Show media from posts</span>
+						<span className="admin-switch-track" aria-hidden="true" />
+						<span className="admin-switch-copy">
+							<span>Show media from posts</span>
+							<small>Posts still need their own album media switch enabled.</small>
+						</span>
 					</label>
 					<button type="submit" disabled={settingsPending}>
 						{settingsPending ? "Saving..." : "Save settings"}

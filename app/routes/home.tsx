@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { PostList, type PublicPostSummary } from "../components/public/PostList";
 import { PublicHeader } from "../components/public/PublicHeader";
 import { apiGet } from "../lib/api-client";
@@ -27,6 +27,7 @@ type TagsResponse = {
 
 type LoadState =
 	| { status: "loading" }
+	| { status: "notFound" }
 	| { status: "error"; message: string }
 	| {
 			status: "success";
@@ -52,6 +53,7 @@ function postsPath(
 	page: number,
 	tag: string | null,
 	category: string | null,
+	sectionSlug: string | null,
 ): string {
 	const params = new URLSearchParams({
 		page: String(page),
@@ -70,7 +72,25 @@ function postsPath(
 		params.set("include", "categories");
 	}
 
+	if (sectionSlug) {
+		params.set("section", sectionSlug);
+	}
+
 	return `/api/posts?${params.toString()}`;
+}
+
+function scopedListPath(pathname: "/api/categories" | "/api/tags", sectionSlug: string | null): string {
+	if (!sectionSlug) {
+		return pathname;
+	}
+
+	const params = new URLSearchParams({ section: sectionSlug });
+	return `${pathname}?${params.toString()}`;
+}
+
+function scopedPagePath(sectionSlug: string | null, params: URLSearchParams): string {
+	const basePath = sectionSlug ? `/${encodeURIComponent(sectionSlug)}` : "/";
+	return params.size ? `${basePath}?${params.toString()}` : basePath;
 }
 
 function errorMessage(error: unknown): string {
@@ -119,7 +139,9 @@ function PostListSkeleton({
 
 export default function Home() {
 	const navigate = useNavigate();
+	const { sectionSlug: sectionSlugParam } = useParams();
 	const [searchParams] = useSearchParams();
+	const sectionSlug = sectionSlugParam?.trim() || null;
 	const initialCategory = searchParams.get("category")?.trim() || null;
 	const initialTag = searchParams.get("tag")?.trim() || null;
 	const [selectedCategory, setSelectedCategory] = useState<string | null>(
@@ -165,7 +187,7 @@ export default function Home() {
 
 			try {
 				const response = await apiGet<PostsResponse>(
-					postsPath(page, selectedTag, selectedCategory),
+					postsPath(page, selectedTag, selectedCategory, sectionSlug),
 				);
 
 				if (activeRequestRef.current !== requestId) {
@@ -218,9 +240,15 @@ export default function Home() {
 							: current,
 					);
 				} else {
+					const message = errorMessage(error);
+					if (sectionSlug && message === "Section not found") {
+						setState({ status: "notFound" });
+						return;
+					}
+
 					setState({
 						status: "error",
-						message: errorMessage(error),
+						message,
 					});
 				}
 			} finally {
@@ -229,7 +257,7 @@ export default function Home() {
 				}
 			}
 		},
-		[selectedCategory, selectedTag],
+		[selectedCategory, selectedTag, sectionSlug],
 	);
 
 	useEffect(() => {
@@ -249,7 +277,9 @@ export default function Home() {
 		categoriesRequestRef.current = true;
 		setCategoriesState({ status: "loading" });
 		try {
-			const response = await apiGet<CategoriesResponse>("/api/categories");
+			const response = await apiGet<CategoriesResponse>(
+				scopedListPath("/api/categories", sectionSlug),
+			);
 			setCategoriesState({
 				status: "success",
 				items: response.items,
@@ -262,12 +292,14 @@ export default function Home() {
 		} finally {
 			categoriesRequestRef.current = false;
 		}
-	}, []);
+	}, [sectionSlug]);
 
 	async function loadTags() {
 		setTagsState({ status: "loading" });
 		try {
-			const response = await apiGet<TagsResponse>("/api/tags");
+			const response = await apiGet<TagsResponse>(
+				scopedListPath("/api/tags", sectionSlug),
+			);
 			setTagsState({ status: "success", items: response.items });
 		} catch (error: unknown) {
 			setTagsState({
@@ -304,7 +336,7 @@ export default function Home() {
 		if (selectedTag) {
 			params.set("tag", selectedTag);
 		}
-		navigate(params.size ? `/?${params.toString()}` : "/", { replace: true });
+		navigate(scopedPagePath(sectionSlug, params), { replace: true });
 	}
 
 	function selectTag(tag: string) {
@@ -315,7 +347,7 @@ export default function Home() {
 			params.set("category", selectedCategory);
 		}
 		params.set("tag", tag);
-		navigate(`/?${params.toString()}`, { replace: true });
+		navigate(scopedPagePath(sectionSlug, params), { replace: true });
 	}
 
 	function clearTagFilter() {
@@ -324,7 +356,7 @@ export default function Home() {
 		if (selectedCategory) {
 			params.set("category", selectedCategory);
 		}
-		navigate(params.size ? `/?${params.toString()}` : "/", { replace: true });
+		navigate(scopedPagePath(sectionSlug, params), { replace: true });
 	}
 
 	const canLoadMore =
@@ -456,6 +488,9 @@ export default function Home() {
 			<PublicHeader />
 
 			{state.status === "loading" ? <PostListSkeleton /> : null}
+			{state.status === "notFound" ? (
+				<p className="state-note state-error">Not found</p>
+			) : null}
 			{state.status === "error" ? (
 				<p className="state-note state-error">{state.message}</p>
 			) : null}

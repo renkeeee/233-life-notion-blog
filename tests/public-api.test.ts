@@ -138,9 +138,10 @@ class SqliteD1Database {
 					id, notion_page_id, slug, title, excerpt, cover_url, category,
 					status, visibility, published_at, notion_last_edited_time,
 					content_hash, last_sync_error, created_at, updated_at,
-					comments_enabled, source_type, source_id, album_media_enabled
+					comments_enabled, source_type, source_id, album_media_enabled,
+					section_id
 				)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				...([
@@ -163,7 +164,35 @@ class SqliteD1Database {
 					row.source_type ?? "notion",
 					row.source_id ?? null,
 					row.album_media_enabled ?? 0,
+					row.section_id ?? null,
 				] as SqlInputValue[]),
+			);
+	}
+
+	insertSection(overrides: Record<string, unknown> = {}): void {
+		const row = {
+			id: "section-1",
+			name: "Field Notes",
+			slug: "field-notes",
+			sort_order: 0,
+			created_at: now,
+			updated_at: now,
+			...overrides,
+		};
+		this.db
+			.prepare(
+				`INSERT INTO post_sections (
+					id, name, slug, sort_order, created_at, updated_at
+				)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+			)
+			.run(
+				row.id as SqlInputValue,
+				row.name as SqlInputValue,
+				row.slug as SqlInputValue,
+				row.sort_order as SqlInputValue,
+				row.created_at as SqlInputValue,
+				row.updated_at as SqlInputValue,
 			);
 	}
 
@@ -947,6 +976,82 @@ describe("PostsRepository", () => {
 		}
 	});
 
+	it("filters published posts to home or a selected section", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertSection();
+			db.insertPost(
+				postRow({
+					id: "post-1",
+					notion_page_id: "notion-1",
+					slug: "home-post",
+					title: "Home post",
+					published_at: "2026-05-03T00:00:00.000Z",
+				}),
+			);
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "field-post",
+					title: "Field post",
+					section_id: "section-1",
+					published_at: "2026-05-02T00:00:00.000Z",
+				}),
+			);
+
+			const repository = new PostsRepository(db.asD1());
+
+			await expect(
+				repository.listPublished({ page: 1, limit: 20, sectionId: null }),
+			).resolves.toEqual({
+				items: [expect.objectContaining({ slug: "home-post" })],
+				total: 1,
+			});
+			await expect(
+				repository.listPublished({ page: 1, limit: 20, sectionId: "section-1" }),
+			).resolves.toEqual({
+				items: [expect.objectContaining({ slug: "field-post" })],
+				total: 1,
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists post sections in navigation order", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertSection({
+				id: "section-2",
+				name: "Second",
+				slug: "second",
+				sort_order: 2,
+			});
+			db.insertSection({
+				id: "section-1",
+				name: "First",
+				slug: "first",
+				sort_order: 1,
+			});
+
+			await expect(new PostsRepository(db.asD1()).listPostSections()).resolves.toEqual([
+				expect.objectContaining({
+					id: "section-1",
+					name: "First",
+					slug: "first",
+				}),
+				expect.objectContaining({
+					id: "section-2",
+					name: "Second",
+					slug: "second",
+				}),
+			]);
+		} finally {
+			db.close();
+		}
+	});
+
 	it("lists tags with published post counts", async () => {
 		const db = new SqliteD1Database();
 		try {
@@ -1672,6 +1777,79 @@ describe("handlePublicApi", () => {
 					categories: [{ name: "Essay", count: 1 }],
 				}),
 			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("lists public post sections and scopes posts by section slug", async () => {
+		const db = new SqliteD1Database();
+		try {
+			db.insertSection();
+			db.insertPost(postRow({ id: "post-1", notion_page_id: "notion-1", slug: "home-post" }));
+			db.insertPost(
+				postRow({
+					id: "post-2",
+					notion_page_id: "notion-2",
+					slug: "field-post",
+					section_id: "section-1",
+				}),
+			);
+
+			const sectionsResponse = await handlePublicApi(
+				publicRequest("/api/post-sections"),
+				envWithDb(db.asD1()),
+			);
+			expect(sectionsResponse.status).toBe(200);
+			await expect(sectionsResponse.json()).resolves.toEqual({
+				items: [
+					expect.objectContaining({
+						name: "Field Notes",
+						slug: "field-notes",
+					}),
+				],
+			});
+
+			const homeResponse = await handlePublicApi(
+				publicRequest("/api/posts?page=1&limit=20"),
+				envWithDb(db.asD1()),
+			);
+			await expect(homeResponse.json()).resolves.toEqual(
+				expect.objectContaining({
+					items: [expect.objectContaining({ slug: "home-post" })],
+				}),
+			);
+
+			const sectionResponse = await handlePublicApi(
+				publicRequest("/api/posts?page=1&limit=20&section=field-notes"),
+				envWithDb(db.asD1()),
+			);
+			expect(sectionResponse.status).toBe(200);
+			await expect(sectionResponse.json()).resolves.toEqual(
+				expect.objectContaining({
+					items: [expect.objectContaining({ slug: "field-post" })],
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("returns not found for unknown public section slugs", async () => {
+		const db = new SqliteD1Database();
+		try {
+			const response = await handlePublicApi(
+				publicRequest("/api/posts?page=1&limit=20&section=missing"),
+				envWithDb(db.asD1()),
+			);
+
+			expect(response.status).toBe(404);
+			await expect(response.json()).resolves.toEqual({
+				error: {
+					code: "NOT_FOUND",
+					message: "Section not found",
+				},
+			});
 		} finally {
 			db.close();
 		}

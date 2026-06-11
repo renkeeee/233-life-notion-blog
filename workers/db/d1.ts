@@ -6,6 +6,7 @@ import type {
 	PostVisibility,
 	PublicPostComment,
 	PublicPostRecord,
+	PublicPostSectionRecord,
 	PostSourceType,
 } from "../types";
 
@@ -82,6 +83,7 @@ type PostRow = {
 	source_type: PostSourceType | null;
 	locked: number | boolean;
 	comments_enabled: number | boolean;
+	section_id: string | null;
 	published_at: string | null;
 	updated_at: string;
 };
@@ -92,6 +94,7 @@ type ListPublishedOptions = {
 	q?: string;
 	tag?: string;
 	category?: string;
+	sectionId?: string | null;
 };
 
 type ListPublishedResult = {
@@ -152,6 +155,15 @@ type AlbumCollectionRow = {
 	sort_order: number;
 };
 
+type PostSectionRow = {
+	id: string;
+	name: string;
+	slug: string;
+	sort_order: number;
+	created_at: string;
+	updated_at: string;
+};
+
 type ListAlbumOptions = {
 	page: number;
 	limit: number;
@@ -190,6 +202,7 @@ const publicPostColumnNames = [
 	"source_type",
 	"locked",
 	"comments_enabled",
+	"section_id",
 	"published_at",
 	"updated_at",
 ] as const;
@@ -215,7 +228,19 @@ function mapPostRow(row: PostRow): PublicPostRecord {
 		locked: row.locked === 1 || row.locked === true,
 		commentsEnabled:
 			row.comments_enabled === 1 || row.comments_enabled === true,
+		sectionId: row.section_id,
 		publishedAt: row.published_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+function mapPostSectionRow(row: PostSectionRow): PublicPostSectionRecord {
+	return {
+		id: row.id,
+		name: row.name,
+		slug: row.slug,
+		sortOrder: Number(row.sort_order),
+		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
 }
@@ -268,6 +293,7 @@ function publishedFilters(options: {
 	q?: string;
 	tag?: string;
 	category?: string;
+	sectionId?: string | null;
 }): { joins: string; where: string; values: unknown[] } {
 	const clauses: string[] = [...publicVisibilityClauses];
 	const values: unknown[] = [];
@@ -285,6 +311,13 @@ function publishedFilters(options: {
 	if (category) {
 		clauses.push("p.category = ?");
 		values.push(category);
+	}
+
+	if (options.sectionId === null) {
+		clauses.push("p.section_id IS NULL");
+	} else if (typeof options.sectionId === "string") {
+		clauses.push("p.section_id = ?");
+		values.push(options.sectionId);
 	}
 
 	if (q) {
@@ -318,6 +351,50 @@ function publishedFilters(options: {
 
 export class PostsRepository {
 	constructor(private readonly db: D1Database) {}
+
+	async listPostSections(): Promise<PublicPostSectionRecord[]> {
+		const result = await this.db
+			.prepare(
+				`SELECT id, name, slug, sort_order, created_at, updated_at
+				 FROM post_sections
+				 ORDER BY sort_order ASC, name ASC`,
+			)
+			.all<PostSectionRow>();
+
+		return result.results.map(mapPostSectionRow);
+	}
+
+	async findPostSectionBySlug(
+		slug: string,
+	): Promise<PublicPostSectionRecord | null> {
+		const row = await this.db
+			.prepare(
+				`SELECT id, name, slug, sort_order, created_at, updated_at
+				 FROM post_sections
+				 WHERE slug = ?
+				 LIMIT 1`,
+			)
+			.bind(slug)
+			.first<PostSectionRow>();
+
+		return row ? mapPostSectionRow(row) : null;
+	}
+
+	async findPostSectionById(
+		id: string,
+	): Promise<PublicPostSectionRecord | null> {
+		const row = await this.db
+			.prepare(
+				`SELECT id, name, slug, sort_order, created_at, updated_at
+				 FROM post_sections
+				 WHERE id = ?
+				 LIMIT 1`,
+			)
+			.bind(id)
+			.first<PostSectionRow>();
+
+		return row ? mapPostSectionRow(row) : null;
+	}
 
 	async listPublished(
 		options: ListPublishedOptions = { page: 1, limit: 20 },
@@ -801,16 +878,18 @@ export class PostsRepository {
 		return items;
 	}
 
-	async listTags(): Promise<PublicTagRecord[]> {
+	async listTags(options: { sectionId?: string | null } = {}): Promise<PublicTagRecord[]> {
+		const filters = publishedFilters({ sectionId: options.sectionId });
 		const result = await this.db
 			.prepare(
 				`SELECT pt.tag AS name, COUNT(DISTINCT p.id) AS count
 				 FROM post_tags pt
 				 JOIN posts p ON p.id = pt.post_id
-				 WHERE ${publicVisibilityClauses.join(" AND ")}
+				 WHERE ${filters.where}
 				 GROUP BY pt.tag
 				 ORDER BY count DESC, pt.tag ASC`,
 			)
+			.bind(...filters.values)
 			.all<{ name: string; count: number }>();
 
 		return result.results.map((row) => ({
@@ -819,17 +898,21 @@ export class PostsRepository {
 		}));
 	}
 
-	async listCategories(): Promise<PublicCategoryRecord[]> {
+	async listCategories(
+		options: { sectionId?: string | null } = {},
+	): Promise<PublicCategoryRecord[]> {
+		const filters = publishedFilters({ sectionId: options.sectionId });
 		const result = await this.db
 			.prepare(
 				`SELECT p.category AS name, COUNT(DISTINCT p.id) AS count
 				 FROM posts p
-				 WHERE ${publicVisibilityClauses.join(" AND ")}
+				 WHERE ${filters.where}
 				 AND p.category IS NOT NULL
 				 AND TRIM(p.category) <> ''
 				 GROUP BY p.category
 				 ORDER BY count DESC, p.category ASC`,
 			)
+			.bind(...filters.values)
 			.all<{ name: string; count: number }>();
 
 		return result.results.map((row) => ({

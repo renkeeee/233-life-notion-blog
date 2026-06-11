@@ -2490,10 +2490,25 @@ describe("PostStatusTable", () => {
 		items: [],
 	};
 
+	const sectionsResponse = {
+		items: [
+			{
+				id: "section-1",
+				name: "Field Notes",
+				slug: "field-notes",
+				sortOrder: 0,
+				postCount: 0,
+			},
+		],
+	};
+
 	function mockPostStatusGets(response = emptyPostsResponse) {
 		return vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
 			if (path === "/api/admin/posts/comment-settings") {
 				return Promise.resolve(commentSettingsResponse);
+			}
+			if (path === "/api/admin/post-sections") {
+				return Promise.resolve(sectionsResponse);
 			}
 			if (path === "/api/admin/local-posts") {
 				return Promise.resolve(emptyDraftsResponse);
@@ -2624,6 +2639,46 @@ describe("PostStatusTable", () => {
 			expect(screen.queryByText("Writing canvas")).toBeNull();
 			expect(screen.queryByText("Article details")).toBeNull();
 			expect(screen.queryByText("Draft ready.")).toBeNull();
+		} finally {
+			apiGet.mockRestore();
+			apiPost.mockRestore();
+		}
+	});
+
+	it("opens section settings and creates a post section", async () => {
+		const apiGet = mockPostStatusGets();
+		const apiPost = vi.spyOn(apiClient, "apiPost").mockResolvedValue({
+			section: {
+				id: "section-2",
+				name: "Ideas",
+				slug: "ideas",
+				sortOrder: 1,
+				postCount: 0,
+			},
+		});
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			fireEvent.click(screen.getByRole("button", { name: "Section settings" }));
+			expect(screen.getByRole("heading", { name: "Section settings" })).toBeTruthy();
+			fireEvent.change(screen.getByLabelText("New section name"), {
+				target: { value: "Ideas" },
+			});
+			fireEvent.change(screen.getByLabelText("New section slug"), {
+				target: { value: "ideas" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+
+			await waitFor(() =>
+				expect(apiPost).toHaveBeenCalledWith(
+					"/api/admin/post-sections",
+					{ name: "Ideas", slug: "ideas" },
+					"csrf-token",
+				),
+			);
+			expect(await screen.findByDisplayValue("Ideas")).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();
 			apiPost.mockRestore();
@@ -3470,6 +3525,55 @@ describe("PostStatusTable", () => {
 		} finally {
 			apiGet.mockRestore();
 			apiPost.mockRestore();
+		}
+	});
+
+	it("assigns a post section from post management", async () => {
+		const apiGet = mockPostStatusGets({
+			items: [
+				{
+					id: "post-1",
+					title: "Hello World",
+					slug: "hello-world",
+					status: "Published",
+					visibility: "published",
+					manualVisibility: "visible",
+					locked: false,
+					sectionId: null,
+					publishedAt: null,
+					notionLastEditedTime: "2026-05-19T14:04:50.569Z",
+					updatedAt: "2026-05-19T14:04:50.569Z",
+					lastSyncError: null,
+				},
+			],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+		const apiPut = vi.spyOn(apiClient, "apiPut").mockResolvedValue({
+			post: { id: "post-1", sectionId: "section-1" },
+		});
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("link", { name: "Hello World" });
+			const panel = openPostManagement("Hello World");
+			fireEvent.change(within(panel).getByLabelText("Post section"), {
+				target: { value: "section-1" },
+			});
+
+			await waitFor(() =>
+				expect(apiPut).toHaveBeenCalledWith(
+					"/api/admin/posts/post-1/section",
+					{ sectionId: "section-1" },
+					"csrf-token",
+				),
+			);
+			expect(await screen.findByText("Hello World section updated.")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+			apiPut.mockRestore();
 		}
 	});
 

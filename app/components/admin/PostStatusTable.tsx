@@ -18,6 +18,7 @@ type AdminPostRecord = {
 	locked?: boolean | null;
 	commentsEnabled?: boolean | null;
 	albumMediaEnabled?: boolean | null;
+	sectionId?: string | null;
 	lockPassword?: string | null;
 	publishedAt?: string | null;
 	notionLastEditedTime?: string | null;
@@ -74,6 +75,18 @@ type AdminPostCommentsResponse = {
 		commentsEnabled: boolean;
 	};
 	comments: AdminPostComment[];
+};
+
+type AdminPostSection = {
+	id: string;
+	name: string;
+	slug: string;
+	sortOrder: number;
+	postCount?: number;
+};
+
+type AdminPostSectionsResponse = {
+	items: AdminPostSection[];
 };
 
 type LocalPostDraftResponse = {
@@ -172,6 +185,17 @@ function postHref(post: AdminPostRecord): string {
 
 function postSourceLabel(post: AdminPostRecord): string {
 	return post.sourceType ?? "notion";
+}
+
+function sectionLabel(
+	sections: AdminPostSection[],
+	sectionId?: string | null,
+): string {
+	if (!sectionId) {
+		return "No section";
+	}
+
+	return sections.find((section) => section.id === sectionId)?.name ?? "Unknown";
 }
 
 function formatDate(value?: string | null): string {
@@ -303,8 +327,22 @@ export function PostStatusTable({
 		useState<AdminPostRecord | null>(null);
 	const [managedPost, setManagedPost] = useState<AdminPostRecord | null>(null);
 	const [commentSettingsOpen, setCommentSettingsOpen] = useState(false);
+	const [sectionSettingsOpen, setSectionSettingsOpen] = useState(false);
 	const [commentsDialogPost, setCommentsDialogPost] =
 		useState<AdminPostRecord | null>(null);
+	const [sections, setSections] = useState<AdminPostSection[]>([]);
+	const [sectionDrafts, setSectionDrafts] = useState<
+		Record<string, { name: string; slug: string }>
+	>({});
+	const [newSectionName, setNewSectionName] = useState("");
+	const [newSectionSlug, setNewSectionSlug] = useState("");
+	const [sectionSettingsStatus, setSectionSettingsStatus] =
+		useState("Loading sections...");
+	const [sectionActionPending, setSectionActionPending] = useState<string | null>(
+		null,
+	);
+	const [sectionDeleteDialog, setSectionDeleteDialog] =
+		useState<AdminPostSection | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
 	const [globalCommentsEnabled, setGlobalCommentsEnabled] = useState(true);
 	const [defaultCommentsEnabled, setDefaultCommentsEnabled] = useState(true);
@@ -363,6 +401,47 @@ export function PostStatusTable({
 						loadError instanceof Error
 							? loadError.message
 							: "Comment settings could not be loaded.",
+					);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		setSectionSettingsStatus("Loading sections...");
+
+		apiGet<AdminPostSectionsResponse>("/api/admin/post-sections")
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+
+				const items = (response.items ?? []).sort(
+					(left, right) => left.sortOrder - right.sortOrder,
+				);
+				setSections(items);
+				setSectionDrafts(
+					Object.fromEntries(
+						items.map((section) => [
+							section.id,
+							{ name: section.name, slug: section.slug },
+						]),
+					),
+				);
+				setSectionSettingsStatus("Section settings loaded.");
+			})
+			.catch((loadError: unknown) => {
+				if (!cancelled) {
+					setSections([]);
+					setSectionDrafts({});
+					setSectionSettingsStatus(
+						loadError instanceof Error
+							? loadError.message
+							: "Sections could not be loaded.",
 					);
 				}
 			});
@@ -696,6 +775,169 @@ export function PostStatusTable({
 		}
 	}
 
+	function rememberSection(section: AdminPostSection) {
+		setSections((current) =>
+			[
+				...current.filter((item) => item.id !== section.id),
+				section,
+			].sort((left, right) => left.sortOrder - right.sortOrder),
+		);
+		setSectionDrafts((current) => ({
+			...current,
+			[section.id]: { name: section.name, slug: section.slug },
+		}));
+	}
+
+	async function createPostSection(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setSectionActionPending("create");
+		setSectionSettingsStatus("Creating section...");
+		try {
+			const response = await apiPost<{ section: AdminPostSection }>(
+				"/api/admin/post-sections",
+				{ name: newSectionName, slug: newSectionSlug },
+				csrfToken,
+			);
+			rememberSection(response.section);
+			setNewSectionName("");
+			setNewSectionSlug("");
+			setSectionSettingsStatus("Section created.");
+			setToast("Section created.");
+		} catch (error) {
+			setSectionSettingsStatus(
+				error instanceof Error ? error.message : "Section could not be created.",
+			);
+		} finally {
+			setSectionActionPending(null);
+		}
+	}
+
+	async function savePostSection(section: AdminPostSection) {
+		const draft = sectionDrafts[section.id] ?? {
+			name: section.name,
+			slug: section.slug,
+		};
+		setSectionActionPending(`${section.id}:save`);
+		setSectionSettingsStatus("Saving section...");
+		try {
+			const response = await apiPut<{ section: AdminPostSection }>(
+				`/api/admin/post-sections/${encodeURIComponent(section.id)}`,
+				draft,
+				csrfToken,
+			);
+			rememberSection(response.section);
+			setSectionSettingsStatus("Section saved.");
+			setToast("Section saved.");
+		} catch (error) {
+			setSectionSettingsStatus(
+				error instanceof Error ? error.message : "Section could not be saved.",
+			);
+		} finally {
+			setSectionActionPending(null);
+		}
+	}
+
+	async function movePostSection(
+		section: AdminPostSection,
+		direction: "up" | "down",
+	) {
+		setSectionActionPending(`${section.id}:${direction}`);
+		setSectionSettingsStatus("Reordering sections...");
+		try {
+			await apiPost<{ section: AdminPostSection }>(
+				`/api/admin/post-sections/${encodeURIComponent(section.id)}/move`,
+				{ direction },
+				csrfToken,
+			);
+			const response =
+				await apiGet<AdminPostSectionsResponse>("/api/admin/post-sections");
+			const items = response.items.sort(
+				(left, right) => left.sortOrder - right.sortOrder,
+			);
+			setSections(items);
+			setSectionDrafts(
+				Object.fromEntries(
+					items.map((item) => [item.id, { name: item.name, slug: item.slug }]),
+				),
+			);
+			setSectionSettingsStatus("Sections reordered.");
+		} catch (error) {
+			setSectionSettingsStatus(
+				error instanceof Error
+					? error.message
+					: "Sections could not be reordered.",
+			);
+		} finally {
+			setSectionActionPending(null);
+		}
+	}
+
+	async function deletePostSection(section: AdminPostSection, confirmed = false) {
+		if (!confirmed && (section.postCount ?? 0) > 0) {
+			setSectionDeleteDialog(section);
+			return;
+		}
+
+		setSectionActionPending(`${section.id}:delete`);
+		setSectionSettingsStatus("Deleting section...");
+		try {
+			await apiDelete(
+				`/api/admin/post-sections/${encodeURIComponent(section.id)}${
+					confirmed ? "?movePosts=none" : ""
+				}`,
+				csrfToken,
+			);
+			setSections((current) => current.filter((item) => item.id !== section.id));
+			setSectionDrafts((current) => {
+				const next = { ...current };
+				delete next[section.id];
+				return next;
+			});
+			setPosts((current) =>
+				current.map((post) =>
+					post.sectionId === section.id ? { ...post, sectionId: null } : post,
+				),
+			);
+			setManagedPost((current) =>
+				current?.sectionId === section.id
+					? { ...current, sectionId: null }
+					: current,
+			);
+			setSectionDeleteDialog(null);
+			setSectionSettingsStatus("Section deleted.");
+			setToast("Section deleted.");
+		} catch (error) {
+			if (!confirmed && error instanceof Error && error.message.includes("assigned posts")) {
+				setSectionDeleteDialog(section);
+			}
+			setSectionSettingsStatus(
+				error instanceof Error ? error.message : "Section could not be deleted.",
+			);
+		} finally {
+			setSectionActionPending(null);
+		}
+	}
+
+	async function updatePostSection(post: AdminPostRecord, sectionId: string | null) {
+		setActionPending(`${post.id}:section`);
+		setError(null);
+		try {
+			const response = await apiPut<{ post: { id: string; sectionId: string | null } }>(
+				`/api/admin/posts/${encodeURIComponent(post.id)}/section`,
+				{ sectionId },
+				csrfToken,
+			);
+			refreshPostInList(post.id, { sectionId: response.post.sectionId });
+			setToast(`${postTitle(post)} section updated.`);
+		} catch (error) {
+			setError(
+				error instanceof Error ? error.message : "Post section could not be saved.",
+			);
+		} finally {
+			setActionPending(null);
+		}
+	}
+
 	function refreshPostInList(postId: string, updates: Partial<AdminPostRecord>) {
 		setPosts((current) =>
 			current.map((post) =>
@@ -1000,6 +1242,14 @@ export function PostStatusTable({
 						</button>
 						<button
 							type="button"
+							className="admin-secondary-button"
+							aria-expanded={sectionSettingsOpen}
+							onClick={() => setSectionSettingsOpen((current) => !current)}
+						>
+							Section settings
+						</button>
+						<button
+							type="button"
 							disabled={creatingDraft}
 							onClick={() => void createLocalDraft()}
 						>
@@ -1103,6 +1353,139 @@ export function PostStatusTable({
 						</button>
 						<span>{commentSettingsStatus}</span>
 					</div>
+				</section>
+			) : null}
+
+			{sectionSettingsOpen ? (
+				<section className="admin-module admin-post-section-settings">
+					<div>
+						<h3>Section settings</h3>
+					</div>
+					<form
+						className="admin-form admin-section-create-form"
+						onSubmit={createPostSection}
+					>
+						<label>
+							New section name
+							<input
+								type="text"
+								value={newSectionName}
+								onChange={(event) =>
+									setNewSectionName(event.currentTarget.value)
+								}
+							/>
+						</label>
+						<label>
+							New section slug
+							<input
+								type="text"
+								value={newSectionSlug}
+								onChange={(event) =>
+									setNewSectionSlug(event.currentTarget.value)
+								}
+							/>
+						</label>
+						<button type="submit" disabled={sectionActionPending === "create"}>
+							{sectionActionPending === "create" ? "Adding..." : "Add section"}
+						</button>
+					</form>
+					{sections.length > 0 ? (
+						<div className="admin-section-list">
+							{sections.map((section, index) => {
+								const draft = sectionDrafts[section.id] ?? {
+									name: section.name,
+									slug: section.slug,
+								};
+								return (
+									<article className="admin-section-card" key={section.id}>
+										<div className="admin-section-card-fields">
+											<label>
+												<span>Name</span>
+												<input
+													aria-label={`Name for ${section.name}`}
+													value={draft.name}
+													onChange={(event) =>
+														setSectionDrafts((current) => ({
+															...current,
+															[section.id]: {
+																...draft,
+																name: event.currentTarget.value,
+															},
+														}))
+													}
+												/>
+											</label>
+											<label>
+												<span>Slug</span>
+												<input
+													aria-label={`Slug for ${section.name}`}
+													value={draft.slug}
+													onChange={(event) =>
+														setSectionDrafts((current) => ({
+															...current,
+															[section.id]: {
+																...draft,
+																slug: event.currentTarget.value,
+															},
+														}))
+													}
+												/>
+											</label>
+											<span className="admin-muted-text">
+												{section.postCount ?? 0} posts
+											</span>
+										</div>
+										<div className="admin-section-card-actions">
+											<button
+												type="button"
+												className="admin-secondary-button"
+												disabled={
+													index === 0 ||
+													sectionActionPending === `${section.id}:up`
+												}
+												onClick={() => void movePostSection(section, "up")}
+											>
+												Up
+											</button>
+											<button
+												type="button"
+												className="admin-secondary-button"
+												disabled={
+													index === sections.length - 1 ||
+													sectionActionPending === `${section.id}:down`
+												}
+												onClick={() => void movePostSection(section, "down")}
+											>
+												Down
+											</button>
+											<button
+												type="button"
+												disabled={
+													sectionActionPending === `${section.id}:save`
+												}
+												onClick={() => void savePostSection(section)}
+											>
+												Save
+											</button>
+											<button
+												type="button"
+												className="danger-link"
+												disabled={
+													sectionActionPending === `${section.id}:delete`
+												}
+												onClick={() => void deletePostSection(section)}
+											>
+												Delete
+											</button>
+										</div>
+									</article>
+								);
+							})}
+						</div>
+					) : (
+						<p className="admin-note">No sections yet.</p>
+					)}
+					<p className="admin-note">{sectionSettingsStatus}</p>
 				</section>
 			) : null}
 
@@ -1271,6 +1654,10 @@ export function PostStatusTable({
 								<span>{postSourceLabel(activeManagedPost)}</span>
 								<span>{activeManagedPost.slug ?? "No slug"}</span>
 								<span>
+									Section{" "}
+									{sectionLabel(sections, activeManagedPost.sectionId)}
+								</span>
+								<span>
 									Updated{" "}
 									{formatDate(
 										activeManagedPost.notionLastEditedTime ??
@@ -1379,6 +1766,30 @@ export function PostStatusTable({
 										</button>
 									)}
 								</div>
+							</div>
+							<div className="admin-manager-section">
+								<h4>Section</h4>
+								<label className="admin-manager-select">
+									<span>Post section</span>
+									<select
+										aria-label="Post section"
+										value={activeManagedPost.sectionId ?? ""}
+										disabled={actionPending === `${activeManagedPost.id}:section`}
+										onChange={(event) =>
+											void updatePostSection(
+												activeManagedPost,
+												event.currentTarget.value || null,
+											)
+										}
+									>
+										<option value="">No section</option>
+										{sections.map((section) => (
+											<option key={section.id} value={section.id}>
+												{section.name}
+											</option>
+										))}
+									</select>
+								</label>
 							</div>
 							<div className="admin-manager-section">
 								<h4>Album media</h4>
@@ -1627,6 +2038,42 @@ export function PostStatusTable({
 								}}
 							>
 								Close
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
+			{sectionDeleteDialog ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal"
+						role="dialog"
+						aria-label="Delete section"
+						aria-modal="true"
+					>
+						<h3>Delete section</h3>
+						<p>
+							{sectionDeleteDialog.name} has {sectionDeleteDialog.postCount ?? 0} posts.
+						</p>
+						<p>Those posts will move to No section.</p>
+						<div className="admin-modal-actions">
+							<button
+								type="button"
+								className="admin-modal-secondary"
+								onClick={() => setSectionDeleteDialog(null)}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								className="danger"
+								disabled={
+									sectionActionPending ===
+									`${sectionDeleteDialog.id}:delete`
+								}
+								onClick={() => void deletePostSection(sectionDeleteDialog, true)}
+							>
+								Delete section
 							</button>
 						</div>
 					</div>

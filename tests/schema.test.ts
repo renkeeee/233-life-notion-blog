@@ -15,6 +15,7 @@ import addPostMediaMigrationSql from "../migrations/0010_add_post_media.sql?raw"
 import addAlbumItemsMigrationSql from "../migrations/0011_album_items.sql?raw";
 import nativePostAuthoringMigrationSql from "../migrations/0012_native_post_authoring.sql?raw";
 import albumMediaSwitchesMigrationSql from "../migrations/0013_album_media_switches.sql?raw";
+import postSectionsMigrationSql from "../migrations/0014_post_sections.sql?raw";
 import schemaSql from "../workers/db/schema.sql?raw";
 
 const requiredTables = [
@@ -23,6 +24,7 @@ const requiredTables = [
 	"deleted_posts",
 	"post_comments",
 	"comment_rate_limits",
+	"post_sections",
 	"post_tags",
 	"post_media",
 	"post_drafts",
@@ -53,6 +55,9 @@ const requiredIndexes = [
 	"idx_album_item_collections_collection",
 	"idx_posts_category",
 	"idx_posts_management_visibility",
+	"idx_post_sections_slug",
+	"idx_post_sections_sort",
+	"idx_posts_section_visibility",
 	"idx_deleted_posts_deleted_at",
 	"idx_post_comments_post_created_at",
 	"idx_post_comments_status_created_at",
@@ -177,6 +182,7 @@ describe("D1 schema", () => {
 				"post_content",
 				"post_drafts",
 				"post_media",
+				"post_sections",
 				"post_tags",
 				"posts",
 				"settings",
@@ -207,6 +213,7 @@ describe("D1 schema", () => {
 			migratedDb.exec(addAlbumItemsMigrationSql);
 			migratedDb.exec(nativePostAuthoringMigrationSql);
 			migratedDb.exec(albumMediaSwitchesMigrationSql);
+			migratedDb.exec(postSectionsMigrationSql);
 
 			currentDb.exec("PRAGMA foreign_keys = ON;");
 			currentDb.exec(schemaSql);
@@ -236,6 +243,15 @@ describe("D1 schema", () => {
 				"source_type",
 				"source_id",
 				"album_media_enabled",
+				"section_id",
+			]);
+			expect(tableColumns(currentDb, "post_sections")).toEqual([
+				"id",
+				"name",
+				"slug",
+				"sort_order",
+				"created_at",
+				"updated_at",
 			]);
 			expect(tableColumns(currentDb, "post_comments")).toEqual([
 				"id",

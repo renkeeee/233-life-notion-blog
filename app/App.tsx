@@ -29,6 +29,7 @@ export default function App() {
 						<Route path="archive" element={<Archive />} />
 						<Route path="album" element={<Album />} />
 						<Route path="admin/*" element={<Admin />} />
+						<Route path=":sectionSlug" element={<Home />} />
 						<Route path="*" element={<NotFound />} />
 					</Routes>
 				</Suspense>

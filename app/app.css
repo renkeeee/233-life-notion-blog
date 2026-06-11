@@ -472,6 +472,7 @@ body {
 .public-shell .category-entry-button,
 .public-shell .tag-entry-button,
 .public-shell .home-entry-button,
+.public-shell .section-entry-button,
 .public-shell .archive-entry-button,
 .public-shell .album-entry-button,
 .public-shell .theme-mode-button {
@@ -495,6 +496,8 @@ body {
 .public-shell .tag-entry-button:hover,
 .public-shell .home-entry-button:hover,
 .public-shell .home-entry-button.active,
+.public-shell .section-entry-button:hover,
+.public-shell .section-entry-button.active,
 .public-shell .archive-entry-button:hover,
 .public-shell .archive-entry-button.active,
 .public-shell .album-entry-button:hover,
@@ -2735,13 +2738,15 @@ body {
 }
 
 .admin-drafts-strip h3,
-.admin-post-comment-settings h3 {
+.admin-post-comment-settings h3,
+.admin-post-section-settings h3 {
 	color: var(--admin-ink);
 	margin: 0 0 5px;
 }
 
 .admin-drafts-strip p,
-.admin-post-comment-settings p {
+.admin-post-comment-settings p,
+.admin-post-section-settings p {
 	color: var(--admin-muted);
 	line-height: 1.5;
 	margin: 0;
@@ -2802,6 +2807,74 @@ body {
 .admin-post-comment-settings {
 	display: grid;
 	gap: 16px;
+}
+
+.admin-post-section-settings {
+	display: grid;
+	gap: 16px;
+}
+
+.admin-section-create-form {
+	align-items: end;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.admin-section-list {
+	display: grid;
+	gap: 10px;
+}
+
+.admin-section-card {
+	align-items: center;
+	border: 1px solid var(--admin-line-soft);
+	border-radius: 8px;
+	background: var(--admin-surface-muted);
+	display: grid;
+	gap: 12px;
+	grid-template-columns: minmax(0, 1fr) auto;
+	padding: 12px;
+}
+
+.admin-section-card-fields {
+	align-items: end;
+	display: grid;
+	gap: 10px;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+	min-width: 0;
+}
+
+.admin-section-card-fields label {
+	display: grid;
+	gap: 5px;
+	min-width: 0;
+}
+
+.admin-section-card-fields label span {
+	color: var(--admin-muted);
+	font-size: 0.72rem;
+	font-weight: 800;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.admin-section-card-fields input,
+.admin-manager-select select {
+	box-sizing: border-box;
+	border: 1px solid #cbd3c8;
+	border-radius: 6px;
+	background: #fffefa;
+	color: var(--admin-ink);
+	font: inherit;
+	min-height: 38px;
+	padding: 8px 10px;
+	width: 100%;
+}
+
+.admin-section-card-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
 }
 
 .admin-post-settings-grid {
@@ -3207,6 +3280,20 @@ body {
 .admin-manager-section.danger > button {
 	min-height: 34px;
 	padding: 7px 10px;
+}
+
+.admin-manager-select {
+	display: grid;
+	gap: 6px;
+	max-width: 320px;
+}
+
+.admin-manager-select span {
+	color: var(--admin-muted);
+	font-size: 0.78rem;
+	font-weight: 800;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
 }
 
 .admin-local-post-editor {
@@ -4656,6 +4743,7 @@ body {
 	}
 
 	.admin-section-actions,
+	.admin-section-card-actions,
 	.admin-editor-topbar-actions,
 	.admin-editor-section-heading {
 		justify-content: flex-start;
@@ -4670,6 +4758,9 @@ body {
 	.admin-album-tools,
 	.admin-editor-workspace,
 	.admin-inline-form,
+	.admin-section-create-form,
+	.admin-section-card,
+	.admin-section-card-fields,
 	.admin-field-grid,
 	.admin-overview-grid {
 		grid-template-columns: 1fr;

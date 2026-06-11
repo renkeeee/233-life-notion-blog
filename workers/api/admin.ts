@@ -98,6 +98,19 @@ type AlbumSettingsBody = {
 	postMediaEnabled: boolean;
 };
 
+type PostSectionBody = {
+	name: string;
+	slug: string;
+};
+
+type PostSectionMoveBody = {
+	direction: "up" | "down";
+};
+
+type PostSectionAssignmentBody = {
+	sectionId: string | null;
+};
+
 type CommentModerationBody = {
 	moderationStatus?: "pending" | "approved";
 	replyBody?: string | null;
@@ -135,6 +148,7 @@ type AdminPostRow = {
 	locked: number;
 	comments_enabled: number;
 	album_media_enabled: number;
+	section_id: string | null;
 	lock_password_encrypted: string | null;
 	published_at: string | null;
 	notion_last_edited_time: string;
@@ -183,6 +197,16 @@ type AdminPostCommentRow = {
 	reply_body: string | null;
 	reply_created_at: string | null;
 	created_at: string;
+};
+
+type AdminPostSectionRow = {
+	id: string;
+	name: string;
+	slug: string;
+	sort_order: number;
+	created_at: string;
+	updated_at: string;
+	post_count?: number;
 };
 
 type AdminAlbumItemRow = {
@@ -317,6 +341,8 @@ const adminSessionCookie = "admin_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 const minChangedPasswordLength = 8;
 const maxPasswordLength = 1024;
+const maxPostSectionNameLength = 80;
+const maxPostSectionSlugLength = 80;
 const passwordHashPattern =
 	/^pbkdf2-sha256:([1-9]\d*):[^:]+:[0-9a-fA-F]{64}$/;
 const isoDateTimePattern =
@@ -330,6 +356,18 @@ const albumMediaKinds = new Set<PublicAlbumMediaKind>([
 	"audio",
 	"pdf",
 	"file",
+]);
+const reservedPostSectionSlugs = new Set([
+	"admin",
+	"album",
+	"archive",
+	"search",
+	"post",
+	"demo",
+	"api",
+	"rss.xml",
+	"sitemap.xml",
+	"robots.txt",
 ]);
 
 export function validateLoginBody(body: Record<string, unknown>): LoginBody {
@@ -502,6 +540,73 @@ function validateAlbumSettingsBody(
 	}
 
 	return { postMediaEnabled: body.postMediaEnabled };
+}
+
+function slugifyAdminPostSection(value: string): string {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, maxPostSectionSlugLength);
+}
+
+function validatePostSectionSlug(slug: string): void {
+	if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+		throw new Error("slug can use lowercase letters, numbers, and hyphens");
+	}
+
+	if (reservedPostSectionSlugs.has(slug)) {
+		throw new Error("slug is reserved");
+	}
+}
+
+function validatePostSectionBody(
+	body: Record<string, unknown>,
+): PostSectionBody {
+	const name = typeof body.name === "string" ? body.name.trim() : "";
+	if (!name) {
+		throw new Error("name is required");
+	}
+	if (name.length > maxPostSectionNameLength) {
+		throw new Error(`name must be at most ${maxPostSectionNameLength} characters`);
+	}
+
+	const rawSlug =
+		typeof body.slug === "string" && body.slug.trim()
+			? body.slug.trim()
+			: slugifyAdminPostSection(name);
+	const slug = slugifyAdminPostSection(rawSlug);
+	if (!slug) {
+		throw new Error("slug is required");
+	}
+	validatePostSectionSlug(slug);
+
+	return { name, slug };
+}
+
+function validatePostSectionMoveBody(
+	body: Record<string, unknown>,
+): PostSectionMoveBody {
+	if (body.direction !== "up" && body.direction !== "down") {
+		throw new Error("direction must be up or down");
+	}
+
+	return { direction: body.direction };
+}
+
+function validatePostSectionAssignmentBody(
+	body: Record<string, unknown>,
+): PostSectionAssignmentBody {
+	if (body.sectionId === null) {
+		return { sectionId: null };
+	}
+
+	if (typeof body.sectionId !== "string" || body.sectionId.trim().length === 0) {
+		throw new Error("sectionId must be a section id or null");
+	}
+
+	return { sectionId: body.sectionId.trim() };
 }
 
 function validateCommentModerationBody(
@@ -1893,6 +1998,409 @@ function adminPostCommentFromPath(
 	return postId && commentId ? { postId, commentId } : null;
 }
 
+function adminPostSectionPath(pathname: string): { sectionId: string } | null {
+	const match = /^\/api\/admin\/post-sections\/([^/]+)$/.exec(pathname);
+	const sectionId = match ? decodePathSegment(match[1]) : null;
+
+	return sectionId ? { sectionId } : null;
+}
+
+function adminPostSectionMovePath(
+	pathname: string,
+): { sectionId: string } | null {
+	const match = /^\/api\/admin\/post-sections\/([^/]+)\/move$/.exec(pathname);
+	const sectionId = match ? decodePathSegment(match[1]) : null;
+
+	return sectionId ? { sectionId } : null;
+}
+
+function adminPostSectionAssignmentPath(
+	pathname: string,
+): { postId: string } | null {
+	const match = /^\/api\/admin\/posts\/([^/]+)\/section$/.exec(pathname);
+	const postId = match ? decodePathSegment(match[1]) : null;
+
+	return postId ? { postId } : null;
+}
+
+function adminPostSectionResponse(row: AdminPostSectionRow) {
+	return {
+		id: row.id,
+		name: row.name,
+		slug: row.slug,
+		sortOrder: Number(row.sort_order),
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+		postCount: Number(row.post_count ?? 0),
+	};
+}
+
+async function sectionSlugTaken(
+	env: AppEnv,
+	slug: string,
+	sectionId?: string,
+): Promise<boolean> {
+	const row = await env.DB.prepare(
+		`SELECT id
+		 FROM post_sections
+		 WHERE slug = ?
+		 ${sectionId ? "AND id <> ?" : ""}
+		 LIMIT 1`,
+	)
+		.bind(...(sectionId ? [slug, sectionId] : [slug]))
+		.first<{ id: string }>();
+
+	return row !== null;
+}
+
+async function sectionById(
+	env: AppEnv,
+	sectionId: string,
+): Promise<AdminPostSectionRow | null> {
+	return env.DB.prepare(
+		`SELECT
+			ps.id,
+			ps.name,
+			ps.slug,
+			ps.sort_order,
+			ps.created_at,
+			ps.updated_at,
+			COUNT(p.id) AS post_count
+		 FROM post_sections ps
+		 LEFT JOIN posts p ON p.section_id = ps.id
+		 WHERE ps.id = ?
+		 GROUP BY ps.id
+		 LIMIT 1`,
+	)
+		.bind(sectionId)
+		.first<AdminPostSectionRow>();
+}
+
+async function handleListPostSections(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const result = await env.DB.prepare(
+		`SELECT
+			ps.id,
+			ps.name,
+			ps.slug,
+			ps.sort_order,
+			ps.created_at,
+			ps.updated_at,
+			COUNT(p.id) AS post_count
+		 FROM post_sections ps
+		 LEFT JOIN posts p ON p.section_id = ps.id
+		 GROUP BY ps.id
+		 ORDER BY ps.sort_order ASC, ps.name ASC`,
+	).all<AdminPostSectionRow>();
+
+	return json({ items: result.results.map(adminPostSectionResponse) });
+}
+
+async function handleCreatePostSection(
+	request: Request,
+	env: AppEnv,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: PostSectionBody;
+	try {
+		body = validatePostSectionBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	if (await sectionSlugTaken(env, body.slug)) {
+		return errorJson("BAD_REQUEST", "slug already exists", 400);
+	}
+
+	const now = new Date().toISOString();
+	const sortRow = await env.DB.prepare(
+		"SELECT COALESCE(MAX(sort_order), -1) + 1 AS sort_order FROM post_sections",
+	).first<{ sort_order: number }>();
+	const section: AdminPostSectionRow = {
+		id: randomToken(12),
+		name: body.name,
+		slug: body.slug,
+		sort_order: Number(sortRow?.sort_order ?? 0),
+		created_at: now,
+		updated_at: now,
+		post_count: 0,
+	};
+
+	await env.DB.prepare(
+		`INSERT INTO post_sections (
+			id, name, slug, sort_order, created_at, updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+	)
+		.bind(
+			section.id,
+			section.name,
+			section.slug,
+			section.sort_order,
+			section.created_at,
+			section.updated_at,
+		)
+		.run();
+
+	return json({ section: adminPostSectionResponse(section) });
+}
+
+async function handleUpdatePostSection(
+	request: Request,
+	env: AppEnv,
+	sectionId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: PostSectionBody;
+	try {
+		body = validatePostSectionBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const existing = await sectionById(env, sectionId);
+	if (!existing) {
+		return errorJson("NOT_FOUND", "Section not found", 404);
+	}
+	if (await sectionSlugTaken(env, body.slug, sectionId)) {
+		return errorJson("BAD_REQUEST", "slug already exists", 400);
+	}
+
+	const now = new Date().toISOString();
+	await env.DB.prepare(
+		`UPDATE post_sections
+		 SET name = ?, slug = ?, updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(body.name, body.slug, now, sectionId)
+		.run();
+
+	return json({
+		section: adminPostSectionResponse({
+			...existing,
+			name: body.name,
+			slug: body.slug,
+			updated_at: now,
+		}),
+	});
+}
+
+async function handleMovePostSection(
+	request: Request,
+	env: AppEnv,
+	sectionId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: PostSectionMoveBody;
+	try {
+		body = validatePostSectionMoveBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const current = await sectionById(env, sectionId);
+	if (!current) {
+		return errorJson("NOT_FOUND", "Section not found", 404);
+	}
+
+	const neighbor = await env.DB.prepare(
+		`SELECT id, sort_order
+		 FROM post_sections
+		 WHERE sort_order ${body.direction === "up" ? "<" : ">"} ?
+		 ORDER BY sort_order ${body.direction === "up" ? "DESC" : "ASC"}
+		 LIMIT 1`,
+	)
+		.bind(current.sort_order)
+		.first<{ id: string; sort_order: number }>();
+
+	if (!neighbor) {
+		return json({ section: adminPostSectionResponse(current) });
+	}
+
+	const now = new Date().toISOString();
+	await env.DB.prepare(
+		`UPDATE post_sections
+		 SET sort_order = CASE
+			WHEN id = ? THEN ?
+			WHEN id = ? THEN ?
+			ELSE sort_order
+		 END,
+		 updated_at = ?
+		 WHERE id IN (?, ?)`,
+	)
+		.bind(
+			current.id,
+			neighbor.sort_order,
+			neighbor.id,
+			current.sort_order,
+			now,
+			current.id,
+			neighbor.id,
+		)
+		.run();
+
+	return json({
+		section: adminPostSectionResponse({
+			...current,
+			sort_order: Number(neighbor.sort_order),
+			updated_at: now,
+		}),
+	});
+}
+
+async function handleDeletePostSection(
+	request: Request,
+	env: AppEnv,
+	sectionId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	const section = await sectionById(env, sectionId);
+	if (!section) {
+		return errorJson("NOT_FOUND", "Section not found", 404);
+	}
+
+	const url = new URL(request.url);
+	if (Number(section.post_count ?? 0) > 0 && url.searchParams.get("movePosts") !== "none") {
+		return json(
+			{
+				error: {
+					code: "CONFLICT",
+					message: "Section has assigned posts",
+				},
+				postCount: Number(section.post_count ?? 0),
+				requiresConfirmation: true,
+			},
+			409,
+		);
+	}
+
+	const now = new Date().toISOString();
+	await env.DB.prepare(
+		`UPDATE posts
+		 SET section_id = NULL, updated_at = ?
+		 WHERE section_id = ?`,
+	)
+		.bind(now, sectionId)
+		.run();
+	await env.DB.prepare("DELETE FROM post_sections WHERE id = ?")
+		.bind(sectionId)
+		.run();
+
+	return json({ ok: true });
+}
+
+async function handleAssignPostSection(
+	request: Request,
+	env: AppEnv,
+	postId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	let body: PostSectionAssignmentBody;
+	try {
+		body = validatePostSectionAssignmentBody(await readJsonObject(request));
+	} catch (error) {
+		return errorJson(
+			"BAD_REQUEST",
+			error instanceof Error ? error.message : "Invalid request body",
+			400,
+		);
+	}
+
+	const post = await env.DB.prepare("SELECT id FROM posts WHERE id = ? LIMIT 1")
+		.bind(postId)
+		.first<{ id: string }>();
+	if (!post) {
+		return errorJson("NOT_FOUND", "Post not found", 404);
+	}
+
+	if (body.sectionId !== null) {
+		const section = await sectionById(env, body.sectionId);
+		if (!section) {
+			return errorJson("NOT_FOUND", "Section not found", 404);
+		}
+	}
+
+	await env.DB.prepare(
+		`UPDATE posts
+		 SET section_id = ?, updated_at = ?
+		 WHERE id = ?`,
+	)
+		.bind(body.sectionId, new Date().toISOString(), post.id)
+		.run();
+
+	return json({ post: { id: post.id, sectionId: body.sectionId } });
+}
+
 async function adminPostCommentParent(
 	env: AppEnv,
 	postId: string,
@@ -2587,6 +3095,7 @@ async function handleListPosts(
 				locked,
 				comments_enabled,
 				album_media_enabled,
+				section_id,
 				lock_password_encrypted,
 				published_at,
 				notion_last_edited_time,
@@ -2619,6 +3128,7 @@ async function handleListPosts(
 				locked: post.locked === 1,
 				commentsEnabled: post.comments_enabled === 1,
 				albumMediaEnabled: post.album_media_enabled === 1,
+				sectionId: post.section_id,
 				lockPassword: await decryptPostPassword(post.lock_password_encrypted, env),
 				publishedAt: post.published_at,
 				notionLastEditedTime: post.notion_last_edited_time,
@@ -3811,6 +4321,33 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/posts" && request.method === "GET") {
 		return handleListPosts(request, env);
+	}
+
+	if (url.pathname === "/api/admin/post-sections" && request.method === "GET") {
+		return handleListPostSections(request, env);
+	}
+
+	if (url.pathname === "/api/admin/post-sections" && request.method === "POST") {
+		return handleCreatePostSection(request, env);
+	}
+
+	const postSectionMove = adminPostSectionMovePath(url.pathname);
+	if (postSectionMove && request.method === "POST") {
+		return handleMovePostSection(request, env, postSectionMove.sectionId);
+	}
+
+	const postSection = adminPostSectionPath(url.pathname);
+	if (postSection && request.method === "PUT") {
+		return handleUpdatePostSection(request, env, postSection.sectionId);
+	}
+
+	if (postSection && request.method === "DELETE") {
+		return handleDeletePostSection(request, env, postSection.sectionId);
+	}
+
+	const postSectionAssignment = adminPostSectionAssignmentPath(url.pathname);
+	if (postSectionAssignment && request.method === "PUT") {
+		return handleAssignPostSection(request, env, postSectionAssignment.postId);
 	}
 
 	if (url.pathname === "/api/admin/local-posts" && request.method === "POST") {

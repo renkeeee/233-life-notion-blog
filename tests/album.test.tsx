@@ -111,82 +111,92 @@ describe("Album", () => {
 	});
 
 	it("filters album items and loads more pages", async () => {
-		const apiGet = vi
-			.spyOn(apiClient, "apiGet")
-			.mockResolvedValueOnce({
-				items: [
-					{
-						id: "album-1",
-						title: "First image",
-						description: "",
-						postId: null,
-						postSlug: null,
-						postTitle: null,
-						category: null,
-						tags: [],
-						kind: "image",
-						url: "https://assets.233.life/assets/first.jpg",
-						caption: "",
-						takenAt: "2026-05-03T00:00:00.000Z",
-						locationName: "",
-						latitude: null,
-						longitude: null,
-						featured: false,
-						collectionSlugs: [],
-						publishedAt: null,
-						updatedAt: "2026-05-03T00:00:00.000Z",
-					},
-				],
-				page: 1,
-				limit: 30,
-				hasMore: true,
-				collections: [
-					{
-						id: "collection-1",
-						slug: "daily",
-						title: "Daily",
-						description: "",
-						coverItemId: null,
-						sortOrder: 0,
-					},
-				],
-			})
-			.mockResolvedValueOnce({
-				items: [
-					{
-						id: "album-2",
-						title: "Second image",
-						description: "",
-						postId: null,
-						postSlug: null,
-						postTitle: null,
-						category: null,
-						tags: [],
-						kind: "image",
-						url: "https://assets.233.life/assets/second.jpg",
-						caption: "",
-						takenAt: "2026-05-02T00:00:00.000Z",
-						locationName: "",
-						latitude: null,
-						longitude: null,
-						featured: false,
-						collectionSlugs: [],
-						publishedAt: null,
-						updatedAt: "2026-05-02T00:00:00.000Z",
-					},
-				],
-				page: 2,
-				limit: 30,
-				hasMore: false,
-				collections: [],
-			})
-			.mockResolvedValueOnce({
-				items: [],
-				page: 1,
-				limit: 30,
-				hasMore: false,
-				collections: [],
-			});
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
+			if (url === "/api/post-sections") {
+				return Promise.resolve({ items: [] });
+			}
+			if (url === "/api/album?page=1&limit=30") {
+				return Promise.resolve({
+					items: [
+						{
+							id: "album-1",
+							title: "First image",
+							description: "",
+							postId: null,
+							postSlug: null,
+							postTitle: null,
+							category: null,
+							tags: [],
+							kind: "image",
+							url: "https://assets.233.life/assets/first.jpg",
+							caption: "",
+							takenAt: "2026-05-03T00:00:00.000Z",
+							locationName: "",
+							latitude: null,
+							longitude: null,
+							featured: false,
+							collectionSlugs: [],
+							publishedAt: null,
+							updatedAt: "2026-05-03T00:00:00.000Z",
+						},
+					],
+					page: 1,
+					limit: 30,
+					hasMore: true,
+					collections: [
+						{
+							id: "collection-1",
+							slug: "daily",
+							title: "Daily",
+							description: "",
+							coverItemId: null,
+							sortOrder: 0,
+						},
+					],
+				});
+			}
+			if (url === "/api/album?page=2&limit=30") {
+				return Promise.resolve({
+					items: [
+						{
+							id: "album-2",
+							title: "Second image",
+							description: "",
+							postId: null,
+							postSlug: null,
+							postTitle: null,
+							category: null,
+							tags: [],
+							kind: "image",
+							url: "https://assets.233.life/assets/second.jpg",
+							caption: "",
+							takenAt: "2026-05-02T00:00:00.000Z",
+							locationName: "",
+							latitude: null,
+							longitude: null,
+							featured: false,
+							collectionSlugs: [],
+							publishedAt: null,
+							updatedAt: "2026-05-02T00:00:00.000Z",
+						},
+					],
+					page: 2,
+					limit: 30,
+					hasMore: false,
+					collections: [],
+				});
+			}
+			if (url === "/api/album?page=1&limit=30&collection=daily") {
+				return Promise.resolve({
+					items: [],
+					page: 1,
+					limit: 30,
+					hasMore: false,
+					collections: [],
+				});
+			}
+			throw new Error(`Unexpected API request: ${url}`);
+		});
 
 		try {
 			render(

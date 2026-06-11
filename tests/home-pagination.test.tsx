@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as apiClient from "../app/lib/api-client";
 import type { PublicPostSummary } from "../app/components/public/PostList";
@@ -293,6 +293,64 @@ describe("home pagination", () => {
 		).toBeTruthy();
 		expect(
 			albumLink.compareDocumentPosition(archiveLink) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("loads a section route with scoped posts and section navigation", async () => {
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((url) => {
+			if (url === "/api/post-sections") {
+				return Promise.resolve({
+					items: [
+						{
+							id: "section-1",
+							name: "Field Notes",
+							slug: "field-notes",
+							sortOrder: 0,
+						},
+					],
+				});
+			}
+			if (
+				url ===
+				"/api/posts?page=1&limit=20&tag=Life&include=categories&section=field-notes"
+			) {
+				return Promise.resolve({
+					items: [post({ title: "Field post", tags: ["Life"] })],
+					total: 1,
+					page: 1,
+					limit: 20,
+					categories: [{ name: "Essay", count: 1 }],
+				});
+			}
+
+			return Promise.reject(new Error(`Unexpected URL: ${url}`));
+		});
+
+		render(
+			<MemoryRouter initialEntries={["/field-notes?tag=Life"]}>
+				<Routes>
+					<Route path="/:sectionSlug" element={<Home />} />
+				</Routes>
+			</MemoryRouter>,
+		);
+
+		await screen.findByRole("heading", { name: "Field post" });
+		const homeLink = screen.getByRole("link", { name: "Home" });
+		const sectionLink = await screen.findByRole("link", { name: "Field Notes" });
+		const albumLink = screen.getByRole("link", { name: "Album" });
+
+		expect(apiGet).toHaveBeenCalledWith(
+			"/api/posts?page=1&limit=20&tag=Life&include=categories&section=field-notes",
+		);
+		expect(sectionLink).toHaveAttribute("href", "/field-notes");
+		expect(sectionLink).toHaveClass("active");
+		expect(
+			homeLink.compareDocumentPosition(sectionLink) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			sectionLink.compareDocumentPosition(albumLink) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});

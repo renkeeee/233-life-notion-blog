@@ -67,6 +67,10 @@ type ListPostsResponseOptions = ListOptions & {
 	categories?: CategorySummary[];
 };
 
+type SectionScope = {
+	sectionId: string | null;
+};
+
 const defaultPage = 1;
 const defaultLimit = 20;
 const defaultAlbumLimit = 30;
@@ -335,6 +339,23 @@ function commentsSlugFromPath(pathname: string): string | null {
 function stringFromBody(body: Record<string, unknown>, key: string): string {
 	const value = body[key];
 	return typeof value === "string" ? value.trim() : "";
+}
+
+async function sectionScopeFromParams(
+	posts: PostsRepository,
+	params: URLSearchParams,
+): Promise<SectionScope | Response> {
+	const rawSection = params.get("section");
+	if (rawSection === null || rawSection.trim() === "") {
+		return { sectionId: null };
+	}
+
+	const section = await posts.findPostSectionBySlug(rawSection.trim());
+	if (!section) {
+		return errorJson("NOT_FOUND", "Section not found", 404);
+	}
+
+	return { sectionId: section.id };
 }
 
 async function handleCreateComment(
@@ -647,6 +668,11 @@ async function handlePublicApiResponse(
 			);
 		}
 
+		const sectionScope = await sectionScopeFromParams(posts, url.searchParams);
+		if (sectionScope instanceof Response) {
+			return sectionScope;
+		}
+
 		const query = (
 			url.searchParams.get("q") ??
 			url.searchParams.get("search") ??
@@ -665,9 +691,10 @@ async function handlePublicApiResponse(
 			q: query || undefined,
 			tag: tag || undefined,
 			category: category || undefined,
+			sectionId: sectionScope.sectionId,
 		});
 		const categories = includes.has("categories")
-			? await posts.listCategories()
+			? await posts.listCategories({ sectionId: sectionScope.sectionId })
 			: undefined;
 
 		return cacheableJson(
@@ -677,18 +704,36 @@ async function handlePublicApiResponse(
 		);
 	}
 
-	if (url.pathname === "/api/tags") {
+	if (url.pathname === "/api/post-sections") {
 		return cacheableJson(
 			request,
-			{ items: await posts.listTags() },
+			{ items: await posts.listPostSections() },
+			publicApiCacheControl,
+		);
+	}
+
+	if (url.pathname === "/api/tags") {
+		const sectionScope = await sectionScopeFromParams(posts, url.searchParams);
+		if (sectionScope instanceof Response) {
+			return sectionScope;
+		}
+
+		return cacheableJson(
+			request,
+			{ items: await posts.listTags({ sectionId: sectionScope.sectionId }) },
 			publicApiCacheControl,
 		);
 	}
 
 	if (url.pathname === "/api/categories") {
+		const sectionScope = await sectionScopeFromParams(posts, url.searchParams);
+		if (sectionScope instanceof Response) {
+			return sectionScope;
+		}
+
 		return cacheableJson(
 			request,
-			{ items: await posts.listCategories() },
+			{ items: await posts.listCategories({ sectionId: sectionScope.sectionId }) },
 			publicApiCacheControl,
 		);
 	}

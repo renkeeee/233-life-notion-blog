@@ -5,6 +5,21 @@ CREATE TABLE IF NOT EXISTS settings (
 	updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS post_sections (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	slug TEXT NOT NULL UNIQUE,
+	sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_sections_slug
+	ON post_sections (slug);
+
+CREATE INDEX IF NOT EXISTS idx_post_sections_sort
+	ON post_sections (sort_order, name);
+
 CREATE TABLE IF NOT EXISTS posts (
 	id TEXT PRIMARY KEY,
 	notion_page_id TEXT NOT NULL UNIQUE,
@@ -27,7 +42,9 @@ CREATE TABLE IF NOT EXISTS posts (
 	comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1)),
 	source_type TEXT NOT NULL DEFAULT 'notion' CHECK (source_type IN ('notion', 'local')),
 	source_id TEXT,
-	album_media_enabled INTEGER NOT NULL DEFAULT 0 CHECK (album_media_enabled IN (0, 1))
+	album_media_enabled INTEGER NOT NULL DEFAULT 0 CHECK (album_media_enabled IN (0, 1)),
+	section_id TEXT,
+	FOREIGN KEY (section_id) REFERENCES post_sections(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_visibility_published_at
@@ -44,6 +61,9 @@ CREATE INDEX IF NOT EXISTS idx_posts_management_visibility
 
 CREATE INDEX IF NOT EXISTS idx_posts_source
 	ON posts (source_type, source_id);
+
+CREATE INDEX IF NOT EXISTS idx_posts_section_visibility
+	ON posts (section_id, visibility, manual_visibility, published_at DESC);
 
 CREATE TABLE IF NOT EXISTS deleted_posts (
 	notion_page_id TEXT PRIMARY KEY,

@@ -28,7 +28,17 @@ export interface PublicPostRecord {
 	locked?: boolean;
 	commentsEnabled?: boolean;
 	comments?: PublicPostComment[];
+	sectionId?: string | null;
 	publishedAt: string | null;
+	updatedAt: string;
+}
+
+export interface PublicPostSectionRecord {
+	id: string;
+	name: string;
+	slug: string;
+	sortOrder: number;
+	createdAt: string;
 	updatedAt: string;
 }
 
@@ -88,6 +98,7 @@ export type ApiErrorCode =
 	| "BAD_REQUEST"
 	| "UNAUTHORIZED"
 	| "FORBIDDEN"
+	| "CONFLICT"
 	| "RATE_LIMITED"
 	| "NOT_FOUND"
 	| "NOTION_AUTH_FAILED"

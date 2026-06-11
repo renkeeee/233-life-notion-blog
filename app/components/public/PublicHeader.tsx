@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { FocusEvent, FormEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
+import { apiGet } from "../../lib/api-client";
 import { SearchIcon } from "./SearchIcon";
 import { ThemeModeButton } from "./ThemeModeButton";
+
+type PublicPostSection = {
+	id: string;
+	name: string;
+	slug: string;
+	sortOrder: number;
+};
+
+type PublicPostSectionsResponse = {
+	items: PublicPostSection[];
+};
 
 export function PublicHeader() {
 	const navigate = useNavigate();
@@ -10,6 +22,7 @@ export function PublicHeader() {
 	const [searchParams] = useSearchParams();
 	const [query, setQuery] = useState(searchParams.get("q")?.trim() ?? "");
 	const [searchOpen, setSearchOpen] = useState(false);
+	const [sections, setSections] = useState<PublicPostSection[]>([]);
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const currentPath = location.pathname;
 
@@ -22,6 +35,38 @@ export function PublicHeader() {
 			searchInputRef.current?.focus();
 		}
 	}, [searchOpen]);
+
+	useEffect(() => {
+		let cancelled = false;
+
+		apiGet<PublicPostSectionsResponse>("/api/post-sections")
+			.then((response) => {
+				if (cancelled) {
+					return;
+				}
+
+				setSections(
+					(response.items ?? [])
+						.filter(
+							(section) =>
+								typeof section.name === "string" &&
+								typeof section.slug === "string" &&
+								section.name.trim() &&
+								section.slug.trim(),
+						)
+						.sort((left, right) => left.sortOrder - right.sortOrder),
+				);
+			})
+			.catch(() => {
+				if (!cancelled) {
+					setSections([]);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	function submitSearch(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -60,6 +105,20 @@ export function PublicHeader() {
 				>
 					Home
 				</Link>
+				{sections.map((section) => {
+					const path = `/${section.slug}`;
+					return (
+						<Link
+							className={`section-entry-button${
+								currentPath === path ? " active" : ""
+							}`}
+							key={section.id}
+							to={path}
+						>
+							{section.name}
+						</Link>
+					);
+				})}
 				<Link
 					className={`album-entry-button${
 						currentPath === "/album" ? " active" : ""

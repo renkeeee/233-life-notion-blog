@@ -340,6 +340,22 @@ async function loginSession(env: AppEnv): Promise<{
 	};
 }
 
+function seedAdminPost(db: SqliteD1Database, id = "post-1"): void {
+	db.exec(
+		`INSERT INTO posts (
+			id, notion_page_id, slug, title, excerpt, cover_url, category,
+			status, visibility, published_at, notion_last_edited_time,
+			content_hash, last_sync_error, created_at, updated_at,
+			source_type, source_id
+		)
+		VALUES (
+			'${id}', '${id}-notion', '${id}', 'Section test post', '',
+			NULL, NULL, 'Published', 'published', '${fixedNow}', '${fixedNow}',
+			NULL, NULL, '${fixedNow}', '${fixedNow}', 'notion', NULL
+		)`,
+	);
+}
+
 describe("sync planning", () => {
 	it("uses the requested manual range when present", () => {
 		expect(
@@ -1016,17 +1032,27 @@ describe("runSync", () => {
 		try {
 			await seedSettings(db);
 			db.exec(
+				`INSERT INTO post_sections (
+					id, name, slug, sort_order, created_at, updated_at
+				)
+				VALUES (
+					'section-1', 'Field Notes', 'field-notes', 0,
+					'2026-05-17T00:00:00.000Z', '2026-05-17T00:00:00.000Z'
+				)`,
+			);
+			db.exec(
 				`INSERT INTO posts (
 					id, notion_page_id, slug, title, cover_url, status, visibility,
 					published_at, notion_last_edited_time, content_hash,
-					last_sync_error, created_at, updated_at
+					last_sync_error, created_at, updated_at, section_id
 				)
 				VALUES (
 					'existing-post', 'notion-page-1', 'untitled', 'Untitled',
 					'https://cdn.example.com/old-cover.png', '', 'hidden',
 					'2026-05-17T00:00:00.000Z', '2026-05-18T02:30:00.000Z',
 					'old-content-hash', 'previous error',
-					'2026-05-17T00:00:00.000Z', '2026-05-17T00:00:00.000Z'
+					'2026-05-17T00:00:00.000Z', '2026-05-17T00:00:00.000Z',
+					'section-1'
 				)`,
 			);
 
@@ -1063,6 +1089,7 @@ describe("runSync", () => {
 					published_at: string | null;
 					content_hash: string | null;
 					last_sync_error: string | null;
+					section_id: string | null;
 				}>("SELECT * FROM posts WHERE id = ?", "existing-post"),
 			).toMatchObject({
 				slug: "hello-notion",
@@ -1073,6 +1100,7 @@ describe("runSync", () => {
 				published_at: "2026-05-18",
 				content_hash: "old-content-hash",
 				last_sync_error: null,
+				section_id: "section-1",
 			});
 			expect(
 				db.row<{ action: string; status: string; post_id: string | null }>(
@@ -1723,6 +1751,7 @@ describe("admin posts API", () => {
 							locked: true,
 							commentsEnabled: true,
 							albumMediaEnabled: false,
+							sectionId: null,
 							lockPassword: "row-secret",
 						publishedAt: "2026-05-19T02:00:00.000Z",
 						notionLastEditedTime: "2026-05-19T03:44:00.000Z",
@@ -1734,6 +1763,143 @@ describe("admin posts API", () => {
 				page: 1,
 				limit: 1,
 			});
+		} finally {
+			db.close();
+		}
+	});
+
+	it("creates sections and assigns posts to them", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			seedAdminPost(db);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+
+			const createResponse = await handleAdminApi(
+				adminRequest("/api/admin/post-sections", {
+					body: JSON.stringify({ name: "Field Notes", slug: "field-notes" }),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "POST",
+				}),
+				env,
+			);
+			expect(createResponse.status).toBe(200);
+			const created = (await createResponse.json()) as {
+				section: { id: string; name: string; slug: string; sortOrder: number };
+			};
+			expect(created.section).toMatchObject({
+				name: "Field Notes",
+				slug: "field-notes",
+				sortOrder: 0,
+			});
+
+			const assignResponse = await handleAdminApi(
+				adminRequest("/api/admin/posts/post-1/section", {
+					body: JSON.stringify({ sectionId: created.section.id }),
+					headers: {
+						"content-type": "application/json",
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "PUT",
+				}),
+				env,
+			);
+			expect(assignResponse.status).toBe(200);
+			await expect(assignResponse.json()).resolves.toEqual({
+				post: {
+					id: "post-1",
+					sectionId: created.section.id,
+				},
+			});
+
+			const listPostsResponse = await handleAdminApi(
+				adminRequest("/api/admin/posts", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+			expect(listPostsResponse.status).toBe(200);
+			await expect(listPostsResponse.json()).resolves.toEqual(
+				expect.objectContaining({
+					items: [
+						expect.objectContaining({
+							id: "post-1",
+							sectionId: created.section.id,
+						}),
+					],
+				}),
+			);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("requires confirmation before deleting non-empty sections", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			seedAdminPost(db);
+			db.exec(
+				`INSERT INTO post_sections (
+					id, name, slug, sort_order, created_at, updated_at
+				)
+				VALUES (
+					'section-1', 'Field Notes', 'field-notes', 0,
+					'${fixedNow}', '${fixedNow}'
+				)`,
+			);
+			db.exec("UPDATE posts SET section_id = 'section-1' WHERE id = 'post-1'");
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+
+			const blocked = await handleAdminApi(
+				adminRequest("/api/admin/post-sections/section-1", {
+					headers: {
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "DELETE",
+				}),
+				env,
+			);
+			expect(blocked.status).toBe(409);
+			await expect(blocked.json()).resolves.toEqual({
+				error: {
+					code: "CONFLICT",
+					message: "Section has assigned posts",
+				},
+				postCount: 1,
+				requiresConfirmation: true,
+			});
+
+			const removed = await handleAdminApi(
+				adminRequest("/api/admin/post-sections/section-1?movePosts=none", {
+					headers: {
+						cookie: session.cookie,
+						"x-csrf-token": session.csrfToken,
+					},
+					method: "DELETE",
+				}),
+				env,
+			);
+			expect(removed.status).toBe(200);
+			await expect(removed.json()).resolves.toEqual({ ok: true });
+			expect(
+				db.row<{ section_id: string | null }>(
+					"SELECT section_id FROM posts WHERE id = ?",
+					"post-1",
+				).section_id,
+			).toBeNull();
+			expect(
+				db.rows("SELECT * FROM post_sections WHERE id = ?", "section-1"),
+			).toEqual([]);
 		} finally {
 			db.close();
 		}

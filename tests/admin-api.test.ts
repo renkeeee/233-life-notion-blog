@@ -980,7 +980,8 @@ describe("admin API routes", () => {
 					comments_enabled INTEGER NOT NULL DEFAULT 1 CHECK (comments_enabled IN (0, 1)),
 					source_type TEXT CHECK (source_type IN ('notion', 'local')),
 					source_id TEXT,
-					album_media_enabled INTEGER NOT NULL DEFAULT 0 CHECK (album_media_enabled IN (0, 1))
+					album_media_enabled INTEGER NOT NULL DEFAULT 0 CHECK (album_media_enabled IN (0, 1)),
+					section_id TEXT
 				)`,
 			);
 		db.prepare(

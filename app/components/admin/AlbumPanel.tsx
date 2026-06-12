@@ -60,6 +60,8 @@ type AlbumItemForm = {
 	collectionIds: string[];
 };
 
+type AlbumDialog = "upload" | "collection" | "article-media";
+
 const pageSize = 30;
 const kindOptions: Array<{ value: "" | AlbumKind; label: string }> = [
 	{ value: "", label: "All kinds" },
@@ -233,6 +235,7 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 	const [settingsStatus, setSettingsStatus] =
 		useState("Loading album settings...");
 	const [settingsPending, setSettingsPending] = useState(false);
+	const [albumDialog, setAlbumDialog] = useState<AlbumDialog | null>(null);
 
 	const pageCount = useMemo(
 		() => Math.max(1, Math.ceil(total / pageSize)),
@@ -547,6 +550,71 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 		setUploadFile(event.currentTarget.files?.[0] ?? null);
 	}
 
+	const articleMediaStatus = postMediaEnabled ? "On" : "Off";
+	const uploadMediaContent = (
+		<form className="admin-form admin-album-modal-form" onSubmit={upload}>
+			<label>
+				Upload file
+				<input type="file" onChange={onFileChange} />
+			</label>
+			<label>
+				Upload title
+				<input
+					value={uploadTitle}
+					onChange={(event) => setUploadTitle(event.currentTarget.value)}
+				/>
+			</label>
+			<button type="submit" disabled={pending}>
+				Upload
+			</button>
+		</form>
+	);
+	const collectionContent = (
+		<form
+			className="admin-form admin-album-modal-form"
+			onSubmit={createCollection}
+		>
+			<label>
+				Collection title
+				<input
+					value={collectionTitleInput}
+					onChange={(event) =>
+						setCollectionTitleInput(event.currentTarget.value)
+					}
+				/>
+			</label>
+			<button type="submit" disabled={pending}>
+				Create collection
+			</button>
+		</form>
+	);
+	const articleMediaContent = (
+		<form
+			className="admin-form admin-album-modal-form"
+			onSubmit={saveAlbumSettings}
+		>
+			<label className="admin-switch-row">
+				<input
+					type="checkbox"
+					aria-label="Show media from posts"
+					checked={postMediaEnabled}
+					onChange={(event) =>
+						setPostMediaEnabled(event.currentTarget.checked)
+					}
+				/>
+				<span className="admin-switch-track" aria-hidden="true" />
+				<span className="admin-switch-copy">
+					<span>Show media from posts</span>
+					<small>Posts still need their own album media switch enabled.</small>
+				</span>
+			</label>
+			<button type="submit" disabled={settingsPending}>
+				{settingsPending ? "Saving..." : "Save settings"}
+			</button>
+			<p className="admin-note">{settingsStatus}</p>
+		</form>
+	);
+
 	return (
 		<div className="admin-stack admin-album-page">
 			<section className="admin-post-workbench admin-album-workbench">
@@ -587,76 +655,33 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 							page
 						</span>
 					</div>
+					<div className="admin-section-actions admin-album-settings-actions">
+						<button
+							type="button"
+							className="admin-secondary-button"
+							aria-expanded={albumDialog === "upload"}
+							onClick={() => setAlbumDialog("upload")}
+						>
+							Upload media
+						</button>
+						<button
+							type="button"
+							className="admin-secondary-button"
+							aria-expanded={albumDialog === "collection"}
+							onClick={() => setAlbumDialog("collection")}
+						>
+							New collection
+						</button>
+						<button
+							type="button"
+							className="admin-secondary-button"
+							aria-expanded={albumDialog === "article-media"}
+							onClick={() => setAlbumDialog("article-media")}
+						>
+							Article media: {articleMediaStatus}
+						</button>
+					</div>
 				</div>
-			</section>
-
-			<section className="admin-album-command-grid">
-				<form className="admin-album-command-card" onSubmit={upload}>
-					<div>
-						<p className="admin-eyebrow">Add media</p>
-						<h3>Upload media</h3>
-						<p>Manual uploads become standalone album items.</p>
-					</div>
-					<label>
-						Upload file
-						<input type="file" onChange={onFileChange} />
-					</label>
-					<label>
-						Upload title
-						<input
-							value={uploadTitle}
-							onChange={(event) => setUploadTitle(event.currentTarget.value)}
-						/>
-					</label>
-					<button type="submit" disabled={pending}>
-						Upload
-					</button>
-				</form>
-				<form className="admin-album-command-card" onSubmit={createCollection}>
-					<div>
-						<p className="admin-eyebrow">Organize</p>
-						<h3>New collection</h3>
-						<p>Create a grouping, then assign media from the inspector.</p>
-					</div>
-					<label>
-						Collection title
-						<input
-							value={collectionTitleInput}
-							onChange={(event) =>
-								setCollectionTitleInput(event.currentTarget.value)
-							}
-						/>
-					</label>
-					<button type="submit" disabled={pending}>
-						Create collection
-					</button>
-				</form>
-				<form className="admin-album-command-card" onSubmit={saveAlbumSettings}>
-					<div>
-						<p className="admin-eyebrow">Settings</p>
-						<h3>Article media</h3>
-						<p>Allow eligible post media to appear in the public album.</p>
-					</div>
-					<label className="admin-switch-row">
-						<input
-							type="checkbox"
-							aria-label="Show media from posts"
-							checked={postMediaEnabled}
-							onChange={(event) =>
-								setPostMediaEnabled(event.currentTarget.checked)
-							}
-						/>
-						<span className="admin-switch-track" aria-hidden="true" />
-						<span className="admin-switch-copy">
-							<span>Show media from posts</span>
-							<small>Posts still need their own album media switch enabled.</small>
-						</span>
-					</label>
-					<button type="submit" disabled={settingsPending}>
-						{settingsPending ? "Saving..." : "Save settings"}
-					</button>
-					<p className="admin-note">{settingsStatus}</p>
-				</form>
 			</section>
 
 			<div className="admin-album-workspace">
@@ -872,6 +897,58 @@ export function AlbumPanel({ csrfToken }: { csrfToken: string }) {
 				</section>
 
 			</div>
+			{albumDialog ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal admin-settings-modal"
+						role="dialog"
+						aria-label={
+							albumDialog === "upload"
+								? "Upload media"
+								: albumDialog === "collection"
+									? "New collection"
+									: "Article media"
+						}
+						aria-modal="true"
+					>
+						<div className="admin-post-manager-heading">
+							<div>
+								<p className="admin-eyebrow">
+									{albumDialog === "upload"
+										? "Add media"
+										: albumDialog === "collection"
+											? "Organize"
+											: "Settings"}
+								</p>
+								<h3>
+									{albumDialog === "upload"
+										? "Upload media"
+										: albumDialog === "collection"
+											? "New collection"
+											: "Article media"}
+								</h3>
+							</div>
+							<button
+								type="button"
+								className="admin-action-icon"
+								aria-label={
+									albumDialog === "upload"
+										? "Close upload media"
+										: albumDialog === "collection"
+											? "Close new collection"
+											: "Close article media"
+								}
+								onClick={() => setAlbumDialog(null)}
+							>
+								Close
+							</button>
+						</div>
+						{albumDialog === "upload" ? uploadMediaContent : null}
+						{albumDialog === "collection" ? collectionContent : null}
+						{albumDialog === "article-media" ? articleMediaContent : null}
+					</div>
+				</div>
+			) : null}
 			{activeManagedItem ? (
 				<div className="admin-modal-backdrop">
 					<div

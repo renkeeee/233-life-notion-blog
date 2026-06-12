@@ -379,6 +379,187 @@ export function PostStatusTable({
 	const activeManagedPost = managedPost
 		? (posts.find((post) => post.id === managedPost.id) ?? managedPost)
 		: null;
+	const commentSettingsContent = (
+		<>
+			<div className="admin-post-settings-grid">
+				<label className="admin-checkbox-row">
+					<input
+						type="checkbox"
+						checked={globalCommentsEnabled}
+						onChange={(event) =>
+							setGlobalCommentsEnabled(event.currentTarget.checked)
+						}
+					/>
+					<span>
+						Allow new comments across all posts
+					</span>
+				</label>
+				<label className="admin-checkbox-row">
+					<input
+						type="checkbox"
+						checked={defaultCommentsEnabled}
+						onChange={(event) =>
+							setDefaultCommentsEnabled(event.currentTarget.checked)
+						}
+					/>
+					<span>
+						Enable comments for newly synced posts
+					</span>
+				</label>
+				<label className="admin-checkbox-row">
+					<input
+						type="checkbox"
+						checked={moderationCommentsEnabled}
+						onChange={(event) =>
+							setModerationCommentsEnabled(event.currentTarget.checked)
+						}
+					/>
+					<span>
+						Review comments before publishing
+					</span>
+				</label>
+			</div>
+			<div className="admin-inline-actions">
+				<button
+					type="button"
+					disabled={commentSettingsPending}
+					onClick={saveCommentDefaults}
+				>
+					{commentSettingsPending ? "Saving..." : "Save settings"}
+				</button>
+				<span>{commentSettingsStatus}</span>
+			</div>
+		</>
+	);
+	const sectionSettingsContent = (
+		<>
+			<form
+				className="admin-form admin-section-create-form"
+				onSubmit={createPostSection}
+			>
+				<label>
+					New section name
+					<input
+						type="text"
+						value={newSectionName}
+						onChange={(event) =>
+							setNewSectionName(event.currentTarget.value)
+						}
+					/>
+				</label>
+				<label>
+					New section slug
+					<input
+						type="text"
+						value={newSectionSlug}
+						onChange={(event) =>
+							setNewSectionSlug(event.currentTarget.value)
+						}
+					/>
+				</label>
+				<button type="submit" disabled={sectionActionPending === "create"}>
+					{sectionActionPending === "create" ? "Adding..." : "Add section"}
+				</button>
+			</form>
+			{sections.length > 0 ? (
+				<div className="admin-section-list">
+					{sections.map((section, index) => {
+						const draft = sectionDrafts[section.id] ?? {
+							name: section.name,
+							slug: section.slug,
+						};
+						return (
+							<article className="admin-section-card" key={section.id}>
+								<div className="admin-section-card-fields">
+									<label>
+										<span>Name</span>
+										<input
+											aria-label={`Name for ${section.name}`}
+											value={draft.name}
+											onChange={(event) =>
+												setSectionDrafts((current) => ({
+													...current,
+													[section.id]: {
+														...draft,
+														name: event.currentTarget.value,
+													},
+												}))
+											}
+										/>
+									</label>
+									<label>
+										<span>Slug</span>
+										<input
+											aria-label={`Slug for ${section.name}`}
+											value={draft.slug}
+											onChange={(event) =>
+												setSectionDrafts((current) => ({
+													...current,
+													[section.id]: {
+														...draft,
+														slug: event.currentTarget.value,
+													},
+												}))
+											}
+										/>
+									</label>
+									<span className="admin-muted-text">
+										{section.postCount ?? 0} posts
+									</span>
+								</div>
+								<div className="admin-section-card-actions">
+									<button
+										type="button"
+										className="admin-secondary-button"
+										disabled={
+											index === 0 ||
+											sectionActionPending === `${section.id}:up`
+										}
+										onClick={() => void movePostSection(section, "up")}
+									>
+										Up
+									</button>
+									<button
+										type="button"
+										className="admin-secondary-button"
+										disabled={
+											index === sections.length - 1 ||
+											sectionActionPending === `${section.id}:down`
+										}
+										onClick={() => void movePostSection(section, "down")}
+									>
+										Down
+									</button>
+									<button
+										type="button"
+										disabled={
+											sectionActionPending === `${section.id}:save`
+										}
+										onClick={() => void savePostSection(section)}
+									>
+										Save
+									</button>
+									<button
+										type="button"
+										className="danger-link"
+										disabled={
+											sectionActionPending === `${section.id}:delete`
+										}
+										onClick={() => void deletePostSection(section)}
+									>
+										Delete
+									</button>
+								</div>
+							</article>
+						);
+					})}
+				</div>
+			) : (
+				<p className="admin-note">No sections yet.</p>
+			)}
+			<p className="admin-note">{sectionSettingsStatus}</p>
+		</>
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -1236,7 +1417,10 @@ export function PostStatusTable({
 							type="button"
 							className="admin-secondary-button"
 							aria-expanded={commentSettingsOpen}
-							onClick={() => setCommentSettingsOpen((current) => !current)}
+							onClick={() => {
+								setSectionSettingsOpen(false);
+								setCommentSettingsOpen(true);
+							}}
 						>
 							Comment settings
 						</button>
@@ -1244,7 +1428,10 @@ export function PostStatusTable({
 							type="button"
 							className="admin-secondary-button"
 							aria-expanded={sectionSettingsOpen}
-							onClick={() => setSectionSettingsOpen((current) => !current)}
+							onClick={() => {
+								setCommentSettingsOpen(false);
+								setSectionSettingsOpen(true);
+							}}
 						>
 							Section settings
 						</button>
@@ -1297,195 +1484,6 @@ export function PostStatusTable({
 							) : null}
 						</div>
 					) : null}
-				</section>
-			) : null}
-
-			{commentSettingsOpen ? (
-				<section className="admin-module admin-post-comment-settings">
-					<div>
-						<h3>Comment settings</h3>
-					</div>
-					<div className="admin-post-settings-grid">
-						<label className="admin-checkbox-row">
-							<input
-								type="checkbox"
-								checked={globalCommentsEnabled}
-								onChange={(event) =>
-									setGlobalCommentsEnabled(event.currentTarget.checked)
-								}
-							/>
-							<span>
-								Allow new comments across all posts
-							</span>
-						</label>
-						<label className="admin-checkbox-row">
-							<input
-								type="checkbox"
-								checked={defaultCommentsEnabled}
-								onChange={(event) =>
-									setDefaultCommentsEnabled(event.currentTarget.checked)
-								}
-							/>
-							<span>
-								Enable comments for newly synced posts
-							</span>
-						</label>
-						<label className="admin-checkbox-row">
-							<input
-								type="checkbox"
-								checked={moderationCommentsEnabled}
-								onChange={(event) =>
-									setModerationCommentsEnabled(event.currentTarget.checked)
-								}
-							/>
-							<span>
-								Review comments before publishing
-							</span>
-						</label>
-					</div>
-					<div className="admin-inline-actions">
-						<button
-							type="button"
-							disabled={commentSettingsPending}
-							onClick={saveCommentDefaults}
-						>
-							{commentSettingsPending ? "Saving..." : "Save settings"}
-						</button>
-						<span>{commentSettingsStatus}</span>
-					</div>
-				</section>
-			) : null}
-
-			{sectionSettingsOpen ? (
-				<section className="admin-module admin-post-section-settings">
-					<div>
-						<h3>Section settings</h3>
-					</div>
-					<form
-						className="admin-form admin-section-create-form"
-						onSubmit={createPostSection}
-					>
-						<label>
-							New section name
-							<input
-								type="text"
-								value={newSectionName}
-								onChange={(event) =>
-									setNewSectionName(event.currentTarget.value)
-								}
-							/>
-						</label>
-						<label>
-							New section slug
-							<input
-								type="text"
-								value={newSectionSlug}
-								onChange={(event) =>
-									setNewSectionSlug(event.currentTarget.value)
-								}
-							/>
-						</label>
-						<button type="submit" disabled={sectionActionPending === "create"}>
-							{sectionActionPending === "create" ? "Adding..." : "Add section"}
-						</button>
-					</form>
-					{sections.length > 0 ? (
-						<div className="admin-section-list">
-							{sections.map((section, index) => {
-								const draft = sectionDrafts[section.id] ?? {
-									name: section.name,
-									slug: section.slug,
-								};
-								return (
-									<article className="admin-section-card" key={section.id}>
-										<div className="admin-section-card-fields">
-											<label>
-												<span>Name</span>
-												<input
-													aria-label={`Name for ${section.name}`}
-													value={draft.name}
-													onChange={(event) =>
-														setSectionDrafts((current) => ({
-															...current,
-															[section.id]: {
-																...draft,
-																name: event.currentTarget.value,
-															},
-														}))
-													}
-												/>
-											</label>
-											<label>
-												<span>Slug</span>
-												<input
-													aria-label={`Slug for ${section.name}`}
-													value={draft.slug}
-													onChange={(event) =>
-														setSectionDrafts((current) => ({
-															...current,
-															[section.id]: {
-																...draft,
-																slug: event.currentTarget.value,
-															},
-														}))
-													}
-												/>
-											</label>
-											<span className="admin-muted-text">
-												{section.postCount ?? 0} posts
-											</span>
-										</div>
-										<div className="admin-section-card-actions">
-											<button
-												type="button"
-												className="admin-secondary-button"
-												disabled={
-													index === 0 ||
-													sectionActionPending === `${section.id}:up`
-												}
-												onClick={() => void movePostSection(section, "up")}
-											>
-												Up
-											</button>
-											<button
-												type="button"
-												className="admin-secondary-button"
-												disabled={
-													index === sections.length - 1 ||
-													sectionActionPending === `${section.id}:down`
-												}
-												onClick={() => void movePostSection(section, "down")}
-											>
-												Down
-											</button>
-											<button
-												type="button"
-												disabled={
-													sectionActionPending === `${section.id}:save`
-												}
-												onClick={() => void savePostSection(section)}
-											>
-												Save
-											</button>
-											<button
-												type="button"
-												className="danger-link"
-												disabled={
-													sectionActionPending === `${section.id}:delete`
-												}
-												onClick={() => void deletePostSection(section)}
-											>
-												Delete
-											</button>
-										</div>
-									</article>
-								);
-							})}
-						</div>
-					) : (
-						<p className="admin-note">No sections yet.</p>
-					)}
-					<p className="admin-note">{sectionSettingsStatus}</p>
 				</section>
 			) : null}
 
@@ -1628,6 +1626,58 @@ export function PostStatusTable({
 				</section>
 
 			</div>
+			{commentSettingsOpen ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal admin-settings-modal admin-post-comment-settings"
+						role="dialog"
+						aria-label="Comment settings"
+						aria-modal="true"
+					>
+						<div className="admin-post-manager-heading">
+							<div>
+								<p className="admin-eyebrow">Settings</p>
+								<h3>Comment settings</h3>
+							</div>
+							<button
+								type="button"
+								className="admin-action-icon"
+								aria-label="Close comment settings"
+								onClick={() => setCommentSettingsOpen(false)}
+							>
+								Close
+							</button>
+						</div>
+						{commentSettingsContent}
+					</div>
+				</div>
+			) : null}
+			{sectionSettingsOpen ? (
+				<div className="admin-modal-backdrop">
+					<div
+						className="admin-modal admin-settings-modal admin-post-section-settings"
+						role="dialog"
+						aria-label="Section settings"
+						aria-modal="true"
+					>
+						<div className="admin-post-manager-heading">
+							<div>
+								<p className="admin-eyebrow">Settings</p>
+								<h3>Section settings</h3>
+							</div>
+							<button
+								type="button"
+								className="admin-action-icon"
+								aria-label="Close section settings"
+								onClick={() => setSectionSettingsOpen(false)}
+							>
+								Close
+							</button>
+						</div>
+						{sectionSettingsContent}
+					</div>
+				</div>
+			) : null}
 			{activeManagedPost ? (
 				<div className="admin-modal-backdrop">
 					<div

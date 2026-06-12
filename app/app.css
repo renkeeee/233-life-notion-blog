@@ -2707,6 +2707,18 @@ body {
 	justify-items: end;
 }
 
+.admin-post-workbench-actions > .admin-section-actions {
+	display: grid;
+	gap: 10px;
+	grid-template-columns: repeat(3, max-content);
+	justify-content: end;
+	width: 100%;
+}
+
+.admin-post-workbench-actions > .admin-section-actions button {
+	white-space: nowrap;
+}
+
 .admin-post-summary-grid {
 	display: grid;
 	gap: 8px;
@@ -3159,6 +3171,12 @@ body {
 	width: min(100%, 640px);
 }
 
+.admin-modal.admin-settings-modal {
+	max-height: min(820px, calc(100vh - 48px));
+	overflow-y: auto;
+	width: min(100%, 760px);
+}
+
 .admin-modal.admin-post-manager,
 .admin-modal.admin-album-inspector {
 	position: relative;
@@ -3209,6 +3227,21 @@ body {
 	font-size: 0.74rem;
 	min-height: 30px;
 	padding: 5px 8px;
+}
+
+.admin-settings-modal .admin-post-settings-grid {
+	grid-template-columns: 1fr;
+}
+
+.admin-settings-modal .admin-checkbox-row {
+	display: flex;
+}
+
+.admin-settings-modal .admin-checkbox-row input {
+	flex: 0 0 auto;
+	min-height: 18px;
+	padding: 0;
+	width: 18px;
 }
 
 .admin-post-manager-meta {
@@ -3624,6 +3657,34 @@ body {
 	margin-top: auto;
 	min-height: 42px;
 	padding-block: 9px;
+}
+
+.admin-album-modal-form {
+	display: grid;
+	gap: 12px;
+}
+
+.admin-album-modal-form > button {
+	justify-self: start;
+}
+
+.admin-album-modal-form input[type="file"] {
+	background: var(--admin-surface-muted);
+	color: var(--admin-muted);
+	line-height: 24px;
+	padding: 8px 10px;
+}
+
+.admin-album-modal-form input[type="file"]::file-selector-button {
+	background: var(--admin-card);
+	border: 1px solid var(--admin-line);
+	border-radius: 5px;
+	color: var(--admin-ink);
+	font: inherit;
+	font-weight: 750;
+	margin: 0 10px 0 0;
+	min-height: 28px;
+	padding: 0 10px;
 }
 
 .admin-album-workspace {
@@ -4787,6 +4848,25 @@ body {
 
 	.admin-post-workbench-actions {
 		justify-items: stretch;
+	}
+
+	.admin-post-workbench-actions > .admin-section-actions {
+		gap: 6px;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(72px, 0.74fr);
+		justify-content: stretch;
+		width: 100%;
+	}
+
+	.admin-post-workbench-actions > .admin-section-actions button {
+		font-size: 0.74rem;
+		line-height: 1.1;
+		min-width: 0;
+		padding-inline: 4px;
+		width: 100%;
+	}
+
+	.admin-post-workbench-actions > .admin-section-actions.admin-album-settings-actions {
+		grid-template-columns: minmax(0, 0.84fr) minmax(0, 1fr) minmax(0, 1.16fr);
 	}
 
 	.admin-post-summary-grid {

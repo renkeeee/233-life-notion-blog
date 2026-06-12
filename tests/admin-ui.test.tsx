@@ -2619,6 +2619,9 @@ describe("PostStatusTable", () => {
 
 			fireEvent.click(screen.getByRole("button", { name: "Comment settings" }));
 			expect(
+				screen.getByRole("dialog", { name: "Comment settings" }),
+			).toBeTruthy();
+			expect(
 				screen.queryByText(
 					/Controls whether visitors can add comments/,
 				),
@@ -2662,7 +2665,10 @@ describe("PostStatusTable", () => {
 
 			await screen.findByText("No posts");
 			fireEvent.click(screen.getByRole("button", { name: "Section settings" }));
-			expect(screen.getByRole("heading", { name: "Section settings" })).toBeTruthy();
+			const dialog = screen.getByRole("dialog", { name: "Section settings" });
+			expect(
+				within(dialog).getByRole("heading", { name: "Section settings" }),
+			).toBeTruthy();
 			fireEvent.change(screen.getByLabelText("New section name"), {
 				target: { value: "Ideas" },
 			});
@@ -3826,22 +3832,27 @@ describe("PostStatusTable", () => {
 			render(<PostStatusTable csrfToken="csrf-token" />);
 
 			fireEvent.click(screen.getByRole("button", { name: "Comment settings" }));
-			const globalToggle = await screen.findByRole("checkbox", {
+			const settingsDialog = await screen.findByRole("dialog", {
+				name: "Comment settings",
+			});
+			const globalToggle = within(settingsDialog).getByRole("checkbox", {
 				name: /Allow new comments across all posts/,
 			});
 			expect(globalToggle).not.toBeChecked();
 			fireEvent.click(globalToggle);
-			const defaultToggle = screen.getByRole("checkbox", {
+			const defaultToggle = within(settingsDialog).getByRole("checkbox", {
 				name: /Enable comments for newly synced posts/,
 			});
 			expect(defaultToggle).not.toBeChecked();
 			fireEvent.click(defaultToggle);
 			expect(
-				screen.getByRole("checkbox", {
+				within(settingsDialog).getByRole("checkbox", {
 					name: /Review comments before publishing/,
 				}),
 			).toBeChecked();
-			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+			fireEvent.click(
+				within(settingsDialog).getByRole("button", { name: "Save settings" }),
+			);
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(
@@ -4053,6 +4064,10 @@ describe("AlbumPanel", () => {
 				),
 			);
 
+			fireEvent.click(screen.getByRole("button", { name: "Upload media" }));
+			expect(screen.getByRole("dialog", { name: "Upload media" })).toBeTruthy();
+			fireEvent.click(screen.getByRole("button", { name: "Close upload media" }));
+
 			fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 			const inspector = screen.getByLabelText("Album item management");
 			expect(within(inspector).getByRole("heading", { name: "Window light" })).toBeTruthy();
@@ -4079,10 +4094,18 @@ describe("AlbumPanel", () => {
 				),
 			);
 
-			fireEvent.change(screen.getByLabelText("Collection title"), {
+			fireEvent.click(screen.getByRole("button", { name: "New collection" }));
+			const collectionDialog = screen.getByRole("dialog", {
+				name: "New collection",
+			});
+			fireEvent.change(within(collectionDialog).getByLabelText("Collection title"), {
 				target: { value: "Travels" },
 			});
-			fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+			fireEvent.click(
+				within(collectionDialog).getByRole("button", {
+					name: "Create collection",
+				}),
+			);
 
 			await waitFor(() =>
 				expect(apiPost).toHaveBeenCalledWith(
@@ -4091,11 +4114,29 @@ describe("AlbumPanel", () => {
 					"csrf-token",
 				),
 			);
+			fireEvent.click(
+				within(collectionDialog).getByRole("button", {
+					name: "Close new collection",
+				}),
+			);
 
-			const postMediaSwitch = screen.getByLabelText("Show media from posts");
+			fireEvent.click(
+				screen.getByRole("button", { name: "Article media: On" }),
+			);
+			const articleDialog = screen.getByRole("dialog", {
+				name: "Article media",
+			});
+			const postMediaSwitch = within(articleDialog).getByLabelText(
+				"Show media from posts",
+			);
 			expect((postMediaSwitch as HTMLInputElement).checked).toBe(true);
 			fireEvent.click(postMediaSwitch);
-			fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+			expect(
+				screen.getByRole("button", { name: "Article media: Off" }),
+			).toBeTruthy();
+			fireEvent.click(
+				within(articleDialog).getByRole("button", { name: "Save settings" }),
+			);
 
 			await waitFor(() =>
 				expect(apiPut).toHaveBeenCalledWith(

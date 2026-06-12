@@ -54,6 +54,7 @@ import {
 import {
 	createLocalDraft,
 	createLocalDraftFromPublishedPost,
+	deleteLocalDraft,
 	getLocalDraft,
 	listLocalDrafts,
 	localDraftResponse,
@@ -2963,6 +2964,34 @@ async function handleUpdateLocalDraft(
 	}
 }
 
+async function handleDeleteLocalDraft(
+	request: Request,
+	env: AppEnv,
+	draftId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	const csrfError = requireCsrf(request, session);
+	if (csrfError) {
+		return csrfError;
+	}
+
+	try {
+		const deleted = await deleteLocalDraft(env, draftId);
+		if (!deleted) {
+			return errorJson("NOT_FOUND", "Local draft not found", 404);
+		}
+
+		return json({ ok: true });
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Draft could not be deleted", 500);
+	}
+}
+
 function localDraftActionValidationMessage(error: unknown): string | null {
 	if (!(error instanceof Error)) {
 		return null;
@@ -4379,6 +4408,10 @@ export async function handleAdminApi(
 
 	if (localDraft && request.method === "PUT") {
 		return handleUpdateLocalDraft(request, env, localDraft.draftId);
+	}
+
+	if (localDraft && request.method === "DELETE") {
+		return handleDeleteLocalDraft(request, env, localDraft.draftId);
 	}
 
 	if (

@@ -2683,7 +2683,7 @@ body {
 		var(--admin-card);
 	display: grid;
 	gap: 18px;
-	grid-template-columns: minmax(0, 1fr) minmax(330px, 0.42fr);
+	grid-template-columns: minmax(0, 1fr) minmax(450px, 0.5fr);
 	padding: 20px;
 }
 
@@ -2710,13 +2710,21 @@ body {
 .admin-post-workbench-actions > .admin-section-actions {
 	display: grid;
 	gap: 10px;
-	grid-template-columns: repeat(3, max-content);
-	justify-content: end;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	justify-content: stretch;
+	min-width: 0;
 	width: 100%;
 }
 
 .admin-post-workbench-actions > .admin-section-actions button {
+	min-width: 0;
+	padding-inline: 10px;
 	white-space: nowrap;
+	width: 100%;
+}
+
+.admin-post-workbench-actions > .admin-section-actions.admin-album-settings-actions {
+	grid-template-columns: minmax(0, 0.86fr) minmax(0, 1fr) minmax(0, 1.18fr);
 }
 
 .admin-post-summary-grid {
@@ -2779,6 +2787,11 @@ body {
 	gap: 12px;
 	min-height: 138px;
 	padding: 14px;
+	position: relative;
+}
+
+.admin-draft-card-content {
+	padding-right: 32px;
 }
 
 .admin-draft-card strong,
@@ -2804,6 +2817,39 @@ body {
 
 .admin-draft-card button {
 	width: fit-content;
+}
+
+.admin-shell .admin-draft-delete-button {
+	align-items: center;
+	background: var(--admin-card);
+	border: 1px solid var(--admin-line);
+	border-radius: 6px;
+	color: var(--admin-muted);
+	display: inline-flex;
+	height: 30px;
+	justify-content: center;
+	min-height: 30px;
+	padding: 0;
+	position: absolute;
+	right: 10px;
+	top: 10px;
+	width: 30px;
+}
+
+.admin-shell .admin-draft-delete-button:not(:disabled):hover {
+	background: var(--admin-danger-soft);
+	border-color: #e4b6b1;
+	color: var(--admin-danger);
+}
+
+.admin-draft-delete-button svg {
+	fill: none;
+	height: 15px;
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 2;
+	width: 15px;
 }
 
 .admin-drafts-overflow {
@@ -4858,10 +4904,10 @@ body {
 	}
 
 	.admin-post-workbench-actions > .admin-section-actions button {
-		font-size: 0.74rem;
+		font-size: 0.7rem;
 		line-height: 1.1;
 		min-width: 0;
-		padding-inline: 4px;
+		padding-inline: 3px;
 		width: 100%;
 	}
 

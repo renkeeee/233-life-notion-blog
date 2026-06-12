@@ -441,6 +441,22 @@ export async function listLocalDrafts(
 	return result.results.map(mapDraftRow);
 }
 
+export async function deleteLocalDraft(
+	env: AppEnv,
+	id: string,
+): Promise<boolean> {
+	const existing = await getLocalDraft(env, id);
+	if (!existing || existing.status !== "draft") {
+		return false;
+	}
+
+	await env.DB.prepare("DELETE FROM post_drafts WHERE id = ?")
+		.bind(id)
+		.run();
+
+	return true;
+}
+
 async function tagsForPost(env: AppEnv, postId: string): Promise<string[]> {
 	const result = await env.DB.prepare(
 		`SELECT tag

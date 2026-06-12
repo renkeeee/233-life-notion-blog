@@ -2968,6 +2968,56 @@ describe("PostStatusTable", () => {
 		}
 	});
 
+	it("deletes a saved draft from Local drafts", async () => {
+		const savedDraft = {
+			...newDraftResponse.draft,
+			title: "Local Notes",
+			slug: "local-notes",
+			markdown: "# Local notes\n\nDraft body.",
+			updatedAt: "2026-05-27T00:05:00.000Z",
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(commentSettingsResponse);
+			}
+			if (path === "/api/admin/post-sections") {
+				return Promise.resolve(sectionsResponse);
+			}
+			if (path.startsWith("/api/admin/posts?")) {
+				return Promise.resolve(emptyPostsResponse);
+			}
+			if (path === "/api/admin/local-posts") {
+				return Promise.resolve({ items: [savedDraft] });
+			}
+
+			return Promise.reject(new Error(`Unexpected GET ${path}`));
+		});
+		const apiDelete = vi
+			.spyOn(apiClient, "apiDelete")
+			.mockResolvedValue({ ok: true });
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByRole("heading", { name: "Local drafts" });
+			expect(screen.getByText("Local Notes")).toBeTruthy();
+
+			fireEvent.click(screen.getByRole("button", { name: "Delete Local Notes" }));
+
+			await waitFor(() => {
+				expect(apiDelete).toHaveBeenCalledWith(
+					"/api/admin/local-posts/draft-1",
+					"csrf-token",
+				);
+			});
+			expect(screen.queryByText("Local Notes")).toBeNull();
+			await screen.findByText("Draft deleted.");
+		} finally {
+			apiGet.mockRestore();
+			apiDelete.mockRestore();
+		}
+	});
+
 	it("disables editing controls while a draft save is in flight", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi

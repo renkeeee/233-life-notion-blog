@@ -368,6 +368,7 @@ export function PostStatusTable({
 	const [editorDraft, setEditorDraft] = useState<LocalPostDraft | null>(null);
 	const [localDrafts, setLocalDrafts] = useState<LocalPostDraft[]>([]);
 	const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
+	const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
 	const [draftsError, setDraftsError] = useState<string | null>(null);
 	const [creatingDraft, setCreatingDraft] = useState(false);
 
@@ -900,6 +901,36 @@ export function PostStatusTable({
 			);
 		} finally {
 			setOpeningDraftId(null);
+		}
+	}
+
+	async function deleteLocalDraftFromList(draft: LocalPostDraft) {
+		setDeletingDraftId(draft.id);
+		setDraftsError(null);
+		setError(null);
+		setToast(null);
+
+		try {
+			await apiDelete<{ ok: true }>(
+				`/api/admin/local-posts/${encodeURIComponent(draft.id)}`,
+				csrfToken,
+			);
+			setLocalDrafts((current) =>
+				current.filter((item) => item.id !== draft.id),
+			);
+			if (editorDraft?.id === draft.id) {
+				setEditorDraft(null);
+				onEditorDraftIdChange?.(null);
+			}
+			setToast("Draft deleted.");
+		} catch (deleteError) {
+			setDraftsError(
+				deleteError instanceof Error
+					? deleteError.message
+					: `${draftTitle(draft)} could not be deleted.`,
+			);
+		} finally {
+			setDeletingDraftId(null);
 		}
 	}
 
@@ -1456,9 +1487,29 @@ export function PostStatusTable({
 						<div className="admin-draft-cards">
 							{localDrafts.slice(0, 4).map((draft) => {
 								const title = draftTitle(draft);
+								const deleting = deletingDraftId === draft.id;
 								return (
 									<article className="admin-draft-card" key={draft.id}>
-										<div>
+										<button
+											type="button"
+											className="admin-draft-delete-button"
+											aria-label={`Delete ${title}`}
+											disabled={deleting}
+											onClick={() => void deleteLocalDraftFromList(draft)}
+										>
+											<svg
+												aria-hidden="true"
+												focusable="false"
+												viewBox="0 0 24 24"
+											>
+												<path d="M4 7h16" />
+												<path d="M10 11v6" />
+												<path d="M14 11v6" />
+												<path d="M6 7l1 14h10l1-14" />
+												<path d="M9 7V4h6v3" />
+											</svg>
+										</button>
+										<div className="admin-draft-card-content">
 											<strong>{title}</strong>
 											<span>{draft.slug ?? "No slug"}</span>
 											<time dateTime={draft.updatedAt}>
@@ -1468,7 +1519,7 @@ export function PostStatusTable({
 										<button
 											type="button"
 											aria-label={`Open ${title}`}
-											disabled={openingDraftId === draft.id}
+											disabled={openingDraftId === draft.id || deleting}
 											onClick={() => void openLocalDraft(draft.id)}
 										>
 											{openingDraftId === draft.id ? "Opening..." : "Open"}

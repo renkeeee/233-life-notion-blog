@@ -559,6 +559,24 @@ describe("admin API routes", () => {
 		});
 	});
 
+	it("deletes a local post draft", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const created = await createDraftThroughApi(env, session, "Local Draft");
+
+		const response = await handleAdminApi(
+			adminRequest(`/api/admin/local-posts/${String(created.id)}`, {
+				headers: { ...csrfHeaders(session.csrfToken), cookie: session.cookie },
+				method: "DELETE",
+			}),
+			env,
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({ ok: true });
+		expect(sqliteRows(db, "SELECT id FROM post_drafts")).toEqual([]);
+	});
+
 	it("creates a draft populated from an existing published local post", async () => {
 		const { db, env } = sqliteAdminEnv();
 		const session = await usableLogin(env);

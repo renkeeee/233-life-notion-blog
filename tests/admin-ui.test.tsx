@@ -40,6 +40,43 @@ function renderAdmin(initialPath = "/admin/overview") {
 	);
 }
 
+function installLocalStorageStub() {
+	const previousDescriptor = Object.getOwnPropertyDescriptor(
+		window,
+		"localStorage",
+	);
+	const values = new Map<string, string>();
+	const storage = {
+		getItem: vi.fn((key: string) => values.get(key) ?? null),
+		setItem: vi.fn((key: string, value: string) => {
+			values.set(key, value);
+		}),
+		removeItem: vi.fn((key: string) => {
+			values.delete(key);
+		}),
+		clear: vi.fn(() => {
+			values.clear();
+		}),
+	};
+
+	Object.defineProperty(window, "localStorage", {
+		configurable: true,
+		value: storage,
+	});
+
+	return {
+		storage,
+		restore: () => {
+			if (previousDescriptor) {
+				Object.defineProperty(window, "localStorage", previousDescriptor);
+				return;
+			}
+
+			Reflect.deleteProperty(window, "localStorage");
+		},
+	};
+}
+
 vi.mock("@mdxeditor/editor", async () => {
 	const React = await import("react");
 	type MockPlugin = {
@@ -2698,6 +2735,7 @@ describe("PostStatusTable", () => {
 	});
 
 	it("opens immersive editing mode without losing draft content", async () => {
+		const { storage, restore } = installLocalStorageStub();
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi
 			.spyOn(apiClient, "apiPost")
@@ -2723,6 +2761,8 @@ describe("PostStatusTable", () => {
 			const immersiveEditor = screen.getByRole("region", {
 				name: "Immersive editor",
 			});
+			const editorRoot = immersiveEditor.closest(".admin-local-post-editor");
+			expect(editorRoot).toHaveAttribute("data-editor-theme", "light");
 			expect(within(immersiveEditor).getByLabelText("Title")).toHaveValue(
 				"Focused draft",
 			);
@@ -2734,6 +2774,16 @@ describe("PostStatusTable", () => {
 					name: "Exit immersive mode",
 				}),
 			).toBeTruthy();
+			fireEvent.click(
+				within(immersiveEditor).getByRole("button", {
+					name: "Switch editor to dark mode",
+				}),
+			);
+			expect(editorRoot).toHaveAttribute("data-editor-theme", "dark");
+			expect(storage.getItem("233-life-admin-editor-theme")).toBe(
+				"dark",
+			);
+			expect(storage.getItem("233-life-theme")).toBeNull();
 			expect(screen.queryByRole("region", { name: "Article details" })).toBeNull();
 			expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
 			expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
@@ -2751,6 +2801,7 @@ describe("PostStatusTable", () => {
 		} finally {
 			apiGet.mockRestore();
 			apiPost.mockRestore();
+			restore();
 		}
 	});
 

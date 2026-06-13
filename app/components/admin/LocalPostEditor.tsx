@@ -57,6 +57,9 @@ type UploadResponse = {
 };
 
 const autoSaveDelayMs = 1500;
+const editorThemeStorageKey = "233-life-admin-editor-theme";
+
+type EditorTheme = "light" | "dark";
 
 type LocalPostEditorProps = {
 	csrfToken: string;
@@ -118,6 +121,43 @@ function uploadErrorMessage(body: unknown, fallback: string): string {
 	return fallback;
 }
 
+function isEditorTheme(value: string | null): value is EditorTheme {
+	return value === "light" || value === "dark";
+}
+
+function readStoredEditorTheme(): EditorTheme {
+	if (typeof window === "undefined") {
+		return "light";
+	}
+
+	try {
+		const storage = window.localStorage;
+		if (typeof storage?.getItem !== "function") {
+			return "light";
+		}
+
+		const storedTheme = storage.getItem(editorThemeStorageKey);
+		return isEditorTheme(storedTheme) ? storedTheme : "light";
+	} catch {
+		return "light";
+	}
+}
+
+function writeStoredEditorTheme(theme: EditorTheme) {
+	if (typeof window === "undefined") {
+		return;
+	}
+
+	try {
+		const storage = window.localStorage;
+		if (typeof storage?.setItem === "function") {
+			storage.setItem(editorThemeStorageKey, theme);
+		}
+	} catch {
+		// Local storage may be unavailable in private or locked-down contexts.
+	}
+}
+
 function EnterImmersiveIcon() {
 	return (
 		<svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
@@ -136,6 +176,30 @@ function ExitImmersiveIcon() {
 			<path d="M12 4v4h4" />
 			<path d="M16 12h-4v4" />
 			<path d="M4 12h4v4" />
+		</svg>
+	);
+}
+
+function EditorLightIcon() {
+	return (
+		<svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
+			<path d="M10 3v2" />
+			<path d="M10 15v2" />
+			<path d="M3 10h2" />
+			<path d="M15 10h2" />
+			<path d="m5.05 5.05 1.41 1.41" />
+			<path d="m13.54 13.54 1.41 1.41" />
+			<path d="m14.95 5.05-1.41 1.41" />
+			<path d="m6.46 13.54-1.41 1.41" />
+			<circle cx="10" cy="10" r="3" />
+		</svg>
+	);
+}
+
+function EditorDarkIcon() {
+	return (
+		<svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
+			<path d="M15.5 12.8A6.6 6.6 0 0 1 7.2 4.5 6.7 6.7 0 1 0 15.5 12.8Z" />
 		</svg>
 	);
 }
@@ -165,6 +229,9 @@ export function LocalPostEditor({
 	const [markdown, setMarkdown] = useState(draft.markdown ?? "");
 	const [dirty, setDirty] = useState(false);
 	const [localImmersive, setLocalImmersive] = useState(false);
+	const [editorTheme, setEditorTheme] = useState<EditorTheme>(() =>
+		readStoredEditorTheme(),
+	);
 	const [saving, setSaving] = useState(false);
 	const [publishing, setPublishing] = useState(false);
 	const [uploading, setUploading] = useState(false);
@@ -181,6 +248,14 @@ export function LocalPostEditor({
 		}
 
 		setLocalImmersive(nextImmersive);
+	}
+
+	function toggleEditorTheme() {
+		setEditorTheme((currentTheme) => {
+			const nextTheme = currentTheme === "dark" ? "light" : "dark";
+			writeStoredEditorTheme(nextTheme);
+			return nextTheme;
+		});
 	}
 
 	useEffect(() => {
@@ -416,12 +491,14 @@ export function LocalPostEditor({
 	const saveLabel = saving ? "Saving..." : "Save draft";
 	const publishLabel = publishing ? "Publishing..." : "Publish";
 	const draftStateLabel = dirty ? "Unsaved changes" : `Status: ${draft.status}`;
+	const nextEditorTheme = editorTheme === "dark" ? "light" : "dark";
 
 	return (
 		<div
 			className={`admin-stack admin-local-post-editor${
 				isImmersive ? " immersive" : ""
 			}`}
+			data-editor-theme={editorTheme}
 		>
 			{isImmersive ? null : (
 				<header className="admin-editor-topbar">
@@ -462,18 +539,35 @@ export function LocalPostEditor({
 					aria-label={isImmersive ? "Immersive editor" : "Writing canvas"}
 				>
 					<div className="admin-editor-section-heading action-only">
-						<button
-							type="button"
-							className="admin-editor-mode-button"
-							aria-label={
-								isImmersive ? "Exit immersive mode" : "Enter immersive mode"
-							}
-							title={isImmersive ? "Exit immersive mode" : "Enter immersive mode"}
-							disabled={!isImmersive && busy}
-							onClick={() => updateImmersive(!isImmersive)}
-						>
-							{isImmersive ? <ExitImmersiveIcon /> : <EnterImmersiveIcon />}
-						</button>
+						<div className="admin-editor-mode-actions">
+							{isImmersive ? (
+								<button
+									type="button"
+									className="admin-editor-mode-button"
+									aria-label={`Switch editor to ${nextEditorTheme} mode`}
+									title={`Switch editor to ${nextEditorTheme} mode`}
+									onClick={toggleEditorTheme}
+								>
+									{editorTheme === "dark" ? (
+										<EditorDarkIcon />
+									) : (
+										<EditorLightIcon />
+									)}
+								</button>
+							) : null}
+							<button
+								type="button"
+								className="admin-editor-mode-button"
+								aria-label={
+									isImmersive ? "Exit immersive mode" : "Enter immersive mode"
+								}
+								title={isImmersive ? "Exit immersive mode" : "Enter immersive mode"}
+								disabled={!isImmersive && busy}
+								onClick={() => updateImmersive(!isImmersive)}
+							>
+								{isImmersive ? <ExitImmersiveIcon /> : <EnterImmersiveIcon />}
+							</button>
+						</div>
 					</div>
 					<form
 						className="admin-form admin-editor-title-form"

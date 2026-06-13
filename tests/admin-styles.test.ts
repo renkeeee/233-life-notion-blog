@@ -69,6 +69,31 @@ describe("admin styles", () => {
 		expect(toolbarButtonRule).toContain("box-shadow: none");
 	});
 
+	it("keeps the immersive editor readable and themes it independently", () => {
+		const immersiveWorkspaceRule = cssRule(".admin-editor-workspace.immersive");
+		const immersiveEditorRule = cssRule(".admin-editor-writing.immersive");
+		const immersiveToolbarIconRule = cssRule(
+			".admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar button svg",
+		);
+		const lightThemeRule = cssRule(
+			'.admin-local-post-editor[data-editor-theme="light"]',
+		);
+		const darkThemeRule = cssRule(
+			'.admin-local-post-editor[data-editor-theme="dark"]',
+		);
+
+		expect(immersiveWorkspaceRule).toContain("max-width: 1180px");
+		expect(immersiveWorkspaceRule).toContain("margin-inline: auto");
+		expect(immersiveEditorRule).toContain("color: var(--admin-editor-ink)");
+		expect(immersiveToolbarIconRule).toContain(
+			"color: var(--admin-editor-ink)",
+		);
+		expect(immersiveToolbarIconRule).toContain("fill: currentColor");
+		expect(lightThemeRule).toContain("--admin-editor-ink");
+		expect(darkThemeRule).toContain("--admin-editor-ink");
+		expect(darkThemeRule).not.toContain("data-theme");
+	});
+
 	it("keeps sync run ids readable and gives the detail modal room", () => {
 		const runIdRule = cssRule(".admin-sync-run-button .admin-sync-run-id");
 		const modalRule = cssRule(".admin-modal.admin-sync-run-modal");

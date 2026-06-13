@@ -12,6 +12,59 @@ type SyncRun = {
 	startedAt?: string;
 	finished_at?: string | null;
 	finishedAt?: string | null;
+	created_count?: number;
+	createdCount?: number;
+	updated_count?: number;
+	updatedCount?: number;
+	metadata_only_count?: number;
+	metadataOnlyCount?: number;
+	skipped_count?: number;
+	skippedCount?: number;
+	unpublished_count?: number;
+	unpublishedCount?: number;
+	archived_count?: number;
+	archivedCount?: number;
+	failed_count?: number;
+	failedCount?: number;
+	error_message?: string | null;
+	errorMessage?: string | null;
+};
+
+type SyncRunSummary = {
+	id: string;
+	triggerType: string;
+	startedAt: string;
+	finishedAt: string | null;
+	status: string;
+	rangeStart: string | null;
+	rangeEnd: string | null;
+	force: boolean;
+	createdCount: number;
+	updatedCount: number;
+	metadataOnlyCount: number;
+	skippedCount: number;
+	unpublishedCount: number;
+	archivedCount: number;
+	failedCount: number;
+	errorCode: string | null;
+	errorMessage: string | null;
+};
+
+type SyncRunItem = {
+	id: string;
+	notionPageId: string;
+	postId: string | null;
+	action: string;
+	status: "success" | "skipped" | "failed";
+	errorCode: string | null;
+	errorMessage: string | null;
+	startedAt: string;
+	finishedAt: string | null;
+};
+
+type SyncRunDetail = {
+	run: SyncRunSummary;
+	items: SyncRunItem[];
 };
 
 type SyncSettingsResponse = {
@@ -30,6 +83,34 @@ function toIsoDateTime(value: DateTimeValue): string | null {
 	}
 
 	return value.toISOString();
+}
+
+function runTrigger(run: SyncRun): string {
+	return run.triggerType ?? run.trigger_type ?? "-";
+}
+
+function runStartedAt(run: SyncRun): string {
+	return run.startedAt ?? run.started_at ?? "-";
+}
+
+function runFinishedAt(run: SyncRun): string | null {
+	return run.finishedAt ?? run.finished_at ?? null;
+}
+
+function runCount(run: SyncRun, camelKey: keyof SyncRun, snakeKey: keyof SyncRun): number {
+	const value = run[camelKey] ?? run[snakeKey] ?? 0;
+	return typeof value === "number" ? value : 0;
+}
+
+function runItemSummary(run: SyncRun): string {
+	const changed =
+		runCount(run, "createdCount", "created_count") +
+		runCount(run, "updatedCount", "updated_count") +
+		runCount(run, "metadataOnlyCount", "metadata_only_count");
+	const skipped = runCount(run, "skippedCount", "skipped_count");
+	const failed = runCount(run, "failedCount", "failed_count");
+
+	return `${changed} changed / ${skipped} skipped / ${failed} failed`;
 }
 
 function AdminDateTimePicker({
@@ -85,6 +166,12 @@ export function SyncPanel({
 	const [status, setStatus] = useState("Ready to sync.");
 	const [runs, setRuns] = useState<SyncRun[]>([]);
 	const [historyStatus, setHistoryStatus] = useState("Loading sync history...");
+	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+	const [runDetail, setRunDetail] = useState<SyncRunDetail | null>(null);
+	const [detailStatus, setDetailStatus] = useState(
+		"Select a sync run to view details.",
+	);
+	const [detailLoading, setDetailLoading] = useState(false);
 	const [scheduledSyncEnabled, setScheduledSyncEnabled] = useState(true);
 	const [settingsLoaded, setSettingsLoaded] = useState(false);
 	const [settingsPending, setSettingsPending] = useState(false);
@@ -203,6 +290,34 @@ export function SyncPanel({
 		}
 	}
 
+	async function loadRunDetails(runId: string) {
+		setSelectedRunId(runId);
+		setRunDetail(null);
+		setDetailLoading(true);
+		setDetailStatus("Loading sync run details...");
+		try {
+			const response = await apiGet<SyncRunDetail>(
+				`/api/admin/sync-runs/${encodeURIComponent(runId)}`,
+			);
+			setRunDetail(response);
+			setDetailStatus(
+				response.items.length
+					? `${response.items.length} sync item${
+							response.items.length === 1 ? "" : "s"
+						}.`
+					: "No item-level log entries for this run.",
+			);
+		} catch (error) {
+			setDetailStatus(
+				error instanceof Error
+					? error.message
+					: "Sync run details could not be loaded.",
+			);
+		} finally {
+			setDetailLoading(false);
+		}
+	}
+
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
@@ -282,21 +397,122 @@ export function SyncPanel({
 								<th>Run</th>
 								<th>Trigger</th>
 								<th>Status</th>
+								<th>Items</th>
 								<th>Started</th>
 							</tr>
 						</thead>
 						<tbody>
 							{runs.map((run) => (
-								<tr key={run.id}>
-									<td>{run.id}</td>
-									<td>{run.triggerType ?? run.trigger_type ?? "-"}</td>
+								<tr
+									key={run.id}
+									className={selectedRunId === run.id ? "selected" : undefined}
+								>
+									<td>
+										<button
+											type="button"
+											className="admin-table-link-button"
+											aria-pressed={selectedRunId === run.id}
+											onClick={() => void loadRunDetails(run.id)}
+										>
+											{run.id}
+										</button>
+									</td>
+									<td>{runTrigger(run)}</td>
 									<td>{run.status}</td>
-									<td>{run.startedAt ?? run.started_at ?? "-"}</td>
+									<td>{runItemSummary(run)}</td>
+									<td>{runStartedAt(run)}</td>
 								</tr>
 							))}
 						</tbody>
 					</table>
 				</div>
+			) : null}
+			{selectedRunId ? (
+				<section
+					className="admin-module admin-sync-run-detail"
+					aria-label={`Sync run ${selectedRunId} details`}
+				>
+					<div className="admin-section-heading compact">
+						<h3>Run {selectedRunId}</h3>
+						<span className="admin-badge">
+							{runDetail?.run.status ?? (detailLoading ? "Loading" : "Details")}
+						</span>
+					</div>
+					<p className="admin-note">{detailStatus}</p>
+					{runDetail ? (
+						<>
+							<div className="admin-sync-run-summary">
+								<span>
+									<strong>Trigger</strong>
+									{runDetail.run.triggerType}
+								</span>
+								<span>
+									<strong>Started</strong>
+									{runDetail.run.startedAt}
+								</span>
+								<span>
+									<strong>Finished</strong>
+									{runDetail.run.finishedAt ?? "-"}
+								</span>
+								<span>
+									<strong>Window</strong>
+									{runDetail.run.rangeStart || runDetail.run.rangeEnd
+										? `${runDetail.run.rangeStart ?? "-"} to ${
+												runDetail.run.rangeEnd ?? "-"
+											}`
+										: "-"}
+								</span>
+								<span>
+									<strong>Counts</strong>
+									{`${runDetail.run.createdCount} created / ${
+										runDetail.run.updatedCount
+									} updated / ${runDetail.run.skippedCount} skipped / ${
+										runDetail.run.failedCount
+									} failed`}
+								</span>
+							</div>
+							{runDetail.run.errorMessage ? (
+								<p className="admin-sync-callout">
+									<strong>{runDetail.run.errorCode ?? "Sync error"}</strong>
+									<span>{runDetail.run.errorMessage}</span>
+								</p>
+							) : null}
+							{runDetail.items.length > 0 ? (
+								<div className="admin-table-wrap">
+									<table className="admin-table">
+										<thead>
+											<tr>
+												<th>Notion page</th>
+												<th>Post</th>
+												<th>Action</th>
+												<th>Status</th>
+												<th>Error</th>
+											</tr>
+										</thead>
+										<tbody>
+											{runDetail.items.map((item) => (
+												<tr
+													key={item.id}
+													className={
+														item.status === "failed"
+															? "admin-sync-item-failed"
+															: undefined
+													}
+												>
+													<td>{item.notionPageId}</td>
+													<td>{item.postId ?? "-"}</td>
+													<td>{item.action}</td>
+													<td>{item.status}</td>
+													<td>{item.errorMessage ?? item.errorCode ?? "-"}</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								</div>
+							) : null}
+						</>
+					) : null}
+				</section>
 			) : null}
 		</div>
 	);

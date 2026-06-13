@@ -137,6 +137,25 @@ type SyncRunRow = {
 	error_message: string | null;
 };
 
+type SyncItemRow = {
+	id: string;
+	sync_run_id: string;
+	notion_page_id: string;
+	post_id: string | null;
+	action:
+		| "created"
+		| "updated"
+		| "metadata_only"
+		| "skipped"
+		| "unpublished"
+		| "archived";
+	status: "success" | "skipped" | "failed";
+	error_code: string | null;
+	error_message: string | null;
+	started_at: string;
+	finished_at: string | null;
+};
+
 type AdminPostRow = {
 	id: string;
 	source_type: "notion" | "local" | null;
@@ -1688,6 +1707,103 @@ async function handleListSyncRuns(
 	}
 }
 
+async function handleGetSyncRun(
+	request: Request,
+	env: AppEnv,
+	runId: string,
+): Promise<Response> {
+	const session = await requireUsableAdminSession(request, env);
+
+	if (session instanceof Response) {
+		return session;
+	}
+
+	try {
+		const run = await env.DB.prepare(
+			`SELECT
+				id,
+				trigger_type,
+				started_at,
+				finished_at,
+				status,
+				range_start,
+				range_end,
+				force,
+				created_count,
+				updated_count,
+				metadata_only_count,
+				skipped_count,
+				unpublished_count,
+				archived_count,
+				failed_count,
+				error_code,
+				error_message
+			 FROM sync_runs
+			 WHERE id = ?`,
+		)
+			.bind(runId)
+			.first<SyncRunRow>();
+
+		if (!run) {
+			return errorJson("NOT_FOUND", "Sync run not found", 404);
+		}
+
+		const items = await env.DB.prepare(
+			`SELECT
+				id,
+				sync_run_id,
+				notion_page_id,
+				post_id,
+				action,
+				status,
+				error_code,
+				error_message,
+				started_at,
+				finished_at
+			 FROM sync_items
+			 WHERE sync_run_id = ?
+			 ORDER BY started_at ASC, id ASC`,
+		)
+			.bind(runId)
+			.all<SyncItemRow>();
+
+		return json({
+			run: {
+				id: run.id,
+				triggerType: run.trigger_type,
+				startedAt: run.started_at,
+				finishedAt: run.finished_at,
+				status: run.status,
+				rangeStart: run.range_start,
+				rangeEnd: run.range_end,
+				force: run.force === 1,
+				createdCount: run.created_count,
+				updatedCount: run.updated_count,
+				metadataOnlyCount: run.metadata_only_count,
+				skippedCount: run.skipped_count,
+				unpublishedCount: run.unpublished_count,
+				archivedCount: run.archived_count,
+				failedCount: run.failed_count,
+				errorCode: run.error_code,
+				errorMessage: run.error_message,
+			},
+			items: items.results.map((item) => ({
+				id: item.id,
+				notionPageId: item.notion_page_id,
+				postId: item.post_id,
+				action: item.action,
+				status: item.status,
+				errorCode: item.error_code,
+				errorMessage: item.error_message,
+				startedAt: item.started_at,
+				finishedAt: item.finished_at,
+			})),
+		});
+	} catch {
+		return errorJson("INTERNAL_ERROR", "Sync run could not be loaded", 500);
+	}
+}
+
 async function handleOverview(
 	request: Request,
 	env: AppEnv,
@@ -1959,6 +2075,13 @@ function decodePathSegment(value: string): string | null {
 	} catch {
 		return null;
 	}
+}
+
+function adminSyncRunPath(pathname: string): { runId: string } | null {
+	const match = /^\/api\/admin\/sync-runs\/([^/]+)$/.exec(pathname);
+	const runId = match ? decodePathSegment(match[1]) : null;
+
+	return runId ? { runId } : null;
 }
 
 function adminLocalDraftPath(pathname: string): { draftId: string } | null {
@@ -4342,6 +4465,11 @@ export async function handleAdminApi(
 
 	if (url.pathname === "/api/admin/sync" && request.method === "POST") {
 		return handleManualSync(request, env, options);
+	}
+
+	const syncRun = adminSyncRunPath(url.pathname);
+	if (syncRun && request.method === "GET") {
+		return handleGetSyncRun(request, env, syncRun.runId);
 	}
 
 	if (url.pathname === "/api/admin/sync-runs" && request.method === "GET") {

@@ -2530,6 +2530,25 @@ describe("PostStatusTable", () => {
 		return screen.getByLabelText("Post management");
 	}
 
+	it("does not show comment settings in the posts toolbar", async () => {
+		const apiGet = mockPostStatusGets();
+
+		try {
+			render(<PostStatusTable csrfToken="csrf-token" />);
+
+			await screen.findByText("No posts");
+			expect(
+				screen.queryByRole("button", { name: "Comment settings" }),
+			).toBeNull();
+			expect(
+				screen.getByRole("button", { name: "Section settings" }),
+			).toBeTruthy();
+			expect(screen.getByRole("button", { name: "New post" })).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
 	it("creates a local draft and opens the Markdown editor", async () => {
 		const apiGet = mockPostStatusGets();
 		const apiPost = vi
@@ -2616,24 +2635,8 @@ describe("PostStatusTable", () => {
 					/Write local posts, review synced Notion content/,
 				),
 			).toBeNull();
-
-			fireEvent.click(screen.getByRole("button", { name: "Comment settings" }));
 			expect(
-				screen.getByRole("dialog", { name: "Comment settings" }),
-			).toBeTruthy();
-			expect(
-				screen.queryByText(
-					/Controls whether visitors can add comments/,
-				),
-			).toBeNull();
-			expect(
-				screen.queryByText("Master switch for public comment forms."),
-			).toBeNull();
-			expect(
-				screen.queryByText("Default for posts imported after this change."),
-			).toBeNull();
-			expect(
-				screen.queryByText("New comments wait for approval before appearing."),
+				screen.queryByRole("button", { name: "Comment settings" }),
 			).toBeNull();
 
 			fireEvent.click(screen.getByRole("button", { name: "New post" }));
@@ -3881,44 +3884,6 @@ describe("PostStatusTable", () => {
 		try {
 			render(<PostStatusTable csrfToken="csrf-token" />);
 
-			fireEvent.click(screen.getByRole("button", { name: "Comment settings" }));
-			const settingsDialog = await screen.findByRole("dialog", {
-				name: "Comment settings",
-			});
-			const globalToggle = within(settingsDialog).getByRole("checkbox", {
-				name: /Allow new comments across all posts/,
-			});
-			expect(globalToggle).not.toBeChecked();
-			fireEvent.click(globalToggle);
-			const defaultToggle = within(settingsDialog).getByRole("checkbox", {
-				name: /Enable comments for newly synced posts/,
-			});
-			expect(defaultToggle).not.toBeChecked();
-			fireEvent.click(defaultToggle);
-			expect(
-				within(settingsDialog).getByRole("checkbox", {
-					name: /Review comments before publishing/,
-				}),
-			).toBeChecked();
-			fireEvent.click(
-				within(settingsDialog).getByRole("button", { name: "Save settings" }),
-			);
-
-			await waitFor(() =>
-				expect(apiPut).toHaveBeenCalledWith(
-					"/api/admin/posts/comment-settings",
-					{
-						defaultEnabled: true,
-						globalEnabled: true,
-						moderationEnabled: true,
-					},
-					"csrf-token",
-				),
-			);
-			await waitFor(() =>
-				expect(screen.getAllByText("Comment settings saved.")).toHaveLength(2),
-			);
-
 			await screen.findByRole("link", { name: "Quiet Post" });
 			expect(screen.getByText("comments off")).toBeTruthy();
 			expect(
@@ -4480,6 +4445,153 @@ describe("Admin", () => {
 			expect(screen.getByText("3")).toBeTruthy();
 			expect(screen.getByText(/Latest sync:\s*partial/)).toBeTruthy();
 			expect(screen.getByText("A small hello.")).toBeTruthy();
+		} finally {
+			apiGet.mockRestore();
+		}
+	});
+
+	it("opens sync logs from overview and shows run item details", async () => {
+		const apiGet = vi
+			.spyOn(apiClient, "apiGet")
+			.mockImplementation(async (path: string) => {
+				if (path === "/api/admin/me") {
+					return {
+						authenticated: true,
+						csrfToken: "csrf-token",
+						mustChangePassword: false,
+					};
+				}
+
+				if (path === "/api/admin/overview") {
+					return {
+						counts: {
+							totalPosts: 3,
+							publishedPosts: 1,
+							hiddenPosts: 2,
+							lockedPosts: 1,
+							comments: 4,
+						},
+						latestSyncRun: {
+							id: "run-1",
+							triggerType: "cron",
+							status: "partial",
+							startedAt: "2026-05-20T18:00:00.000Z",
+							finishedAt: "2026-05-20T18:02:00.000Z",
+							failedCount: 2,
+							errorMessage: "Some pages failed",
+						},
+						failedPosts: [],
+						recentComments: [],
+					};
+				}
+
+				if (path === "/api/admin/sync/settings") {
+					return { scheduledSyncEnabled: true };
+				}
+
+				if (path === "/api/admin/sync-runs") {
+					return {
+						items: [
+							{
+								id: "run-1",
+								trigger_type: "cron",
+								status: "partial",
+								started_at: "2026-05-20T18:00:00.000Z",
+								finished_at: "2026-05-20T18:02:00.000Z",
+								created_count: 1,
+								updated_count: 0,
+								metadata_only_count: 0,
+								skipped_count: 1,
+								unpublished_count: 0,
+								archived_count: 0,
+								failed_count: 1,
+							},
+						],
+					};
+				}
+
+				if (path === "/api/admin/sync-runs/run-1") {
+					return {
+						run: {
+							id: "run-1",
+							triggerType: "cron",
+							status: "partial",
+							startedAt: "2026-05-20T18:00:00.000Z",
+							finishedAt: "2026-05-20T18:02:00.000Z",
+							rangeStart: null,
+							rangeEnd: null,
+							force: false,
+							createdCount: 1,
+							updatedCount: 0,
+							metadataOnlyCount: 0,
+							skippedCount: 1,
+							unpublishedCount: 0,
+							archivedCount: 0,
+							failedCount: 1,
+							errorCode: "PARTIAL_SYNC",
+							errorMessage: "Some pages failed",
+						},
+						items: [
+							{
+								id: "item-created",
+								notionPageId: "notion-page-1",
+								postId: "post-1",
+								action: "created",
+								status: "success",
+								errorCode: null,
+								errorMessage: null,
+								startedAt: "2026-05-20T18:00:01.000Z",
+								finishedAt: "2026-05-20T18:00:02.000Z",
+							},
+							{
+								id: "item-skipped",
+								notionPageId: "notion-page-2",
+								postId: null,
+								action: "skipped",
+								status: "skipped",
+								errorCode: null,
+								errorMessage: null,
+								startedAt: "2026-05-20T18:00:03.000Z",
+								finishedAt: "2026-05-20T18:00:04.000Z",
+							},
+							{
+								id: "item-failed",
+								notionPageId: "notion-page-3",
+								postId: null,
+								action: "updated",
+								status: "failed",
+								errorCode: "ASSET_DOWNLOAD_FAILED",
+								errorMessage: "Asset download failed",
+								startedAt: "2026-05-20T18:00:05.000Z",
+								finishedAt: "2026-05-20T18:00:06.000Z",
+							},
+						],
+					};
+				}
+
+				throw new Error(`Unexpected GET ${path}`);
+			});
+
+		try {
+			renderAdmin("/admin/overview");
+
+			await screen.findByText(/Latest sync:\s*partial/);
+			fireEvent.click(screen.getByRole("link", { name: "View logs" }));
+			await waitFor(() =>
+				expect(screen.getByTestId("admin-location")).toHaveTextContent(
+					"/admin/sync",
+				),
+			);
+			await screen.findByText("Recent sync runs");
+			fireEvent.click(screen.getByRole("button", { name: /run-1/ }));
+
+			const details = await screen.findByRole("region", {
+				name: "Sync run run-1 details",
+			});
+			expect(within(details).getByText("notion-page-1")).toBeTruthy();
+			expect(within(details).getByText("notion-page-2")).toBeTruthy();
+			expect(within(details).getByText("notion-page-3")).toBeTruthy();
+			expect(within(details).getByText("Asset download failed")).toBeTruthy();
 		} finally {
 			apiGet.mockRestore();
 		}

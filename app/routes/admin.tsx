@@ -269,6 +269,9 @@ function Overview({
 								))
 							: null}
 					</span>
+					<NavLink className="admin-sync-tip-action" to="/admin/sync">
+						View logs
+					</NavLink>
 				</p>
 			) : null}
 			<div className="admin-overview-grid" aria-busy={state.status === "loading"}>

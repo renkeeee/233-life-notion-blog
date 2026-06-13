@@ -326,7 +326,6 @@ export function PostStatusTable({
 	const [passwordDialogPost, setPasswordDialogPost] =
 		useState<AdminPostRecord | null>(null);
 	const [managedPost, setManagedPost] = useState<AdminPostRecord | null>(null);
-	const [commentSettingsOpen, setCommentSettingsOpen] = useState(false);
 	const [sectionSettingsOpen, setSectionSettingsOpen] = useState(false);
 	const [commentsDialogPost, setCommentsDialogPost] =
 		useState<AdminPostRecord | null>(null);
@@ -345,12 +344,6 @@ export function PostStatusTable({
 		useState<AdminPostSection | null>(null);
 	const [lockPassword, setLockPassword] = useState("");
 	const [globalCommentsEnabled, setGlobalCommentsEnabled] = useState(true);
-	const [defaultCommentsEnabled, setDefaultCommentsEnabled] = useState(true);
-	const [moderationCommentsEnabled, setModerationCommentsEnabled] =
-		useState(false);
-	const [commentSettingsStatus, setCommentSettingsStatus] =
-		useState("Loading comment settings...");
-	const [commentSettingsPending, setCommentSettingsPending] = useState(false);
 	const [postComments, setPostComments] = useState<AdminPostComment[]>([]);
 	const [postCommentReplies, setPostCommentReplies] = useState<
 		Record<string, string>
@@ -380,58 +373,6 @@ export function PostStatusTable({
 	const activeManagedPost = managedPost
 		? (posts.find((post) => post.id === managedPost.id) ?? managedPost)
 		: null;
-	const commentSettingsContent = (
-		<>
-			<div className="admin-post-settings-grid">
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={globalCommentsEnabled}
-						onChange={(event) =>
-							setGlobalCommentsEnabled(event.currentTarget.checked)
-						}
-					/>
-					<span>
-						Allow new comments across all posts
-					</span>
-				</label>
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={defaultCommentsEnabled}
-						onChange={(event) =>
-							setDefaultCommentsEnabled(event.currentTarget.checked)
-						}
-					/>
-					<span>
-						Enable comments for newly synced posts
-					</span>
-				</label>
-				<label className="admin-checkbox-row">
-					<input
-						type="checkbox"
-						checked={moderationCommentsEnabled}
-						onChange={(event) =>
-							setModerationCommentsEnabled(event.currentTarget.checked)
-						}
-					/>
-					<span>
-						Review comments before publishing
-					</span>
-				</label>
-			</div>
-			<div className="admin-inline-actions">
-				<button
-					type="button"
-					disabled={commentSettingsPending}
-					onClick={saveCommentDefaults}
-				>
-					{commentSettingsPending ? "Saving..." : "Save settings"}
-				</button>
-				<span>{commentSettingsStatus}</span>
-			</div>
-		</>
-	);
 	const sectionSettingsContent = (
 		<>
 			<form
@@ -564,7 +505,6 @@ export function PostStatusTable({
 
 	useEffect(() => {
 		let cancelled = false;
-		setCommentSettingsStatus("Loading comment settings...");
 
 		apiGet<CommentSettingsResponse>("/api/admin/posts/comment-settings")
 			.then((response) => {
@@ -573,19 +513,8 @@ export function PostStatusTable({
 				}
 
 				setGlobalCommentsEnabled(response.globalEnabled);
-				setDefaultCommentsEnabled(response.defaultEnabled);
-				setModerationCommentsEnabled(response.moderationEnabled === true);
-				setCommentSettingsStatus("Comment settings loaded.");
 			})
-			.catch((loadError: unknown) => {
-				if (!cancelled) {
-					setCommentSettingsStatus(
-						loadError instanceof Error
-							? loadError.message
-							: "Comment settings could not be loaded.",
-					);
-				}
-			});
+			.catch(() => undefined);
 
 		return () => {
 			cancelled = true;
@@ -955,35 +884,6 @@ export function PostStatusTable({
 			);
 		} finally {
 			setActionPending(null);
-		}
-	}
-
-	async function saveCommentDefaults() {
-		setCommentSettingsPending(true);
-		setCommentSettingsStatus("Saving comment settings...");
-		try {
-			const response = await apiPut<CommentSettingsResponse>(
-				"/api/admin/posts/comment-settings",
-				{
-					defaultEnabled: defaultCommentsEnabled,
-					globalEnabled: globalCommentsEnabled,
-					moderationEnabled: moderationCommentsEnabled,
-				},
-				csrfToken,
-			);
-			setGlobalCommentsEnabled(response.globalEnabled);
-			setDefaultCommentsEnabled(response.defaultEnabled);
-			setModerationCommentsEnabled(response.moderationEnabled === true);
-			setCommentSettingsStatus("Comment settings saved.");
-			setToast("Comment settings saved.");
-		} catch (error) {
-			setCommentSettingsStatus(
-				error instanceof Error
-					? error.message
-					: "Comment settings could not be saved.",
-			);
-		} finally {
-			setCommentSettingsPending(false);
 		}
 	}
 
@@ -1447,22 +1347,8 @@ export function PostStatusTable({
 						<button
 							type="button"
 							className="admin-secondary-button"
-							aria-expanded={commentSettingsOpen}
-							onClick={() => {
-								setSectionSettingsOpen(false);
-								setCommentSettingsOpen(true);
-							}}
-						>
-							Comment settings
-						</button>
-						<button
-							type="button"
-							className="admin-secondary-button"
 							aria-expanded={sectionSettingsOpen}
-							onClick={() => {
-								setCommentSettingsOpen(false);
-								setSectionSettingsOpen(true);
-							}}
+							onClick={() => setSectionSettingsOpen(true)}
 						>
 							Section settings
 						</button>
@@ -1677,32 +1563,6 @@ export function PostStatusTable({
 				</section>
 
 			</div>
-			{commentSettingsOpen ? (
-				<div className="admin-modal-backdrop">
-					<div
-						className="admin-modal admin-settings-modal admin-post-comment-settings"
-						role="dialog"
-						aria-label="Comment settings"
-						aria-modal="true"
-					>
-						<div className="admin-post-manager-heading">
-							<div>
-								<p className="admin-eyebrow">Settings</p>
-								<h3>Comment settings</h3>
-							</div>
-							<button
-								type="button"
-								className="admin-action-icon"
-								aria-label="Close comment settings"
-								onClick={() => setCommentSettingsOpen(false)}
-							>
-								Close
-							</button>
-						</div>
-						{commentSettingsContent}
-					</div>
-				</div>
-			) : null}
 			{sectionSettingsOpen ? (
 				<div className="admin-modal-backdrop">
 					<div

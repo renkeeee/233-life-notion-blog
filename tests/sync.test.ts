@@ -1683,6 +1683,137 @@ describe("admin posts API", () => {
 		}
 	});
 
+	it("returns a sync run with all item statuses for authenticated admins", async () => {
+		const db = new SqliteD1Database();
+		try {
+			await seedChangedPassword(db);
+			db.exec(
+				`INSERT INTO sync_runs (
+					id, trigger_type, started_at, finished_at, status,
+					range_start, range_end, force, created_count, skipped_count,
+					failed_count, error_code, error_message
+				)
+				VALUES (
+					'run-detail-1', 'manual', '2026-05-20T18:00:00.000Z',
+					'2026-05-20T18:02:00.000Z', 'partial',
+					'2026-05-01T00:00:00.000Z', '2026-05-20T18:00:00.000Z',
+					1, 1, 1, 1, 'PARTIAL_SYNC', 'Some pages failed'
+				)`,
+			);
+			db.exec(
+				`INSERT INTO posts (
+					id, notion_page_id, slug, title, cover_url, status, visibility,
+					published_at, notion_last_edited_time, content_hash,
+					last_sync_error, created_at, updated_at
+				)
+				VALUES (
+					'post-1', 'notion-page-1', 'created-post', 'Created Post',
+					NULL, 'Published', 'published', '2026-05-19T02:00:00.000Z',
+					'2026-05-20T18:00:02.000Z', 'content-hash', NULL,
+					'2026-05-20T18:00:01.000Z', '2026-05-20T18:00:02.000Z'
+				)`,
+			);
+			db.exec(
+				`INSERT INTO sync_items (
+					id, sync_run_id, notion_page_id, post_id, action, status,
+					error_code, error_message, started_at, finished_at
+				)
+				VALUES
+					(
+						'item-created', 'run-detail-1', 'notion-page-1', 'post-1',
+						'created', 'success', NULL, NULL,
+						'2026-05-20T18:00:01.000Z', '2026-05-20T18:00:02.000Z'
+					),
+					(
+						'item-skipped', 'run-detail-1', 'notion-page-2', NULL,
+						'skipped', 'skipped', NULL, NULL,
+						'2026-05-20T18:00:03.000Z', '2026-05-20T18:00:04.000Z'
+					),
+					(
+						'item-failed', 'run-detail-1', 'notion-page-3', NULL,
+						'updated', 'failed', 'ASSET_DOWNLOAD_FAILED',
+						'Asset download failed',
+						'2026-05-20T18:00:05.000Z', '2026-05-20T18:00:06.000Z'
+					)`,
+			);
+			const env = envWithDb(db);
+			const session = await loginSession(env);
+
+			const unauthenticated = await handleAdminApi(
+				adminRequest("/api/admin/sync-runs/run-detail-1", { method: "GET" }),
+				env,
+			);
+			const response = await handleAdminApi(
+				adminRequest("/api/admin/sync-runs/run-detail-1", {
+					headers: { cookie: session.cookie },
+					method: "GET",
+				}),
+				env,
+			);
+
+			expect(unauthenticated.status).toBe(401);
+			expect(response.status).toBe(200);
+			await expect(response.json()).resolves.toEqual({
+				run: {
+					id: "run-detail-1",
+					triggerType: "manual",
+					startedAt: "2026-05-20T18:00:00.000Z",
+					finishedAt: "2026-05-20T18:02:00.000Z",
+					status: "partial",
+					rangeStart: "2026-05-01T00:00:00.000Z",
+					rangeEnd: "2026-05-20T18:00:00.000Z",
+					force: true,
+					createdCount: 1,
+					updatedCount: 0,
+					metadataOnlyCount: 0,
+					skippedCount: 1,
+					unpublishedCount: 0,
+					archivedCount: 0,
+					failedCount: 1,
+					errorCode: "PARTIAL_SYNC",
+					errorMessage: "Some pages failed",
+				},
+				items: [
+					{
+						id: "item-created",
+						notionPageId: "notion-page-1",
+						postId: "post-1",
+						action: "created",
+						status: "success",
+						errorCode: null,
+						errorMessage: null,
+						startedAt: "2026-05-20T18:00:01.000Z",
+						finishedAt: "2026-05-20T18:00:02.000Z",
+					},
+					{
+						id: "item-skipped",
+						notionPageId: "notion-page-2",
+						postId: null,
+						action: "skipped",
+						status: "skipped",
+						errorCode: null,
+						errorMessage: null,
+						startedAt: "2026-05-20T18:00:03.000Z",
+						finishedAt: "2026-05-20T18:00:04.000Z",
+					},
+					{
+						id: "item-failed",
+						notionPageId: "notion-page-3",
+						postId: null,
+						action: "updated",
+						status: "failed",
+						errorCode: "ASSET_DOWNLOAD_FAILED",
+						errorMessage: "Asset download failed",
+						startedAt: "2026-05-20T18:00:05.000Z",
+						finishedAt: "2026-05-20T18:00:06.000Z",
+					},
+				],
+			});
+		} finally {
+			db.close();
+		}
+	});
+
 	it("lists synced posts with pagination, title/status filters, sorting, and management state", async () => {
 		const db = new SqliteD1Database();
 		try {

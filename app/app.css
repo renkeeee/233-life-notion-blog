@@ -3764,6 +3764,16 @@ body {
 	fill: currentColor;
 }
 
+.admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar [class*="_diffSourceToggle_"] {
+	background-color: var(--admin-editor-surface);
+	border: 1px solid var(--admin-editor-line);
+}
+
+.admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar button[data-disabled] svg {
+	color: var(--admin-editor-muted);
+	fill: currentColor;
+}
+
 .admin-shell .admin-mdx-toolbar button:not(:disabled):hover,
 .admin-shell .admin-mdx-toolbar button[data-state="on"],
 .admin-shell .admin-mdx-toolbar button[aria-checked="true"] {

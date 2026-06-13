@@ -75,6 +75,12 @@ describe("admin styles", () => {
 		const immersiveToolbarIconRule = cssRule(
 			".admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar button svg",
 		);
+		const immersiveModeToggleGroupRule = cssRule(
+			'.admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar [class*="_diffSourceToggle_"]',
+		);
+		const immersiveToolbarDisabledIconRule = cssRule(
+			".admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar button[data-disabled] svg",
+		);
 		const lightThemeRule = cssRule(
 			'.admin-local-post-editor[data-editor-theme="light"]',
 		);
@@ -89,6 +95,15 @@ describe("admin styles", () => {
 			"color: var(--admin-editor-ink)",
 		);
 		expect(immersiveToolbarIconRule).toContain("fill: currentColor");
+		expect(immersiveModeToggleGroupRule).toContain(
+			"background-color: var(--admin-editor-surface)",
+		);
+		expect(immersiveModeToggleGroupRule).toContain(
+			"border: 1px solid var(--admin-editor-line)",
+		);
+		expect(immersiveToolbarDisabledIconRule).toContain(
+			"color: var(--admin-editor-muted)",
+		);
 		expect(lightThemeRule).toContain("--admin-editor-ink");
 		expect(darkThemeRule).toContain("--admin-editor-ink");
 		expect(darkThemeRule).not.toContain("data-theme");

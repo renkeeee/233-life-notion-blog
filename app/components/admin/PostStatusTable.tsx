@@ -1343,7 +1343,7 @@ export function PostStatusTable({
 							comments
 						</span>
 					</div>
-					<div className="admin-section-actions">
+					<div className="admin-section-actions admin-post-toolbar-actions">
 						<button
 							type="button"
 							className="admin-secondary-button"

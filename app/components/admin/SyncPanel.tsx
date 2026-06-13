@@ -318,6 +318,13 @@ export function SyncPanel({
 		}
 	}
 
+	function closeRunDetails() {
+		setSelectedRunId(null);
+		setRunDetail(null);
+		setDetailLoading(false);
+		setDetailStatus("Select a sync run to view details.");
+	}
+
 	return (
 		<div className="admin-stack">
 			<div className="admin-section-heading">
@@ -410,11 +417,14 @@ export function SyncPanel({
 									<td>
 										<button
 											type="button"
-											className="admin-table-link-button"
+											className="admin-table-link-button admin-sync-run-button"
+											aria-label={`View sync run ${run.id} details`}
 											aria-pressed={selectedRunId === run.id}
 											onClick={() => void loadRunDetails(run.id)}
 										>
-											{run.id}
+											<span className="admin-sync-run-id" aria-hidden="true">
+												{run.id}
+											</span>
 										</button>
 									</td>
 									<td>{runTrigger(run)}</td>
@@ -428,91 +438,109 @@ export function SyncPanel({
 				</div>
 			) : null}
 			{selectedRunId ? (
-				<section
-					className="admin-module admin-sync-run-detail"
-					aria-label={`Sync run ${selectedRunId} details`}
-				>
-					<div className="admin-section-heading compact">
-						<h3>Run {selectedRunId}</h3>
-						<span className="admin-badge">
-							{runDetail?.run.status ?? (detailLoading ? "Loading" : "Details")}
-						</span>
-					</div>
-					<p className="admin-note">{detailStatus}</p>
-					{runDetail ? (
-						<>
-							<div className="admin-sync-run-summary">
-								<span>
-									<strong>Trigger</strong>
-									{runDetail.run.triggerType}
-								</span>
-								<span>
-									<strong>Started</strong>
-									{runDetail.run.startedAt}
-								</span>
-								<span>
-									<strong>Finished</strong>
-									{runDetail.run.finishedAt ?? "-"}
-								</span>
-								<span>
-									<strong>Window</strong>
-									{runDetail.run.rangeStart || runDetail.run.rangeEnd
-										? `${runDetail.run.rangeStart ?? "-"} to ${
-												runDetail.run.rangeEnd ?? "-"
-											}`
-										: "-"}
-								</span>
-								<span>
-									<strong>Counts</strong>
-									{`${runDetail.run.createdCount} created / ${
-										runDetail.run.updatedCount
-									} updated / ${runDetail.run.skippedCount} skipped / ${
-										runDetail.run.failedCount
-									} failed`}
-								</span>
+				<div className="admin-modal-backdrop">
+					<section
+						className="admin-modal admin-sync-run-modal"
+						aria-label={`Sync run ${selectedRunId} details`}
+						aria-modal="true"
+						role="dialog"
+					>
+						<div className="admin-section-heading">
+							<div>
+								<p className="admin-eyebrow">Sync log</p>
+								<h3>Run {selectedRunId}</h3>
 							</div>
-							{runDetail.run.errorMessage ? (
-								<p className="admin-sync-callout">
-									<strong>{runDetail.run.errorCode ?? "Sync error"}</strong>
-									<span>{runDetail.run.errorMessage}</span>
-								</p>
-							) : null}
-							{runDetail.items.length > 0 ? (
-								<div className="admin-table-wrap">
-									<table className="admin-table">
-										<thead>
-											<tr>
-												<th>Notion page</th>
-												<th>Post</th>
-												<th>Action</th>
-												<th>Status</th>
-												<th>Error</th>
-											</tr>
-										</thead>
-										<tbody>
-											{runDetail.items.map((item) => (
-												<tr
-													key={item.id}
-													className={
-														item.status === "failed"
-															? "admin-sync-item-failed"
-															: undefined
-													}
-												>
-													<td>{item.notionPageId}</td>
-													<td>{item.postId ?? "-"}</td>
-													<td>{item.action}</td>
-													<td>{item.status}</td>
-													<td>{item.errorMessage ?? item.errorCode ?? "-"}</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
+							<div className="admin-modal-actions">
+								<span className="admin-badge">
+									{runDetail?.run.status ??
+										(detailLoading ? "Loading" : "Details")}
+								</span>
+								<button
+									type="button"
+									className="admin-modal-secondary"
+									aria-label="Close sync run details"
+									onClick={closeRunDetails}
+								>
+									Close
+								</button>
+							</div>
+						</div>
+						<p className="admin-note">{detailStatus}</p>
+						{runDetail ? (
+							<>
+								<div className="admin-sync-run-summary">
+									<span>
+										<strong>Trigger</strong>
+										{runDetail.run.triggerType}
+									</span>
+									<span>
+										<strong>Started</strong>
+										{runDetail.run.startedAt}
+									</span>
+									<span>
+										<strong>Finished</strong>
+										{runDetail.run.finishedAt ?? "-"}
+									</span>
+									<span>
+										<strong>Window</strong>
+										{runDetail.run.rangeStart || runDetail.run.rangeEnd
+											? `${runDetail.run.rangeStart ?? "-"} to ${
+													runDetail.run.rangeEnd ?? "-"
+												}`
+											: "-"}
+									</span>
+									<span>
+										<strong>Counts</strong>
+										{`${runDetail.run.createdCount} created / ${
+											runDetail.run.updatedCount
+										} updated / ${runDetail.run.skippedCount} skipped / ${
+											runDetail.run.failedCount
+										} failed`}
+									</span>
 								</div>
-							) : null}
-						</>
-					) : null}
-				</section>
+								{runDetail.run.errorMessage ? (
+									<p className="admin-sync-callout">
+										<strong>{runDetail.run.errorCode ?? "Sync error"}</strong>
+										<span>{runDetail.run.errorMessage}</span>
+									</p>
+								) : null}
+								{runDetail.items.length > 0 ? (
+									<div className="admin-table-wrap">
+										<table className="admin-table">
+											<thead>
+												<tr>
+													<th>Notion page</th>
+													<th>Post</th>
+													<th>Action</th>
+													<th>Status</th>
+													<th>Error</th>
+												</tr>
+											</thead>
+											<tbody>
+												{runDetail.items.map((item) => (
+													<tr
+														key={item.id}
+														className={
+															item.status === "failed"
+																? "admin-sync-item-failed"
+																: undefined
+														}
+													>
+														<td>{item.notionPageId}</td>
+														<td>{item.postId ?? "-"}</td>
+														<td>{item.action}</td>
+														<td>{item.status}</td>
+														<td>{item.errorMessage ?? item.errorCode ?? "-"}</td>
+													</tr>
+												))}
+											</tbody>
+										</table>
+									</div>
+								) : null}
+							</>
+						) : null}
+					</section>
+				</div>
 			) : null}
 		</div>
 	);

@@ -2705,8 +2705,49 @@ body {
 	color: var(--admin-ink) !important;
 }
 
-.admin-sync-run-detail {
-	gap: 14px;
+.admin-sync-run-button {
+	border: 1px solid var(--admin-line);
+	border-radius: 6px;
+	min-height: 38px;
+	min-width: min(100%, 560px);
+	padding: 8px 12px;
+	text-decoration: none;
+	transition:
+		border-color 160ms ease,
+		background 160ms ease;
+}
+
+.admin-sync-run-button .admin-sync-run-id {
+	color: transparent;
+	transition: color 160ms ease;
+}
+
+.admin-sync-run-button:hover,
+.admin-sync-run-button:focus-visible,
+.admin-table tbody tr.selected .admin-sync-run-button {
+	background: #fbfdf9 !important;
+	border-color: var(--admin-ink);
+}
+
+.admin-sync-run-button:hover .admin-sync-run-id,
+.admin-sync-run-button:focus-visible .admin-sync-run-id,
+.admin-table tbody tr.selected .admin-sync-run-button .admin-sync-run-id {
+	color: var(--admin-ink);
+}
+
+.admin-sync-run-modal {
+	max-height: calc(100vh - 48px);
+	overflow: auto;
+	width: min(100%, 960px);
+}
+
+.admin-sync-run-modal .admin-section-heading {
+	align-items: start;
+}
+
+.admin-sync-run-modal .admin-modal-actions {
+	align-items: center;
+	flex-wrap: wrap;
 }
 
 .admin-sync-run-summary {
@@ -2793,6 +2834,12 @@ body {
 
 .admin-post-workbench-actions > .admin-section-actions.admin-album-settings-actions {
 	grid-template-columns: minmax(0, 0.86fr) minmax(0, 1fr) minmax(0, 1.18fr);
+}
+
+.admin-post-workbench-actions > .admin-post-toolbar-actions {
+	grid-template-columns: repeat(2, minmax(148px, 1fr));
+	justify-self: end;
+	width: min(100%, 430px);
 }
 
 .admin-post-summary-grid {
@@ -4981,6 +5028,12 @@ body {
 
 	.admin-post-workbench-actions > .admin-section-actions.admin-album-settings-actions {
 		grid-template-columns: minmax(0, 0.84fr) minmax(0, 1fr) minmax(0, 1.16fr);
+	}
+
+	.admin-post-workbench-actions > .admin-post-toolbar-actions {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		justify-self: stretch;
+		width: 100%;
 	}
 
 	.admin-post-summary-grid {

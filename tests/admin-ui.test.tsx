@@ -2544,6 +2544,9 @@ describe("PostStatusTable", () => {
 				screen.getByRole("button", { name: "Section settings" }),
 			).toBeTruthy();
 			expect(screen.getByRole("button", { name: "New post" })).toBeTruthy();
+			expect(
+				screen.getByRole("button", { name: "Section settings" }).parentElement,
+			).toHaveClass("admin-post-toolbar-actions");
 		} finally {
 			apiGet.mockRestore();
 		}
@@ -4583,15 +4586,29 @@ describe("Admin", () => {
 				),
 			);
 			await screen.findByText("Recent sync runs");
-			fireEvent.click(screen.getByRole("button", { name: /run-1/ }));
+			const runButton = screen.getByRole("button", {
+				name: "View sync run run-1 details",
+			});
+			expect(runButton.querySelector(".admin-sync-run-id")).toBeTruthy();
+			fireEvent.click(runButton);
 
-			const details = await screen.findByRole("region", {
+			const details = await screen.findByRole("dialog", {
 				name: "Sync run run-1 details",
 			});
 			expect(within(details).getByText("notion-page-1")).toBeTruthy();
 			expect(within(details).getByText("notion-page-2")).toBeTruthy();
 			expect(within(details).getByText("notion-page-3")).toBeTruthy();
 			expect(within(details).getByText("Asset download failed")).toBeTruthy();
+			fireEvent.click(
+				within(details).getByRole("button", {
+					name: "Close sync run details",
+				}),
+			);
+			await waitFor(() =>
+				expect(
+					screen.queryByRole("dialog", { name: "Sync run run-1 details" }),
+				).toBeNull(),
+			);
 		} finally {
 			apiGet.mockRestore();
 		}

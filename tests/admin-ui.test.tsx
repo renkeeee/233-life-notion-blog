@@ -3362,7 +3362,7 @@ describe("PostStatusTable", () => {
 	});
 
 	it("loads posts with pagination, filters, sorting, and title links", async () => {
-		const apiGet = vi.spyOn(apiClient, "apiGet").mockResolvedValue({
+		const postsResponse = {
 			items: [
 				{
 					id: "post-1",
@@ -3381,6 +3381,22 @@ describe("PostStatusTable", () => {
 			total: 25,
 			page: 1,
 			limit: 20,
+		};
+		const apiGet = vi.spyOn(apiClient, "apiGet").mockImplementation((path: string) => {
+			if (path === "/api/admin/posts/comment-settings") {
+				return Promise.resolve(commentSettingsResponse);
+			}
+			if (path === "/api/admin/post-sections") {
+				return Promise.resolve(sectionsResponse);
+			}
+			if (path === "/api/admin/local-posts") {
+				return Promise.resolve(emptyDraftsResponse);
+			}
+			if (path.startsWith("/api/admin/posts?")) {
+				return Promise.resolve(postsResponse);
+			}
+
+			throw new Error(`Unexpected GET ${path}`);
 		});
 
 		try {
@@ -3403,6 +3419,9 @@ describe("PostStatusTable", () => {
 			fireEvent.change(screen.getByLabelText("Status"), {
 				target: { value: "Published" },
 			});
+			fireEvent.change(screen.getByLabelText("Section"), {
+				target: { value: "section-1" },
+			});
 			fireEvent.change(screen.getByLabelText("Sort"), {
 				target: { value: "publishedAt:asc" },
 			});
@@ -3410,7 +3429,7 @@ describe("PostStatusTable", () => {
 
 			await waitFor(() =>
 				expect(apiGet).toHaveBeenLastCalledWith(
-					"/api/admin/posts?page=1&limit=20&q=Hello&status=Published&sortBy=publishedAt&sortDirection=asc",
+					"/api/admin/posts?page=1&limit=20&q=Hello&status=Published&sectionId=section-1&sortBy=publishedAt&sortDirection=asc",
 				),
 			);
 		} finally {

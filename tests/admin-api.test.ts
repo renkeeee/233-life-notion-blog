@@ -302,6 +302,7 @@ function insertPublicPost(
 		commentsEnabled?: boolean;
 		albumMediaEnabled?: boolean;
 		publishedAt?: string | null;
+		sectionId?: string | null;
 	},
 ): void {
 	const now = "2026-05-26T00:00:00.000Z";
@@ -310,9 +311,9 @@ function insertPublicPost(
 			id, notion_page_id, slug, title, excerpt, cover_url, category,
 			status, visibility, published_at, notion_last_edited_time,
 			content_hash, last_sync_error, created_at, updated_at, comments_enabled,
-			source_type, source_id, album_media_enabled
+			source_type, source_id, album_media_enabled, section_id
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 		.bind(
 			input.id,
@@ -333,6 +334,7 @@ function insertPublicPost(
 			input.sourceType ?? "notion",
 			input.sourceId ?? null,
 			input.albumMediaEnabled === true ? 1 : 0,
+			input.sectionId ?? null,
 		)
 		.run();
 }
@@ -1034,6 +1036,58 @@ describe("admin API routes", () => {
 					sourceId: null,
 				}),
 			],
+		});
+	});
+
+	it("filters admin posts by section", async () => {
+		const { db, env } = sqliteAdminEnv();
+		const session = await usableLogin(env);
+		const now = "2026-05-26T00:00:00.000Z";
+		db.prepare(
+			`INSERT INTO post_sections (id, name, slug, sort_order, created_at, updated_at)
+			 VALUES ('section-1', 'Field Notes', 'field-notes', 0, ?, ?)`,
+		)
+			.bind(now, now)
+			.run();
+		insertPublicPost(db, {
+			id: "field-note",
+			sectionId: "section-1",
+			slug: "field-note",
+			title: "Field Note",
+		});
+		insertPublicPost(db, {
+			id: "unsectioned",
+			sectionId: null,
+			slug: "unsectioned",
+			title: "Unsectioned",
+		});
+
+		const sectionResponse = await handleAdminApi(
+			adminRequest("/api/admin/posts?sectionId=section-1", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(sectionResponse.status).toBe(200);
+		await expect(sectionResponse.json()).resolves.toMatchObject({
+			items: [expect.objectContaining({ id: "field-note" })],
+			total: 1,
+		});
+
+		const noSectionResponse = await handleAdminApi(
+			adminRequest("/api/admin/posts?sectionId=__none__", {
+				headers: { cookie: session.cookie },
+				method: "GET",
+			}),
+			env,
+		);
+
+		expect(noSectionResponse.status).toBe(200);
+		await expect(noSectionResponse.json()).resolves.toMatchObject({
+			items: [expect.objectContaining({ id: "unsectioned" })],
+			total: 1,
 		});
 	});
 

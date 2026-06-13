@@ -106,6 +106,7 @@ type LocalPostDraftsResponse = {
 };
 
 const pageSize = 20;
+const noSectionFilterValue = "__none__";
 const sortOptions: SortOption[] = [
 	{
 		value: "updatedAt:desc",
@@ -239,11 +240,13 @@ function buildPostsPath({
 	page,
 	q,
 	status,
+	sectionId,
 	sort,
 }: {
 	page: number;
 	q: string;
 	status: string;
+	sectionId: string;
 	sort: string;
 }): string {
 	const sortOption = sortOptionFor(sort);
@@ -255,6 +258,9 @@ function buildPostsPath({
 	}
 	if (status.trim()) {
 		params.set("status", status.trim());
+	}
+	if (sectionId.trim()) {
+		params.set("sectionId", sectionId.trim());
 	}
 	params.set("sortBy", sortOption.sortBy);
 	params.set("sortDirection", sortOption.sortDirection);
@@ -315,6 +321,8 @@ export function PostStatusTable({
 	const [appliedTitleKeyword, setAppliedTitleKeyword] = useState("");
 	const [statusFilter, setStatusFilter] = useState("");
 	const [appliedStatusFilter, setAppliedStatusFilter] = useState("");
+	const [sectionFilter, setSectionFilter] = useState("");
+	const [appliedSectionFilter, setAppliedSectionFilter] = useState("");
 	const [sort, setSort] = useState(sortOptions[0].value);
 	const [appliedSort, setAppliedSort] = useState(sortOptions[0].value);
 	const [actionPending, setActionPending] = useState<string | null>(null);
@@ -568,6 +576,7 @@ export function PostStatusTable({
 			page,
 			q: appliedTitleKeyword,
 			status: appliedStatusFilter,
+			sectionId: appliedSectionFilter,
 			sort: appliedSort,
 		});
 
@@ -606,7 +615,13 @@ export function PostStatusTable({
 		return () => {
 			cancelled = true;
 		};
-	}, [page, appliedTitleKeyword, appliedStatusFilter, appliedSort]);
+	}, [
+		page,
+		appliedTitleKeyword,
+		appliedStatusFilter,
+		appliedSectionFilter,
+		appliedSort,
+	]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -700,6 +715,7 @@ export function PostStatusTable({
 		event.preventDefault();
 		setAppliedTitleKeyword(titleKeyword);
 		setAppliedStatusFilter(statusFilter);
+		setAppliedSectionFilter(sectionFilter);
 		setAppliedSort(sort);
 		setPage(1);
 	}
@@ -714,6 +730,7 @@ export function PostStatusTable({
 					page,
 					q: appliedTitleKeyword,
 					status: appliedStatusFilter,
+					sectionId: appliedSectionFilter,
 					sort: appliedSort,
 				}),
 			);
@@ -1444,6 +1461,23 @@ export function PostStatusTable({
 								value={statusFilter}
 								onChange={(event) => setStatusFilter(event.currentTarget.value)}
 							/>
+						</label>
+						<label>
+							Section
+							<select
+								value={sectionFilter}
+								onChange={(event) =>
+									setSectionFilter(event.currentTarget.value)
+								}
+							>
+								<option value="">All sections</option>
+								<option value={noSectionFilterValue}>No section</option>
+								{sections.map((section) => (
+									<option key={section.id} value={section.id}>
+										{section.name}
+									</option>
+								))}
+							</select>
 						</label>
 						<label>
 							Sort

@@ -2908,11 +2908,13 @@ function adminPostsFilters(params: URLSearchParams): {
 	values: unknown[];
 	q: string;
 	status: string;
+	sectionId: string;
 } {
 	const clauses: string[] = [];
 	const values: unknown[] = [];
 	const q = (params.get("q") ?? "").trim();
 	const status = (params.get("status") ?? "").trim();
+	const sectionId = (params.get("sectionId") ?? "").trim();
 
 	if (q) {
 		clauses.push("(title LIKE ? ESCAPE '\\' OR slug LIKE ? ESCAPE '\\')");
@@ -2925,11 +2927,19 @@ function adminPostsFilters(params: URLSearchParams): {
 		values.push(status);
 	}
 
+	if (sectionId === "__none__") {
+		clauses.push("section_id IS NULL");
+	} else if (sectionId) {
+		clauses.push("section_id = ?");
+		values.push(sectionId);
+	}
+
 	return {
 		where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
 		values,
 		q,
 		status,
+		sectionId,
 	};
 }
 

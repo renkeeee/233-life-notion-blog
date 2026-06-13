@@ -2718,7 +2718,7 @@ body {
 }
 
 .admin-sync-run-button .admin-sync-run-id {
-	color: transparent;
+	color: var(--admin-ink);
 	transition: color 160ms ease;
 }
 
@@ -2735,10 +2735,10 @@ body {
 	color: var(--admin-ink);
 }
 
-.admin-sync-run-modal {
+.admin-modal.admin-sync-run-modal {
 	max-height: calc(100vh - 48px);
 	overflow: auto;
-	width: min(100%, 960px);
+	width: min(96vw, 1120px);
 }
 
 .admin-sync-run-modal .admin-section-heading {

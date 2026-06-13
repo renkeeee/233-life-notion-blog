@@ -68,4 +68,14 @@ describe("admin styles", () => {
 		expect(toolbarButtonRule).toContain("background: transparent");
 		expect(toolbarButtonRule).toContain("box-shadow: none");
 	});
+
+	it("keeps sync run ids readable and gives the detail modal room", () => {
+		const runIdRule = cssRule(".admin-sync-run-button .admin-sync-run-id");
+		const modalRule = cssRule(".admin-modal.admin-sync-run-modal");
+
+		expect(runIdRule).not.toContain("transparent");
+		expect(runIdRule).toContain("color: var(--admin-ink)");
+		expect(modalRule).toContain("width: min(96vw, 1120px)");
+		expect(modalRule).toContain("max-height: calc(100vh - 48px)");
+	});
 });

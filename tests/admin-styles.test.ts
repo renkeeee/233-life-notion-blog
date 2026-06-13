@@ -81,6 +81,33 @@ describe("admin styles", () => {
 		const immersiveToolbarDisabledIconRule = cssRule(
 			".admin-shell .admin-editor-writing.immersive .admin-mdx-toolbar button[data-disabled] svg",
 		);
+		const immersiveDiffSourceWrapperRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .mdxeditor-diff-source-wrapper",
+		);
+		const immersiveSourceViewRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-sourceView",
+		);
+		const immersiveDiffViewRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .mdxeditor-diff-editor",
+		);
+		const immersiveMergeViewRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-mergeView",
+		);
+		const immersiveMergeViewEditorsRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-mergeViewEditors",
+		);
+		const immersiveMergeViewEditorRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-mergeViewEditor",
+		);
+		const immersiveCodeMirrorRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-editor",
+		);
+		const immersiveCodeMirrorScrollerRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-scroller",
+		);
+		const immersiveCodeMirrorActiveGutterRule = cssRule(
+			".admin-editor-writing.immersive .admin-mdx-editor-shell .cm-activeLineGutter",
+		);
 		const lightThemeRule = cssRule(
 			'.admin-local-post-editor[data-editor-theme="light"]',
 		);
@@ -103,6 +130,22 @@ describe("admin styles", () => {
 		);
 		expect(immersiveToolbarDisabledIconRule).toContain(
 			"color: var(--admin-editor-muted)",
+		);
+		expect(immersiveDiffSourceWrapperRule).toContain("display: flex");
+		expect(immersiveDiffSourceWrapperRule).toContain("flex: 1");
+		expect(immersiveSourceViewRule).toContain("flex: 1");
+		expect(immersiveSourceViewRule).toContain("min-height: 0");
+		expect(immersiveDiffViewRule).toContain("flex: 1");
+		expect(immersiveDiffViewRule).toContain("min-height: 0");
+		expect(immersiveMergeViewRule).toContain("flex: 1");
+		expect(immersiveMergeViewEditorsRule).toContain("flex: 1");
+		expect(immersiveMergeViewEditorsRule).toContain("min-width: 0");
+		expect(immersiveMergeViewEditorRule).toContain("display: flex");
+		expect(immersiveMergeViewEditorRule).toContain("min-height: 0");
+		expect(immersiveCodeMirrorRule).toContain("flex: 1");
+		expect(immersiveCodeMirrorScrollerRule).toContain("min-height: 0");
+		expect(immersiveCodeMirrorActiveGutterRule).toContain(
+			"background: var(--admin-editor-hover)",
 		);
 		expect(lightThemeRule).toContain("--admin-editor-ink");
 		expect(darkThemeRule).toContain("--admin-editor-ink");

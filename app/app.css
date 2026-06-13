@@ -3802,6 +3802,76 @@ body {
 	min-height: 0;
 }
 
+.admin-editor-writing.immersive .admin-mdx-editor-shell .mdxeditor-diff-source-wrapper {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .mdxeditor-rich-text-editor {
+	flex: 1;
+	min-height: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-sourceView {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .mdxeditor-diff-editor {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-mergeView {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-mergeViewEditors {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	width: 100%;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-mergeViewEditor {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-editor {
+	background: var(--admin-editor-card);
+	color: var(--admin-editor-ink);
+	flex: 1;
+	min-height: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-scroller {
+	background: var(--admin-editor-card);
+	color: var(--admin-editor-ink);
+	flex: 1;
+	min-height: 0;
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-gutters {
+	background: var(--admin-editor-surface);
+	border-color: var(--admin-editor-line-soft);
+	color: var(--admin-editor-muted);
+}
+
+.admin-editor-writing.immersive .admin-mdx-editor-shell .cm-activeLineGutter {
+	background: var(--admin-editor-hover);
+	color: var(--admin-editor-ink);
+}
+
 .admin-mdx-editor-content {
 	min-height: 460px;
 	padding: 18px;
